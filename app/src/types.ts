@@ -70,6 +70,7 @@ export interface Auto {
   lastStatus: Status
   live: string | null
   resultChip: string | null
+  resultStatus: 'changes' | 'ok' | 'attention' | null
   lastRunLabel: string
   agentId: string | null
   stepAgents: string[]

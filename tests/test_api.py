@@ -201,6 +201,7 @@ def test_run_and_execution_pages(client):
     me = next(x for x in autos if x["id"] == a["id"])
     assert me["lastStatus"] == "succeeded"
     assert me["resultChip"] == "All good"
+    assert me["resultStatus"] == "ok"  # §4: tints the list-row chip like the detail page
 
 
 def test_patch_automation_schedule_and_grants(client):

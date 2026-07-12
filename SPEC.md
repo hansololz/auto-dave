@@ -141,6 +141,8 @@ lastStatus: succeeded | running | failed | cancelled | interrupted | none
 live: run id while a run is in progress, else null
 resultChip: short summary chip ("2 new chapters") | null — failed automations synthesize
   "Needs attention"
+resultStatus: changes | ok | attention | null — tints resultChip with the §7 chip colors
+  everywhere it appears (list rows included); "attention" for failed automations
 lastRunLabel: "just now" | "Xm ago" | "Xh ago" | "yesterday" | "Jun 28" | "running…"
 latest: last run's result object + when-label, for the detail page
 params: parameter list (§4.2)
@@ -714,7 +716,8 @@ attempt has failed; boot retries every 1.2 s). Fast boots therefore show no spla
 ### 9.1 Automations list
 
 1200 px page, "Automations" title + New button. One card per automation: name, description,
-status badge, schedule chip (plus an OFF tag when the schedule is off), result-summary chip, and
+status badge, schedule chip (plus an OFF tag when the schedule is off), result-summary chip
+(tinted by `resultStatus` with the §7 chip colors — same tint as the detail and run pages), and
 an **inline run button** per card (disabled while that automation is running, tooltip explains
 why). The card carries no last-run label — `lastRunLabel` appears on the detail page and in the
 menu bar. Empty state (dashed card):

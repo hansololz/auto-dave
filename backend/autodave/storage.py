@@ -556,11 +556,14 @@ class Store:
         live = a.get("_live")
         latest_h = self._latest_exec(a["id"])
         chip = None
+        chip_status = None  # tints the chip everywhere (§7 colors), incl. the list row
         if latest_h and latest_h["status"] == "succeeded":
             r = self.read_result(latest_h["id"])
             chip = (r or {}).get("chip")
+            chip_status = (r or {}).get("status", "ok") if chip else None
         elif latest_h and latest_h["status"] == "failed":
             chip = "Needs attention"
+            chip_status = "attention"
         when = a["versions"].get(a["current_version"], {}).get("when")
         spec_meta = f"v{a['current_version']}"
         if when:
@@ -582,6 +585,7 @@ class Store:
             "lastStatus": a.get("_last_status", "none"),
             "live": live,
             "resultChip": chip,
+            "resultStatus": chip_status,
             "lastRunLabel": "running…" if live else timefmt.last_run_label(last_dt),
             "agentId": a["agent_id"],
             "stepAgents": a["enabled_agents"],

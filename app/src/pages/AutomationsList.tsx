@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto } from '../types'
-import { Badge, BtnPrimary } from '../ui'
+import { Badge, BtnPrimary, resultChipColors } from '../ui'
 
 const RUNNING_TOAST = 'Already running — one run at a time. A schedule firing now would be skipped.'
 
@@ -87,7 +87,8 @@ function AutoCard({ a }: { a: Auto }) {
         {a.resultChip && (
           <span style={{
             fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11,
-            color: 'var(--accent)', background: 'oklch(0.74 0.155 52 / .12)',
+            color: resultChipColors({ status: a.resultStatus ?? 'ok' }).c,
+            background: resultChipColors({ status: a.resultStatus ?? 'ok' }).bg,
             borderRadius: 6, padding: '3px 8px',
           }}>
             {a.resultChip}
