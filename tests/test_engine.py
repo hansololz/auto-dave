@@ -191,7 +191,7 @@ def test_agent_step_query_only(store):
     ver["steps"] = [
         {"file": "01-ask.py", "name": "Ask", "desc": "", "agent": True, "why": "judgment",
          "code": 'ans = agent.ask("question: anything new?")\nlog(f"agent said: {ans}")\n'
-                 'result.status("ok")\nresult.text(ans)\n'},
+                 'result.status("ok")\nresult.value("Answer", ans)\n'},
     ]
     a = store.create_automation(ver, "Asker", None, enabled_agents=["mock"])
     h = engine.start(a, "Manual")
@@ -267,7 +267,7 @@ def test_agent_audit_logs_full_prompt(store):
     ver["steps"] = [
         {"file": "01-ask.py", "name": "Ask", "desc": "", "agent": True, "why": "judgment",
          "code": 'ans = agent.ask("question: anything new?", data="x" * 6000)\n'
-                 'result.status("ok")\nresult.text(ans)\n'},
+                 'result.status("ok")\nresult.value("Answer", ans)\n'},
     ]
     a = store.create_automation(ver, "Big Asker", None, enabled_agents=["mock"])
     h = engine.start(a, "Manual")

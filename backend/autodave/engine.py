@@ -132,7 +132,7 @@ class Engine:
                           "dur": dur_label(s["dur_ms"]) if s.get("dur_ms") else ""})
 
     def _run(self, auto: dict, ver: dict, h: dict, start_idx: int, state: dict) -> None:
-        result: dict[str, Any] = {"status": "ok", "chip": None, "chips": [], "body": [], "rows": None}
+        result: dict[str, Any] = {"status": "ok", "chip": None, "chips": [], "values": []}
         result_touched = False
         notify_text: str | None = None
         caffeinate = None
@@ -284,6 +284,7 @@ class Engine:
             "allowed_secrets": auto["allowed_secrets"],
             "memory_dir": str(self.store.auto_dir(auto) / "memory"),
             "workspace": str(self.store.exec_dir(h["id"]) / "workspace"),
+            "result_dir": str(self.store.exec_dir(h["id"]) / "result"),
             "agent": agent_cfg,
             "is_agent_step": bool(s.get("agent")),
             "agent_timeout": 120,
@@ -332,14 +333,8 @@ class Engine:
                         result["chip"] = v
                     elif f == "chips":
                         result["chips"] = v
-                    elif f == "body":
-                        result["body"].append(v)
-                    elif f == "rows":
-                        result["rows"] = v.get("rows")
-                        if v.get("columns"):
-                            result["columns"] = v["columns"]
-                    elif f == "attach":
-                        self._attach_artifact(h, v, redactions)
+                    elif f == "value":
+                        result["values"].append(v)
                 elif op == "notify":
                     notify_holder["text"] = msg.get("text")
                 elif op == "agent_audit":
@@ -356,19 +351,6 @@ class Engine:
             self._log(h, "err", f"step timed out after {int(timeout_s)}s", redactions)
             return proc.returncode or 1
         return proc.returncode or 0
-
-    def _attach_artifact(self, h: dict, path: str, redactions: dict) -> None:
-        import shutil
-
-        src = Path(self.store.exec_dir(h["id"])) / "workspace" / path
-        if not src.exists():
-            src = Path(path)
-        if src.exists() and src.is_file():
-            dst = self.store.exec_dir(h["id"]) / "result" / src.name
-            shutil.copy2(src, dst)
-            self._log(h, "sys", f"attached {src.name} to the result", redactions)
-        else:
-            self._log(h, "wrn", f"couldn't attach {path} — file not found", redactions)
 
     def _notify_end(self, auto: dict, h: dict, result: dict | None, notify_text: str | None) -> None:
         """§6: at most one notification, at the end, per the §4.9 setting."""

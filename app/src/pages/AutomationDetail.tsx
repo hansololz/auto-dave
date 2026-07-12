@@ -4,9 +4,10 @@ import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto, ParamDef, Step } from '../types'
 import {
-  Badge, BtnPrimary, ConfirmModal, Eyebrow, ResultBody, Toggle,
-  nextIn, paramSummary, resultChipColors, usePopover, validUrl,
+  Badge, BtnPrimary, ConfirmModal, Eyebrow, Toggle,
+  nextIn, paramSummary, usePopover, validUrl,
 } from '../ui'
+import { ResultSection } from '../result'
 
 const RUNNING_TOAST = 'Already running — one run at a time. A schedule firing now would be skipped.'
 const badgeAnim = (s: string) => (s === 'running' ? 'adPulse 1.4s ease-in-out infinite' : 'none')
@@ -652,37 +653,7 @@ export default function AutomationDetail() {
       {/* latest result */}
       {lr ? (
         <div style={{ marginBottom: 26 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
-            <Eyebrow style={{ color: 'var(--text-faint)' }}>LATEST RESULT</Eyebrow>
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--text-faintest)' }}>{lr.when}</span>
-          </div>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
-            <div style={{ padding: '15px 18px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {lr.chip && (
-                <span style={{
-                  display: 'inline-flex', padding: '4px 11px', borderRadius: 7, fontFamily: 'var(--mono)',
-                  fontWeight: 600, fontSize: 12, letterSpacing: '.03em',
-                  background: resultChipColors(lr).bg, color: resultChipColors(lr).c,
-                }}>
-                  {lr.chip}
-                </span>
-              )}
-              {(lr.chips ?? []).filter((t) => t !== lr.chip).map((t) => (
-                <span key={t} style={{
-                  display: 'inline-flex', padding: '4px 10px', borderRadius: 7, fontFamily: 'var(--mono)',
-                  fontWeight: 500, fontSize: 11.5, background: 'rgba(255,255,255,.05)',
-                  border: '1px solid var(--border-card)', color: 'var(--text-2em)',
-                }}>
-                  {t}
-                </span>
-              ))}
-            </div>
-            {(lr.body || lr.para || (lr.rows && lr.rows.length > 0)) && (
-              <div style={{ padding: '0 18px 16px' }}>
-                <ResultBody result={lr} />
-              </div>
-            )}
-          </div>
+          <ResultSection label="LATEST RESULT" result={lr} execId={lr.execId} measure={640} />
         </div>
       ) : (
         <div style={{

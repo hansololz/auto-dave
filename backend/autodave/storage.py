@@ -41,6 +41,14 @@ def new_id() -> str:
     return str(uuid.uuid4())
 
 
+def _size_label(n: int) -> str:
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n / 1024 / 1024:.1f} MB"
+
+
 def param_default(d: dict) -> Any:
     kind = d.get("kind")
     if "default" in d and d["default"] is not None:
@@ -415,6 +423,27 @@ class Store:
     def read_result(self, exec_id: str) -> dict | None:
         return load_yaml(self.exec_dir(exec_id) / "result" / "result.yaml")
 
+    def result_files(self, exec_id: str) -> list[dict]:
+        """§4.5: the file list IS the directory listing (result.yaml included)."""
+        d = self.exec_dir(exec_id) / "result"
+        if not d.exists():
+            return []
+        out = []
+        for f in sorted(d.iterdir(), key=lambda p: p.name.lower()):
+            if f.is_file():
+                out.append({"name": f.name, "size": _size_label(f.stat().st_size)})
+        return out
+
+    def result_json(self, exec_id: str) -> dict | None:
+        """§4.5 result object: yaml fields + files listing + dir path.
+        A run with only output files (no builder calls) still has a result."""
+        r = self.read_result(exec_id)
+        files = self.result_files(exec_id)
+        if not r and not files:
+            return None
+        return {**({"status": "ok"} | (r or {})),
+                "files": files, "path": str(self.exec_dir(exec_id) / "result")}
+
     def delete_execution(self, exec_id: str) -> None:
         with self.lock:
             shutil.rmtree(self.exec_dir(exec_id), ignore_errors=True)
@@ -514,10 +543,10 @@ class Store:
     def latest_result_json(self, a: dict) -> dict | None:
         hs = [h for h in self.execs.values() if h["auto_id"] == a["id"] and h["status"] != "running"]
         for h in sorted(hs, key=lambda x: x["started_at"] or "", reverse=True):
-            r = self.read_result(h["id"])
+            r = self.result_json(h["id"])
             if r:
                 dt = datetime.fromisoformat(h["started_at"])
-                return {**r, "when": f"from {timefmt.started_label(dt)}"}
+                return {**r, "execId": h["id"], "when": f"from {timefmt.started_label(dt)}"}
         return None
 
     def auto_json(self, a: dict, full: bool = True) -> dict:
@@ -590,7 +619,7 @@ class Store:
         if full:
             logs = self.read_logs(h["id"])
             out["logs"] = [{"t": l.get("t", ""), "k": l.get("k", "out"), "text": l.get("text", "")} for l in logs]
-            out["result"] = self.read_result(h["id"])
+            out["result"] = self.result_json(h["id"])
             out["redact"] = ", ".join(h["redacted"]) if h["redacted"] else None
             out["params"] = h.get("params", [])
         return out

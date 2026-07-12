@@ -32,16 +32,16 @@ export interface Step {
   why?: string
 }
 
-export interface ResultBodyBlock { k: 'text' | 'list' | 'steps'; text?: string; items?: string[] }
+export interface ResultValue { name: string; value: string | string[] }
+export interface ResultFile { name: string; size: string }
 
 export interface RunResult {
   status: 'changes' | 'ok' | 'attention'
   chip?: string
   chips?: string[]
-  body?: ResultBodyBlock[]
-  para?: string
-  rows?: Record<string, unknown>[] | null
-  columns?: string[]
+  values?: ResultValue[]
+  files?: ResultFile[]
+  path?: string
   when?: string
 }
 
@@ -75,7 +75,7 @@ export interface Auto {
   stepAgents: string[]
   allowedSecrets: string[]
   specMeta: string
-  latest?: (RunResult & { when: string }) | null
+  latest?: (RunResult & { execId: string; when: string }) | null
   params?: ParamDef[]
   memory?: { size: string; updated: string; path?: string }
   steps?: Step[]

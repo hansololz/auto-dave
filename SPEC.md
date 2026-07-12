@@ -217,16 +217,22 @@ note: optional note ("previous run still in progress", "Mac went to sleep") | nu
 Result object:
 ```
 { status: changes|ok|attention, chip, chips[],
-  body: [{k:text|list|steps, …}] or para,
-  rows: optional table rows (e.g. manga: MANGA / LATEST CHAPTER / UPDATED / NEW / READ, per-row
-        isNew flag and link),
-  columns: ordered column keys for the table — "new" is a pseudo-column the UI renders from the
-        per-row isNew flag; href/isNew are row metadata, never columns themselves }
+  values: [{ name, value }] — value is a string (paragraph, multiline OK) or a list of strings
+        (bulleted); rendered as label/value rows in the Summary view (§7),
+  files: [{ name, size }] — every file in the result dir (result.yaml included), plus the dir
+        path for the "Show in Finder" button }
 ```
 
-On disk the result is a directory: `result/result.yaml` plus optional artifact files beside it
-(images, CSVs, …) that the run attaches; `result.yaml` references them by relative filename.
-Artifacts are part of the execution record — deleted with it by retention, never required for
+On disk the result is a directory: the engine writes `result/result.yaml` (status, chip,
+chips, values) from the §6.1 builder calls at run end; the run writes any other output files
+directly into `result/` (result.md, result.html, images, CSVs, …). There is no manifest — the
+file list is the directory listing. Renderable files get their own result views (§7): `.md`
+rendered as markdown, `.html` in a sandboxed iframe (no scripts, no remote loads — preserves
+the §6 no-exfiltration guarantee) with the app's base result stylesheet injected, so plain
+semantic HTML renders in app typography and colors (a page's own inline CSS overrides it),
+images inline; every other format appears only in the file list. Tables are markdown tables
+inside result.md — there is no bespoke table renderer.
+Files are part of the execution record — deleted with it by retention, never required for
 list rendering (loaded only when the execution is opened).
 
 ### 4.6 Statuses (single badge vocabulary, executions and steps)
@@ -375,11 +381,11 @@ executions/
                                # scratch space, shared across steps (step 1 writes a file,
                                # step 2 reads it); deleted with the execution by retention
     result/
-      result.yaml              # status, chip, chips[], body blocks (text/list/steps),
-                               # table rows + columns
-      <artifacts>              # optional extra files the run attaches to its result
-                               # (images, CSVs, …), referenced from result.yaml by
-                               # relative filename
+      result.yaml              # engine-written from builder calls: status, chip, chips[],
+                               # values[{name, value}]
+      <files>                  # any files the run writes via result.path (result.md,
+                               # result.html, images, CSVs, …) — no manifest, the dir
+                               # listing is the file list
 ```
 
 **Load model:** automations are **fully loaded at startup** — the backend walks `automations/`,
@@ -457,7 +463,7 @@ never used for lookups.
 - **Memory between runs** — one private `memory/` directory per automation, reachable from
   scripts via an injected path; scripts may store any files in any format there. Persists
   across runs and versions. Durable writes go to `memory/` (deliberate) or `result/`
-  (attachments) — the workspace is for everything else.
+  (output files via `result.path`) — the workspace is for everything else.
 - **Notifications & results** — exactly one result per run; at most one notification, at the end;
   notify only on changes (per the notifications setting). **Sender (decided):** the backend posts
   macOS notifications itself via `osascript -e 'display notification …'` — works headless with no
@@ -493,8 +499,11 @@ The engine's runner injects these globals — scripts may also `import autodave`
 - `log` — `log(text)` / `log.warn(text)` / `log.error(text)` → `out`/`wrn`/`err` NDJSON lines
   (`log.info` is an alias of `log`).
 - `result` — builder used by the last step (any step may add): `result.chip(text)`,
-  `result.chips([...])`, `result.text(p)`, `result.list(items)`, `result.steps(items)`,
-  `result.table(rows, columns)`, `result.attach(path)`, `result.status('changes'|'ok'|'attention')`.
+  `result.chips([...])`, `result.value(name, value)` (value: string or list of strings),
+  `result.status('changes'|'ok'|'attention')` — the engine writes `result/result.yaml` from
+  these at run end. `result.path` — `pathlib.Path` of the run's result dir for direct file
+  output (result.md, result.html, images, CSVs, …); any file dropped there is part of the
+  result (§4.5), so there is no attach call, and tables are markdown tables in result.md.
 - `notify(text)` — requests the end-of-run notification (engine still applies the §4.9 setting
   and the one-notification rule). The notification title is the automation name, overridable by a
   param literally named `notification_title`.
@@ -548,9 +557,21 @@ dot, name, duration — compact, no inline log expansion) plus a parameters bloc
 by this run."), and a main pane with **Results / Logs tabs** (auto-select Logs when no result).
 The Logs tab is one unified color-coded log pane (kinds sys/out/wrn/err, live auto-scroll) with
 a redaction note ("secrets redacted: `<name>`") and empty state "No logs — this run never
-started." The Results tab renders the result body as paragraphs / bullets / numbered steps
-(620 px measure — the Latest Result card on the detail page uses 640 px) plus optional data
-table. Deleted-automation handling: historical name, marked deleted.
+started." The Results tab is a collapsible **Results section** holding a stack of individually
+collapsible **result views**, each with a chevron + title header and right-aligned mono meta
+("4 values", "4.1 KB") — everything expanded by default, collapse state per-session only
+(never persisted). The section header row carries the result chip — tinted by result status
+(changes = accent, ok = green, attention = amber), falling back to a status label ("Changes" /
+"All good" / "Needs attention") when the run set no chip text — plus metadata chips; the run's
+own status badge stays in the page title row, never here. View order: first the **Summary
+view** (result.yaml `values` rendered as a two-column grid — label column left, wrapping for
+long names; value right: paragraph for a string, bullets for a list; 620 px measure — the
+Latest Result card on the detail page uses 640 px), then one **file view** per renderable
+file in alphabetical order (`.md` markdown, `.html` sandboxed iframe, images inline; titled
+by filename), then a collapsible **FILES footer** ("FILES · N" header): the result-dir path
+in mono, every file as name + size rows, and a "Show in Finder" button opening the dir in
+Finder. No values and no renderable files → the section is just the footer.
+Deleted-automation handling: historical name, marked deleted.
 
 **Executions list:** all executions across automations; each row shows the automation name plus
 an 8-char run-id chip (mono), status badge, a trigger column combining trigger and version
@@ -707,8 +728,9 @@ explainer), status badge, Run now (accent), Edit, ellipsis menu (Delete automati
 Sections top to bottom:
 
 - Optional **Draft banner** (§4.4), then **LATEST RESULT** card — status chip + metadata chips,
-  result body (640 px measure), optional data table (mono uppercase headers). No-runs empty
-  state (dashed card): "No runs yet / Press Run now — the first result will appear right here."
+  then the full §7 result view stack for the latest run (Summary view at 640 px measure, file
+  views, FILES footer — same collapsible behavior and chip rules). No-runs empty state (dashed
+  card): "No runs yet / Press Run now — the first result will appear right here."
 - **WAYS TO RUN** card — schedule row (schedule chip + §4.3 status line) with an on/off toggle
   switch (drives `schedOff`), and a second row: bordered mono Run-now button, copy "Manual runs
   are always available — even when the schedule is off.", plus a disabled dashed chip "Message
@@ -1004,7 +1026,8 @@ no CLI or API to populate demo data. The seed fixture lives in `tests/seed_data.
 applied only by tests calling `seed(store)` (it refuses to run when any automations exist).
 
 The prototype ships four demo automations useful for tests: "Track manga
-chapters" (daily 8:00, list/toggle/number/text/kv params, result table with a READ column),
+chapters" (daily 8:00, list/toggle/number/text/kv params, result.md markdown table with a READ
+column),
 "Nightly folder backup" (daily 2:00), "Weekly report email" (Mondays 9:00, failed, uses
 `SMTP_PASSWORD`, retry-from-step), "Clean screenshots folder" (Sundays 21:00). Demo secrets:
 `SMTP_PASSWORD`, `VAULT_DRIVE_KEY`. Twelve seed executions cover every terminal status including
@@ -1146,8 +1169,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   WS; `GET /drafts/{jobId}` → state + validated §8 draft payload; `DELETE /drafts/{jobId}` cancels
   (kills the harness process)
 - `GET /executions?auto=&status=` (headers) · `GET /executions/{id}` (steps + logs + result) ·
-  `POST /executions/{id}/cancel` · `POST /executions/{id}/rerun` (§7 retry from failed step —
-  earlier steps `reused`)
+  `GET /executions/{id}/result/{name}` (raw result-dir file for the §7 file views; plain
+  filenames only — no path traversal) · `POST /executions/{id}/cancel` ·
+  `POST /executions/{id}/rerun` (§7 retry from failed step — earlier steps `reused`)
 - `GET/POST /agents` · `PATCH/DELETE /agents/{id}` · `POST /agents/{id}/check` (health/badge) —
   one shared readiness check (`harness.check_ready`) decides ready vs. needs-setup everywhere:
   the harness binary must resolve (rule below), Ollama's server must answer, and Claude Code

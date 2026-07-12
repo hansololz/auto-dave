@@ -88,7 +88,9 @@ def seed(store: Store) -> None:
                  '    notify(f"{len(fresh)} new chapters")\n'
                  'result.status("changes" if fresh else "ok")\n'
                  'result.chip(f"{len(fresh)} new chapters" if fresh else "No new chapters")\n'
-                 'result.table([{"manga": f["url"], "latest": f["latest"], "new": f["is_new"]} for f in found])\n'},
+                 'result.value("New chapters", [f["latest"] for f in fresh])\n'
+                 'rows = "\\n".join(f"| {f[\'url\']} | {f[\'latest\']} | {\'NEW\' if f[\'is_new\'] else \'—\'} |" for f in found)\n'
+                 '(result / "result.md").write_text("| Manga | Latest chapter | New |\\n|---|---|---|\\n" + rows)\n'},
     ]
     manga_spec = [
         {"k": "h1", "text": "Track manga chapters"},
@@ -167,7 +169,7 @@ def seed(store: Store) -> None:
          "code": 'keep = params["copies_to_keep"]\nlog(f"keeping the newest {keep} copies")\n'
                  'import time\nmemory.save("last_run_at", time.time())\n'
                  'result.status("ok")\nresult.chip("All good")\n'
-                 'result.text("Projects is fully backed up to the Vault drive.")\n'},
+                 'result.value("Summary", "Projects is fully backed up to the Vault drive.")\n'},
     ]
     backup_params = [
         {"name": "folder_to_back_up", "kind": "text", "label": "Folder to back up",
@@ -268,7 +270,7 @@ def seed(store: Store) -> None:
                  '    dest = os.path.join(desktop, month)\n    os.makedirs(dest, exist_ok=True)\n'
                  '    shutil.move(p, dest)\n'
                  'result.status("ok")\nresult.chip("All good")\n'
-                 'result.text(f"The desktop is clean. {len(shots)} screenshots filed.")\n'},
+                 'result.value("Summary", f"The desktop is clean. {len(shots)} screenshots filed.")\n'},
     ]
     shots = store.create_automation(
         _mk_ver("Files desktop screenshots into monthly folders every Sunday night.",
@@ -285,24 +287,24 @@ def seed(store: Store) -> None:
     manga_result = {
         "status": "changes", "chip": "2 new chapters",
         "chips": ["6 manga checked", "2 new chapters"],
-        "body": [
-            {"k": "text", "text": "Two new chapters overnight:"},
-            {"k": "list", "items": ["One Piece — Ch. 1145 · “The Weight of a Promise”",
-                                     "Frieren — Ch. 142 · “The Golden Land”"]},
-            {"k": "text", "text": "The other 4 manga are unchanged since yesterday."},
-        ],
-        # §4.5/§16 table: MANGA / LATEST CHAPTER / UPDATED / NEW / READ, in order.
-        # `isNew`/`href` are row metadata, not columns — "new" renders from isNew.
-        "columns": ["manga", "latest chapter", "updated", "new", "read"],
-        "rows": [
-            {"manga": "One Piece", "latest chapter": "Ch. 1145 · “The Weight of a Promise”", "updated": "2h ago", "read": "Ch. 1143", "isNew": True, "href": "https://mangaplus.shueisha.co.jp/titles/100020"},
-            {"manga": "Frieren: Beyond Journey’s End", "latest chapter": "Ch. 142 · “The Golden Land”", "updated": "5h ago", "read": "Ch. 141", "isNew": True, "href": "https://mangadex.org/title/frieren"},
-            {"manga": "Dandadan", "latest chapter": "Ch. 189", "updated": "2d ago", "read": "Ch. 189", "isNew": False, "href": "https://mangadex.org/title/dandadan"},
-            {"manga": "Kagurabachi", "latest chapter": "Ch. 94", "updated": "4d ago", "read": "Ch. 92", "isNew": False, "href": "https://comikey.com/comics/kagurabachi"},
-            {"manga": "Vinland Saga", "latest chapter": "Ch. 218", "updated": "6d ago", "read": "Ch. 218", "isNew": False, "href": "https://mangadex.org/title/vinland-saga"},
-            {"manga": "Berserk", "latest chapter": "Ch. 379", "updated": "3w ago", "read": "Ch. 378", "isNew": False, "href": "https://mangadex.org/title/berserk"},
+        "values": [
+            {"name": "New chapters", "value": ["One Piece — Ch. 1145 · “The Weight of a Promise”",
+                                               "Frieren — Ch. 142 · “The Golden Land”"]},
+            {"name": "Manga checked", "value": "6"},
+            {"name": "Unchanged", "value": "4"},
         ],
     }
+    # §16: the manga table is a markdown table in result.md (READ column included).
+    manga_result_md = "\n".join([
+        "| Manga | Latest chapter | Updated | New | Read |",
+        "|---|---|---|---|---|",
+        "| [One Piece](https://mangaplus.shueisha.co.jp/titles/100020) | Ch. 1145 · “The Weight of a Promise” | 2h ago | **NEW** | Ch. 1143 |",
+        "| [Frieren: Beyond Journey’s End](https://mangadex.org/title/frieren) | Ch. 142 · “The Golden Land” | 5h ago | **NEW** | Ch. 141 |",
+        "| [Dandadan](https://mangadex.org/title/dandadan) | Ch. 189 | 2d ago | — | Ch. 189 |",
+        "| [Kagurabachi](https://comikey.com/comics/kagurabachi) | Ch. 94 | 4d ago | — | Ch. 92 |",
+        "| [Vinland Saga](https://mangadex.org/title/vinland-saga) | Ch. 218 | 6d ago | — | Ch. 218 |",
+        "| [Berserk](https://mangadex.org/title/berserk) | Ch. 379 | 3w ago | — | Ch. 378 |",
+    ])
     manga_logs = [
         ("sys", "▸ Step 1 — Read your manga list"),
         ("out", "7 lines · 6 valid links · 1 skipped (not a link)"),
@@ -324,7 +326,7 @@ def seed(store: Store) -> None:
     ]
 
     def put_exec(auto, ver, status, trigger, started, dur_ms, steps, logs, result=None,
-                 note=None, redacted=None):
+                 note=None, redacted=None, files=None):
         h = store.create_execution(auto, ver, trigger,
                                    [{"name": n, "status": st, "dur_ms": d} for n, st, d in steps],
                                    note=note, status="running")
@@ -349,6 +351,8 @@ def seed(store: Store) -> None:
                                        "step": cur_step, "k": k, "text": text})
         if result:
             store.write_result(h["id"], result)
+        for name, content in (files or {}).items():
+            (store.exec_dir(h["id"]) / "result" / name).write_text(content, encoding="utf-8")
         store.update_execution(h)
         return h
 
@@ -366,7 +370,8 @@ def seed(store: Store) -> None:
                       ("Check each site for new chapters", "succeeded", 19600),
                       ("Compare with memory", "succeeded", 300),
                       ("Notify and build the result", "succeeded", 1100)]
-    put_exec(manga, "v3", "succeeded", "Schedule", today8, 24800, manga_steps_ok, manga_logs, manga_result)
+    put_exec(manga, "v3", "succeeded", "Schedule", today8, 24800, manga_steps_ok, manga_logs, manga_result,
+             files={"result.md": manga_result_md})
     put_exec(backup, "v2", "succeeded", "Schedule", today2, 41200,
              [("Find files changed since last night", "succeeded", 3900),
               ("Copy them to the backup drive", "succeeded", 35000),
@@ -378,7 +383,7 @@ def seed(store: Store) -> None:
               ("sys", "▸ Step 3 — Prune old copies"),
               ("out", "removed the copy from Jun 30 · 7 kept")],
              {"status": "ok", "chip": "All good", "chips": ["142 files copied", "1.8 GB", "41 s"],
-              "body": [{"k": "text", "text": "Projects is fully backed up to the Vault drive. Nothing unusual last night."}]})
+              "values": [{"name": "Summary", "value": "Projects is fully backed up to the Vault drive. Nothing unusual last night."}]})
     put_exec(report, "v5", "failed", "Schedule", monday9, 12400,
              [("Gather the week’s numbers", "succeeded", 5800),
               ("Write the summary", "succeeded", 3100),
@@ -394,16 +399,15 @@ def seed(store: Store) -> None:
               ("err", "the SMTP_PASSWORD secret may be out of date"),
               ("sys", "run failed at step 3 — nothing was sent")],
              {"status": "attention", "chip": "Needs attention", "chips": [],
-              "body": [{"k": "text", "text": "Monday’s run couldn’t sign in to the mail server, so no email went out."},
-                       {"k": "steps", "items": ["Update the SMTP_PASSWORD secret — the server rejected the current one.",
-                                                 "Run it again — the email goes out as soon as a run succeeds."]}]},
+              "values": [{"name": "What happened", "value": "Monday’s run couldn’t sign in to the mail server, so no email went out."},
+                         {"name": "Next steps", "value": ["Update the SMTP_PASSWORD secret — the server rejected the current one.",
+                                                          "Run it again — the email goes out as soon as a run succeeds."]}]},
              redacted=["SMTP_PASSWORD"])
     put_exec(manga, "v3", "succeeded", "Menu bar", today8 - timedelta(days=1, minutes=-13), 26100,
              manga_steps_ok, manga_logs,
              {"status": "changes", "chip": "1 new chapter", "chips": ["6 manga checked", "1 new chapter"],
-              "body": [{"k": "text", "text": "One new chapter since the last check:"},
-                       {"k": "list", "items": ["One Piece — Ch. 1144"]},
-                       {"k": "text", "text": "The other 5 manga were unchanged."}]})
+              "values": [{"name": "New chapters", "value": ["One Piece — Ch. 1144"]},
+                         {"name": "Unchanged", "value": "5"}]})
     put_exec(backup, "v2", "cancelled", "Schedule", today2 - timedelta(days=1), None, [], [],
              note="previous run still in progress")
     put_exec(manga, "v2", "succeeded", "Schedule", today8 - timedelta(days=5), 22900,
@@ -416,8 +420,8 @@ def seed(store: Store) -> None:
               ("out", "5 of 6 manga checked")],
              {"status": "attention", "chip": "5 of 6 checked",
               "chips": ["5 of 6 manga checked", "No new chapters"],
-              "body": [{"k": "text", "text": "No new chapters among the 5 manga that were checked."},
-                       {"k": "list", "items": ["mangadex.org didn’t respond after 3 tries — skipped this run"]}]})
+              "values": [{"name": "Summary", "value": "No new chapters among the 5 manga that were checked."},
+                         {"name": "Skipped", "value": ["mangadex.org didn’t respond after 3 tries — skipped this run"]}]})
     put_exec(manga, "v2", "cancelled", "Schedule", today8 - timedelta(days=6), None, [], [],
              note="previous run still in progress")
     put_exec(manga, "v2", "cancelled", "Manual", now.replace(hour=15, minute=12) - timedelta(days=7), 8400,
@@ -439,7 +443,7 @@ def seed(store: Store) -> None:
               ("Record the send", "succeeded", 400)],
              [("out", "email sent to 3 recipients")],
              {"status": "ok", "chip": "Email sent", "chips": ["3 recipients", "198 words"],
-              "body": [{"k": "text", "text": "The weekly summary went out to the team at 9:00."}]},
+              "values": [{"name": "Summary", "value": "The weekly summary went out to the team at 9:00."}]},
              redacted=["SMTP_PASSWORD"])
     put_exec(shots, "v1", "succeeded", "Schedule", now.replace(hour=21, minute=0) - timedelta(days=4), 5200,
              [("Find screenshots on the Desktop", "succeeded", 1100),
@@ -449,7 +453,7 @@ def seed(store: Store) -> None:
               ("sys", "▸ Step 2 — File them into monthly folders"),
               ("out", "38 filed into 2026-06")],
              {"status": "ok", "chip": "All good", "chips": ["38 screenshots filed"],
-              "body": [{"k": "text", "text": "The desktop is clean. Screenshots went into 2026-06."}]})
+              "values": [{"name": "Summary", "value": "The desktop is clean. Screenshots went into 2026-06."}]})
     # one reused-status example: a rerun of the failed report where early steps were reused
     put_exec(report, "v5", "failed", "Manual", monday9 + timedelta(hours=2), 4200,
              [("Gather the week’s numbers", "reused", None),

@@ -1,7 +1,8 @@
 // Shared UI primitives — one source of truth for badges, toggles, radios,
-// popovers, toasts, result bodies (prototype Component helpers, §14 tokens).
+// popovers, toasts (prototype Component helpers, §14 tokens). The result
+// section and its views live in result.tsx.
 import React, { useEffect, useRef, useState } from 'react'
-import type { ParamDef, ResultBodyBlock, RunResult, Status } from './types'
+import type { ParamDef, RunResult, Status } from './types'
 
 export const P = {
   accent: 'var(--accent)', accentBg: 'var(--accent-bg)',
@@ -218,102 +219,6 @@ export function nextIn(a: { hour: number; min: number; dow: number | null }): st
   const hh = Math.floor((mTot % 1440) / 60)
   const mm = mTot % 60
   return dd > 0 ? `${dd}d ${hh}h` : `${hh}h ${mm}m`
-}
-
-/** Result body → paragraphs / bullets / numbered steps (640px measure on the detail card,
- * 620px on the run page, §7). The data table bleeds to the card edges (border-top separator,
- * design lines 847–869) — callers wrap the body in `padding: 0 18px 16px`, which the table
- * cancels with negative margins. */
-export function ResultBody({ result, measure = 640 }: { result: RunResult; measure?: number }) {
-  const blocks: ResultBodyBlock[] = result.body ?? (result.para ? [{ k: 'text', text: result.para }] : [])
-  return (
-    <>
-    <div style={{ maxWidth: measure, display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {blocks.map((b, i) => {
-        if (b.k === 'text') {
-          return <p key={i} style={{ fontSize: 13.5, lineHeight: 1.6, color: 'var(--text-2em)' }}>{b.text}</p>
-        }
-        if (b.k === 'list') {
-          return (
-            <ul key={i} style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {(b.items ?? []).map((t, j) => (
-                <li key={j} style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-2emx)', display: 'flex', gap: 9 }}>
-                  <span style={{ color: 'var(--text-faint)', fontWeight: 600, fontSize: 13.5, flex: 'none' }}>•</span>{t}
-                </li>
-              ))}
-            </ul>
-          )
-        }
-        return (
-          <ol key={i} style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {(b.items ?? []).map((t, j) => (
-              <li key={j} style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-2emx)', display: 'flex', gap: 10 }}>
-                <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-faint)', flex: 'none', fontSize: 12, width: 15, textAlign: 'right' }}>{j + 1}.</span>
-                {t}
-              </li>
-            ))}
-          </ol>
-        )
-      })}
-    </div>
-    {result.rows && result.rows.length > 0 && (
-      <div style={{ margin: '14px -18px -16px' }}>
-        <ResultTable rows={result.rows} columns={result.columns} />
-      </div>
-    )}
-    </>
-  )
-}
-
-/** Generic result table: display columns come from the result's `columns` list
- * (fallback: first row's keys). `href`/`isNew` are row metadata, never columns;
- * `"new"` is a pseudo-column (§4.5) rendered from the per-row `isNew` flag at its
- * position in the list — shown only when some row carries an `isNew` field. */
-function ResultTable({ rows, columns }: { rows: Record<string, unknown>[]; columns?: string[] | null }) {
-  const meta = ['isNew', 'href']
-  const hasNew = rows.some((r) => 'isNew' in r)
-  const raw = (columns && columns.length > 0 ? columns : Object.keys(rows[0])).filter((k) => !meta.includes(k))
-  const keys = raw.filter((k) => (k === 'new' ? hasNew : true))
-  if (!raw.includes('new') && hasNew) keys.push('new')
-  if (keys.filter((k) => k !== 'new').length === 0) return null
-  const gridCols = keys.map((k, i) => (k === 'new' ? '52px' : i === 0 ? '1.2fr' : '1fr')).join(' ')
-  return (
-    <div style={{ borderTop: '1px solid var(--hairline)' }}>
-      <div style={{
-        display: 'grid', gridTemplateColumns: gridCols,
-        padding: '9px 18px', gap: 10, borderBottom: '1px solid var(--hairline)', background: 'var(--bg-inset)',
-      }}>
-        {keys.map((k) => (
-          <Eyebrow key={k} style={{ fontSize: 9.5 }}>{k.toUpperCase()}</Eyebrow>
-        ))}
-      </div>
-      {rows.map((r, i) => (
-        <div key={i} style={{
-          display: 'grid', gridTemplateColumns: gridCols,
-          padding: '10px 18px', gap: 10, borderBottom: i < rows.length - 1 ? '1px solid var(--hairline)' : 'none',
-          alignItems: 'center',
-        }}>
-          {keys.map((k, j) => (
-            k === 'new' ? (
-              <div key={k}>
-                {r.isNew
-                  ? <span style={{
-                      display: 'inline-flex', fontFamily: 'var(--mono)', fontSize: 9.5, fontWeight: 700,
-                      letterSpacing: '.08em', color: 'var(--green)', background: 'oklch(0.76 0.15 150 / .15)',
-                      borderRadius: 5, padding: '2px 7px',
-                    }}>NEW</span>
-                  : <span style={{ color: 'var(--text-faintest)', fontSize: 11 }}>—</span>}
-              </div>
-            ) : (
-              <div key={k} style={{ fontSize: 12.5, color: j === 0 ? 'var(--text)' : 'var(--text-2)', fontWeight: j === 0 ? 500 : 400 }}>
-                {j === 0 && r.href ? <a href={String(r.href)} target="_blank" rel="noreferrer">{String(r[k] ?? '')}</a> : String(r[k] ?? '')}
-              </div>
-            )
-          ))}
-        </div>
-      ))}
-    </div>
-  )
 }
 
 export function Toast({ msg }: { msg: string | null }) {

@@ -398,6 +398,20 @@ def get_exec(exec_id: str) -> dict:
     return store.exec_json(h, full=True)
 
 
+@app.get("/executions/{exec_id}/result/{name}", dependencies=[Depends(auth)])
+def get_result_file(exec_id: str, name: str):
+    """§4.5: raw result-dir file (result.md, result.html, images) for the §7 file views."""
+    if exec_id not in store.execs:
+        raise HTTPException(404, "execution not found")
+    d = (store.exec_dir(exec_id) / "result").resolve()
+    f = (d / name).resolve()
+    if f.parent != d or not f.is_file():
+        raise HTTPException(404, "file not found")
+    from fastapi.responses import FileResponse
+
+    return FileResponse(f)
+
+
 @app.post("/executions/{exec_id}/cancel", dependencies=[Depends(auth)])
 def cancel_exec(exec_id: str) -> dict:
     return {"ok": engine.cancel(exec_id)}

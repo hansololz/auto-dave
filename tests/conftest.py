@@ -62,7 +62,7 @@ def make_version(**over):
             {"file": "01-say.py", "name": "Say hello", "desc": "prints",
              "code": 'log(f"{params[\'greeting\']} x{params[\'count\']}")\n'},
             {"file": "02-finish.py", "name": "Finish", "desc": "result",
-             "code": 'result.status("ok")\nresult.chip("All good")\nresult.text("done")\n'},
+             "code": 'result.status("ok")\nresult.chip("All good")\nresult.value("Summary", "done")\n'},
         ],
         "spec": [{"k": "h1", "text": "Test automation"}, {"k": "p", "text": "It tests."}],
         "instr": None,

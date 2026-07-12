@@ -82,6 +82,14 @@ export const api = {
   patchSettings: (patch: Record<string, unknown>) =>
     req<import('./types').Settings>('PATCH', '/settings', patch),
   setDataPath: (path: string) => req<import('./types').Settings>('POST', '/settings/data-path', { path }),
+  // Raw result-dir file (§4.5) — Response, not JSON: callers .text() or .blob() it.
+  resultFile: async (execId: string, name: string): Promise<Response> => {
+    const r = await fetch(`${base}/executions/${execId}/result/${encodeURIComponent(name)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!r.ok) throw new Error(r.statusText)
+    return r
+  },
 }
 
 export function openWs(onEvent: (msg: Record<string, unknown>) => void): () => void {

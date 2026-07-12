@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import { Badge, badgeOf, paramSummary, resultChipColors, ResultBody, Spinner } from '../ui'
+import { Badge, badgeOf, paramSummary, Spinner } from '../ui'
+import { ResultSection } from '../result'
 import type { Exec } from '../types'
 
 type LogLine = NonNullable<Exec['logs']>[number]
@@ -289,32 +290,7 @@ export default function ExecutionPage() {
                 <Spinner />
               </div>
             ) : result ? (
-              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
-                <div style={{ padding: '15px 18px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  {result.chip && (
-                    <span style={{
-                      display: 'inline-flex', padding: '4px 11px', borderRadius: 7,
-                      fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, letterSpacing: '.03em',
-                      background: resultChipColors(result).bg, color: resultChipColors(result).c,
-                    }}>
-                      {result.chip}
-                    </span>
-                  )}
-                  {(result.chips ?? []).filter((t) => t !== result.chip).map((t) => (
-                    <span key={t} style={{
-                      display: 'inline-flex', padding: '4px 10px', borderRadius: 7,
-                      fontFamily: 'var(--mono)', fontSize: 11.5, fontWeight: 500,
-                      background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.07)',
-                      color: 'var(--text-2em)',
-                    }}>
-                      {t}
-                    </span>
-                  ))}
-                </div>
-                <div style={{ padding: '0 18px 16px' }}>
-                  <ResultBody result={result} measure={620} />
-                </div>
-              </div>
+              <ResultSection label="RESULT" result={result} execId={e.id} measure={620} />
             ) : (
               <div style={{
                 background: 'var(--bg-card)', border: '1px dashed rgba(255,255,255,.12)',

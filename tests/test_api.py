@@ -271,13 +271,18 @@ def test_seed_then_state(client, home):
         if h["status"] in ("succeeded", "failed", "cancelled", "interrupted"):
             assert h.get("finished_at"), h["id"]
 
-    # manga result table: §4.5 columns in order, `read` per row, isNew/href as metadata
+    # §4.5 manga result: Summary values in result.yaml, the table as a result.md
+    # markdown file, files listing = the dir listing, path for Show in Finder
     manga_execs = [e for e in r["execs"] if e["autoName"] == "Track manga chapters"]
     fulls = [client.get(f"/executions/{e['id']}").json() for e in manga_execs]
-    tabled = next(f for f in fulls if f.get("result") and f["result"].get("rows"))
-    assert tabled["result"]["columns"] == ["manga", "latest chapter", "updated", "new", "read"]
-    for row in tabled["result"]["rows"]:
-        assert {"manga", "latest chapter", "updated", "read", "isNew", "href"} <= set(row)
+    tabled = next(f for f in fulls if f.get("result") and f["result"].get("chip") == "2 new chapters")
+    assert any(v["name"] == "New chapters" and isinstance(v["value"], list)
+               for v in tabled["result"]["values"])
+    assert [f["name"] for f in tabled["result"]["files"]] == ["result.md", "result.yaml"]
+    assert tabled["result"]["path"].endswith("result")
+    md = client.get(f"/executions/{tabled['id']}/result/result.md")
+    assert md.status_code == 200 and "| Manga |" in md.text
+    assert client.get(f"/executions/{tabled['id']}/result/nope.md").status_code == 404
 
     # logs.ndjson lines are {ts, t, step, k, text}; step markers carry their step's name
     raw = store.read_logs(tabled["id"])

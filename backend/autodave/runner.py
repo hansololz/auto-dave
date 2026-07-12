@@ -93,6 +93,19 @@ class Log:
 
 
 class Result:
+    """§6.1 result builder. Values go to result.yaml via the engine; any other
+    output files are written directly into `result.path` (result.md, images, …)."""
+
+    def __init__(self, root: str):
+        self.path = Path(root)
+        self.path.mkdir(parents=True, exist_ok=True)
+
+    def __fspath__(self) -> str:
+        return str(self.path)
+
+    def __truediv__(self, other: str) -> Path:
+        return self.path / other
+
     def status(self, s: str) -> None:
         if s not in ("changes", "ok", "attention"):
             raise ValueError("result.status must be changes | ok | attention")
@@ -104,20 +117,12 @@ class Result:
     def chips(self, items) -> None:
         emit("result", field="chips", value=[str(x) for x in items])
 
-    def text(self, p: str) -> None:
-        emit("result", field="body", value={"k": "text", "text": str(p)})
-
-    def list(self, items) -> None:
-        emit("result", field="body", value={"k": "list", "items": [str(x) for x in items]})
-
-    def steps(self, items) -> None:
-        emit("result", field="body", value={"k": "steps", "items": [str(x) for x in items]})
-
-    def table(self, rows, columns=None) -> None:
-        emit("result", field="rows", value={"rows": rows, "columns": columns})
-
-    def attach(self, path) -> None:
-        emit("result", field="attach", value=str(path))
+    def value(self, name: str, value) -> None:
+        if isinstance(value, (list, tuple)):
+            v: object = [str(x) for x in value]
+        else:
+            v = str(value)
+        emit("result", field="value", value={"name": str(name), "value": v})
 
 
 class Agent:
@@ -245,7 +250,7 @@ def main() -> int:
         "memory": Memory(ctx["memory_dir"]),
         "workspace": workspace,
         "log": Log(),
-        "result": Result(),
+        "result": Result(ctx["result_dir"]),
         "notify": notify,
         "agent": Agent(ctx),
         "fetch_page": fetch_page,

@@ -14,7 +14,9 @@ Rules for everything you write:
 - Step scripts run one per subprocess with these globals (the autodave SDK):
   params (dict by param name), secrets.NAME (Keychain values, never log them),
   memory (persistent dir with .load(name, default)/.save(name, obj)), log/log.warn/log.error,
-  result (.status('changes'|'ok'|'attention'), .chip, .chips, .text, .list, .steps, .table(rows), .attach),
+  result (.status('changes'|'ok'|'attention'), .chip(text), .chips, .value(name, text_or_list) —
+  named values shown first in the UI; result.path is a directory: write any output files there,
+  result.md renders as markdown (use markdown tables), result.html as a styled page, images inline),
   notify(text), fetch_page(url), agent.ask(prompt, data) — agent.ask only in steps marked agent: true.
 - Imports allowed: Python stdlib, autodave, requests, httpx, bs4, lxml, feedparser, dateutil, yaml. Nothing else.
 - Schedule: pick hour/min (plus dow for weekly) from the user's words ("every morning at 8" ->
@@ -33,7 +35,7 @@ Rules for everything you write:
   * Reading web pages: fetch_page enforces a 10s timeout, 2s+ between requests to the same site,
     two retries, robots.txt, user agent "AutoDave/1.0".
   * Memory between runs: the memory dir is the only place that survives between runs; the cwd is
-    a disposable per-run workspace. Durable state -> memory, attachments -> result.attach(path).
+    a disposable per-run workspace. Durable state -> memory, output files -> result.path.
   * Notifications & results: exactly one result per run; at most one notification, at the end,
     via notify(text) — the user's settings decide whether it is shown.
   * Secrets & Keychain: reference by name (secrets.NAME); values are injected at runtime and
