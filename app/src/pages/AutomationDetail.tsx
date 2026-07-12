@@ -544,7 +544,7 @@ export default function AutomationDetail() {
             border: '1px solid var(--border-btn)', borderRadius: 8, padding: '9px 14px',
             fontWeight: 500, fontSize: 13, flex: 'none',
           }}
-          hoverStyle={{ borderColor: 'var(--border-hover)' }}
+          hoverStyle={{ border: '1px solid var(--border-hover)' }}
         >
           Edit
         </HoverBtn>
@@ -557,7 +557,7 @@ export default function AutomationDetail() {
               border: '1px solid var(--border-btn)', borderRadius: 8, padding: '9px 11px',
               fontWeight: 500, fontSize: 13,
             }}
-            hoverStyle={{ borderColor: 'var(--border-hover)' }}
+            hoverStyle={{ border: '1px solid var(--border-hover)' }}
           >
             <i className="fa-solid fa-ellipsis" style={{ fontSize: 12 }} />
           </HoverBtn>
@@ -635,7 +635,7 @@ export default function AutomationDetail() {
               background: 'rgba(255,255,255,.05)', border: '1px solid var(--border-btn)', borderRadius: 7,
               color: 'var(--text-2em)', fontWeight: 500, fontSize: 12, padding: '6px 12px', flex: 'none',
             }}
-            hoverStyle={{ borderColor: 'var(--border-hover)' }}
+            hoverStyle={{ border: '1px solid var(--border-hover)' }}
           >
             Resume editing
           </HoverBtn>
@@ -852,7 +852,7 @@ export default function AutomationDetail() {
                     background: 'none', border: '1px solid rgba(255,255,255,.1)', borderRadius: 7,
                     color: 'var(--text-2)', fontWeight: 500, fontSize: 12, padding: '6px 12px',
                   }}
-                  hoverStyle={{ borderColor: 'oklch(0.7 0.19 25 / .5)', color: 'oklch(0.74 0.17 25)' }}
+                  hoverStyle={{ border: '1px solid oklch(0.7 0.19 25 / .5)', color: 'oklch(0.74 0.17 25)' }}
                 >
                   Clear memory
                 </HoverBtn>
