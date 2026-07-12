@@ -347,12 +347,20 @@ def post_draft(body: dict) -> dict:
         # instructions; the draft payload carries them back to pre-fill Review.
         current = dict(current or {})
         current["instr"] = drafting.DEFAULT_INSTRUCTIONS
+    # §8/§19: in-editor grant arrays in the body win over the stored automation's —
+    # the editor's live toggles are the truth while a draft is being worked on.
+    enabled_ids = body.get("enabledAgents")
+    if enabled_ids is None and auto:
+        enabled_ids = auto["enabled_agents"]
+    allowed = body.get("allowedSecrets")
+    if allowed is None:
+        allowed = auto["allowed_secrets"] if auto else []
     grants = {
         # §8: grants context carries agent NAMES — ids are meaningless to the drafting agent.
         "agents": [g.get("name") or g.get("harness", "") for g in store.agents
-                   if auto and g["id"] in auto["enabled_agents"]] if auto
+                   if g["id"] in enabled_ids] if enabled_ids is not None
                   else [agent.get("name") or agent.get("harness", "")],
-        "secrets": (auto["allowed_secrets"] if auto else body.get("allowedSecrets", [])),
+        "secrets": allowed,
     }
     job_id = draft_jobs.start(mode, agent, body.get("text"), current, grants)
     return {"jobId": job_id}

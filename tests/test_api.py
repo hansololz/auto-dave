@@ -113,6 +113,29 @@ def test_sync_current_still_supported(client):
     assert "In-editor draft spec text." in logged
 
 
+def test_draft_edit_honors_in_editor_grants(client):
+    from autodave import paths
+    from autodave.storage import store
+
+    # saved grants: no agents enabled, no secrets allowed
+    a = store.create_automation(make_version(), "Ask target", "mock", enabled_agents=[])
+    r = client.post("/drafts", json={
+        "mode": "edit", "autoId": a["id"], "agentId": "mock",
+        "text": "Also check on weekends",
+        "enabledAgents": ["mock"], "allowedSecrets": ["MY_SECRET"],  # in-editor grants win
+    })
+    j = _wait_job(client, r.json()["jobId"])
+    assert j["status"] == "done", j
+    # §8: edit is the spec call only — the payload is just {spec}, steps untouched
+    assert j["draft"]["spec"] is not None
+    assert "steps" not in j["draft"]
+    logged = paths.app_log().read_text(encoding="utf-8")
+    assert "enabled agents (agent: true steps allowed only if nonempty): Claude Code" in logged
+    assert "allowed secret names: MY_SECRET" in logged
+    assert "Also check on weekends" in logged      # the USER REQUEST reached the prompt
+    assert "TASK: build the automation" not in logged  # no steps call on edit
+
+
 def test_dryrun_honors_in_editor_grants(client, monkeypatch):
     from autodave import api
     from autodave.storage import store

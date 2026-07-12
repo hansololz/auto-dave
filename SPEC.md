@@ -560,9 +560,10 @@ execution page.
 
 ## 8. Agent drafting pipeline (decided)
 
-Every draft, edit, or step-sync of an automation is a **two-call pipeline**: the backend first
-asks the agent to write the **spec**, then — in a second, independent call — to build the
-**steps, parameters, and schedule** from that spec. Both calls open with the same two
+Drafting is a **two-call pipeline**: the backend first asks the agent to write the **spec**,
+then — in a second, independent call — to build the **steps, parameters, and schedule** from
+that spec. Each mode runs the calls it needs (see Modes below); `edit` stops after the spec
+call and `sync` runs only the steps call. Both calls open with the same two
 instruction files, invoke the chosen agent harness headless through a per-harness adapter
 (`claude -p`, `gemini -p`, `codex exec`, `opencode run`, Ollama via its local HTTP API), and
 parse one text response each. Everything below is harness-independent; adapters only translate
@@ -584,10 +585,10 @@ also served to the create/edit page via §19 `GET /instructions`):
   carries `instr` back so the Review card arrives pre-filled — the user edits or deletes the
   rules freely, and they version like any instructions.
 
-**Modes:** `create` (both calls, from the user's description) · `edit` (both calls, applying a
-change request — typed edits or the Review page's "ask the agent" box — to the current version
-or draft) · `sync` (call 2 only: regenerate steps to match the provided spec; the spec itself
-must not change).
+**Modes:** `create` (both calls, from the user's description) · `edit` (call 1 only: apply a
+change request — the Review page's "ask the agent" box — to the in-editor draft's spec and
+return the rewritten spec; the steps are untouched and a later `sync` rebuilds them) · `sync`
+(call 2 only: regenerate steps to match the provided spec; the spec itself must not change).
 
 **Call 1 — write the spec** (`create`/`edit`; skipped on `sync`). Prompt sections in order:
 
@@ -597,7 +598,8 @@ must not change).
    USER REQUEST to the CURRENT `spec.md` and return the full updated file, keeping everything
    the request doesn't touch unchanged.
 3. **Grants context** — enabled agent names and allowed secret **names** (never values, memory
-   contents, or execution logs).
+   contents, or execution logs). The §19 body's grant arrays (the in-editor toggles) win over
+   the stored automation's; absent both, the drafting agent's own name and no secrets.
 4. **Build instructions** — the user's standing rules (or the seeded default), context only;
    the agent never returns this file.
 5. **Current version** (`edit` only) — `spec.md` plus today's step scripts as context.
@@ -605,9 +607,10 @@ must not change).
 
 Response: exactly one file block, `spec.md`. Validation: block present with no extras; must
 start with an `# title`; must have body content. The parsed §5 blocks become the draft's spec.
+On `edit` the job ends here — its draft payload is just `{ spec }`.
 
-**Call 2 — build the steps** (every mode; `sync` starts here with the provided spec — a `spec`
-in the §19 body wins over the stored version's). Prompt sections in order:
+**Call 2 — build the steps** (`create`/`sync`; `sync` starts here with the provided spec — a
+`spec` in the §19 body wins over the stored version's). Prompt sections in order:
 
 1. `framework-instructions.md` (verbatim).
 2. **TASK directive** — build the automation that implements the SPEC: derive the schedule,
@@ -616,7 +619,7 @@ in the §19 body wins over the stored version's). Prompt sections in order:
 
    ```
    ===FILE: manifest.yaml===
-   name: Suggested automation name   # create only (ignored on edit/sync)
+   name: Suggested automation name   # create only (ignored on sync)
    desc: One-line description
    note: Version note for the history menu (§4.4)
    schedule: { hour: 8, min: 0 }     # add dow: 0–6 (Sun=0) for weekly; omitted → daily 8:00
@@ -632,10 +635,10 @@ in the §19 body wins over the stored version's). Prompt sections in order:
    ```
 3. **Grants context** — as in call 1.
 4. **Build instructions** — as in call 1.
-5. **Mode line** — `create`: include a suggested `name`; `edit`/`sync`: current param
+5. **Mode line** — `create`: include a suggested `name`; `sync`: current param
    definitions and step scripts travel as reference ("rewrite them to match the SPEC, changing
    no more than the spec demands").
-6. **SPEC** — call 1's validated `spec.md` (`create`/`edit`) or the provided spec (`sync`).
+6. **SPEC** — call 1's validated `spec.md` (`create`) or the provided spec (`sync`).
 
 **Envelope + validation** (backend, deterministic, before anything is written to `draft/`):
 
@@ -652,7 +655,7 @@ in the §19 body wins over the stored version's). Prompt sections in order:
    from the automation's enabled agents. `why` is required when `agent` is true.
 7. `schedule` is validated (hour 0–23, min 0–59, dow 0–6); the agent picks the time from the
    spec's words (no time given → one that fits the job; fallback daily 8:00). It is applied only
-   when creating (v1's schedule, pre-filled on Review); on edit/sync the saved schedule is
+   when creating (v1's schedule, pre-filled on Review); on sync the saved schedule is
    user-owned (§5) and never changed by a draft.
 
 **Failure policy:** one automatic repair round **per call** — the same prompt plus the previous
@@ -661,7 +664,8 @@ draft, surfaced in the Building state (spec call: "The spec didn't validate — 
 rephrase."; steps call: "The steps didn't validate — …"). Per-call timeout 5 minutes; cancelling
 the Building screen kills the harness process. The job's `stage` tracks the pipeline ("Writing
 the spec" → "Generating the steps" — the §11 Building screen's two checklist rows; sync jobs
-start at the second). Every invocation's full prompt and raw response are logged to the app log
+start at the second, edit jobs end after the first). Every invocation's full prompt and raw
+response are logged to the app log
 (never to execution logs) for debugging.
 
 ## 9. Navigation & app shell
@@ -795,8 +799,16 @@ shows: "A run is happening right now on vN. Saving won't interrupt it — that r
 vN+1 takes over from the next run (`<schedule>`)." Sections (left column: spec, agents,
 secrets, instructions, framework; right column: steps, schedule, parameters, dry-run):
 - **Spec** — editable as markdown-ish text (`#`, `##`, `-`, plain ↔ h1/h2/li/p blocks). Also an
-  "ask the agent" box that appends a "Change (draft)" section. Spec/instructions/agent-ask edits
-  are mutually exclusive (one edit at a time).
+  "ask the agent" box ("Edit with agent") that runs one §8 `edit` job (spec call only) with the
+  selected drafting agent (the automation's agent, falling back to the default agent): the agent
+  receives the in-editor draft (spec + steps + build instructions) and the in-editor grants
+  (enabled agent names, allowed secret names) and returns the rewritten spec. The steps are not
+  touched: on success the spec is replaced and marked out of sync exactly like a manual spec
+  edit (toast "Spec updated — the workflow is out of sync. Sync the steps before saving."), and
+  the sync banner's "Sync now" rebuilds the steps later. While the job runs the ask box shows a
+  spinner and the Save hint reads "Rewriting the spec…"; on failure the backend's §8 error shows
+  as a toast and the draft is untouched. Spec/instructions/agent-ask edits are mutually
+  exclusive (one edit at a time).
 - **BUILD INSTRUCTIONS** — collapsible card holding the §4.1 `instr` free text, with view/edit
   states; edit placeholder "One rule per line — 'Prefer Python.' 'Never delete files — move them
   to the Trash.'", empty state "No instructions yet — press Edit to add standing rules." In
@@ -806,7 +818,8 @@ secrets, instructions, framework; right column: steps, schedule, parameters, dry
   marks the workflow out of sync and **blocks saving** until the sync banner's "Sync now" button
   runs one §8 `sync` call regenerating the steps ("Steps synced with the spec — review them,
   then save."). Disabled Save shows an amber hint ("Sync and review the steps before saving." /
-  "Finish editing the spec first…" / "Syncing steps…"). Picking a different agent for a single
+  "Finish editing the spec first…" / "Syncing steps…" / "Rewriting the spec…"); saving is also
+  blocked while any §8 job runs, and the sync banner hides while one runs. Picking a different agent for a single
   step does **not** dirty the workflow — it only marks the draft touched (toast "Step N now
   calls `<agent>` · `<model>`."); disabling an enabled agent that steps still call does dirty it
   (toast "Steps X, Y are out of sync — `<agent>` is no longer available here. Sync the steps
@@ -1123,7 +1136,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   replace the saved grants for the checks
 - `POST /dryrun` `{ draft, enabledAgents?, allowedSecrets? }` — create-mode dry run against an
   unsaved draft (no automation id); same check lines and WS events, memory line reports empty
-- `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec? }` → `{ jobId }`; progress via
+- `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
+  enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
+  the stored automation's for the §8 grants context; progress via
   WS; `GET /drafts/{jobId}` → state + validated §8 draft payload; `DELETE /drafts/{jobId}` cancels
   (kills the harness process)
 - `GET /executions?auto=&status=` (headers) · `GET /executions/{id}` (steps + logs + result) ·

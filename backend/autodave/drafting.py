@@ -1,9 +1,11 @@
 """Agent drafting pipeline (§8): two calls — write the spec, then build the steps.
 
 Call 1 (create/edit): framework instructions + build instructions + the user's
-request → spec.md. Call 2 (all modes; sync starts here): framework instructions +
+request → spec.md. Call 2 (create/sync; sync starts here): framework instructions +
 build instructions + the spec → manifest.yaml (params, schedule) + step files.
-Each call is followed by deterministic validation with one automatic repair round.
+`edit` runs call 1 only — the rewritten spec lands out of sync and a later `sync`
+job rebuilds the steps. Each call is followed by deterministic validation with
+one automatic repair round.
 """
 from __future__ import annotations
 
@@ -304,7 +306,7 @@ class DraftJobs:
 
     def _pipeline(self, job: dict, mode: str, agent: dict, user_text: str | None,
                   current: dict | None, grants: dict) -> bool:
-        """Runs both calls; sets job status. Returns True when cancelled mid-flight."""
+        """Runs the mode's calls; sets job status. Returns True when cancelled mid-flight."""
         spec_blocks = None
         if mode in ("create", "edit"):
             # ---- call 1: the spec ----
@@ -315,6 +317,13 @@ class DraftJobs:
             if errors:
                 return self._fail(job, "The spec didn't validate — try again or rephrase.", errors)
             spec_md, spec_blocks = spec["md"], spec["blocks"]
+            if mode == "edit":
+                # §8: edit stops after the spec — the Review page shows the
+                # rewritten spec out of sync and a later `sync` job rebuilds
+                # the steps.
+                job["status"] = "done"
+                job["draft"] = {"spec": spec_blocks}
+                return False
         else:
             # sync: the provided spec IS the input — no spec call
             spec_md = spec_as_md(current)

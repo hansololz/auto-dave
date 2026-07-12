@@ -130,12 +130,13 @@ export interface Settings {
   appPath?: string
 }
 
+// §8: `edit` jobs return only `spec`; create/sync jobs return the full payload.
 export interface DraftPayload {
   name?: string | null
-  desc: string
-  note: string
-  params: ParamDef[]
-  steps: Step[]
+  desc?: string
+  note?: string
+  params?: ParamDef[]
+  steps?: Step[]
   spec: SpecBlock[] | null
   instr?: string | null
   schedule?: { hour: number; min: number; dow: number | null }

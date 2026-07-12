@@ -157,7 +157,7 @@ interface Rev {
   note: string
   spec: SpecBlock[]
   steps: Step[]
-  params: DraftPayload['params']
+  params: NonNullable<DraftPayload['params']>
   sched: { hour: number; min: number; dow: number | null } | null
   schedLabel: string
   instr: string
@@ -173,6 +173,7 @@ interface Rev {
   instrDraft: string | null
   ask: string
   syncBusy: boolean
+  askBusy: boolean
   stepsMeta: string | null
   stepOpen: number | null
   viewing: 'draft' | number
@@ -186,7 +187,7 @@ const revDefaults = {
   dirty: false, dirtyWhy: null as Rev['dirtyWhy'], touched: false,
   specEdit: false, specText: '', specTextOrig: '',
   instrEdit: false, instrDraft: null as string | null,
-  ask: '', syncBusy: false, stepsMeta: null as string | null, stepOpen: null as number | null,
+  ask: '', syncBusy: false, askBusy: false, stepsMeta: null as string | null, stepOpen: null as number | null,
   viewing: 'draft' as Rev['viewing'],
   agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
 }
@@ -231,7 +232,7 @@ function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr
     params: snap.params ? snap.params.map((p) => ({ ...p })) : r.params,
     instr: snap.instr || '',
     specEdit: false, specText: '', specTextOrig: '', instrEdit: false, instrDraft: null,
-    dirty: false, dirtyWhy: null, syncBusy: false, stepsMeta: null, stepOpen: null, ask: '',
+    dirty: false, dirtyWhy: null, syncBusy: false, askBusy: false, stepsMeta: null, stepOpen: null, ask: '',
     viewing,
   }
 }
@@ -560,29 +561,53 @@ export default function CreateFlow() {
   const secSecOpenEff = ((rev?.secSecOpen ?? null) == null ? isEdit : !!rev?.secSecOpen) || secWarn
   const instrOpenEff = (rev?.instrSecOpen ?? null) == null ? isEdit : !!rev?.instrSecOpen
   const viewingOld = isEdit && !!rev && !!auto && rev.viewing !== 'draft' && rev.viewing !== auto.version
-  const saveBlocked = !!rev && (rev.dirty || rev.syncBusy || rev.specEdit)
-  const busyRewrite = !!rev && rev.syncBusy
+  const saveBlocked = !!rev && (rev.dirty || rev.syncBusy || rev.askBusy || rev.specEdit)
+  const busyRewrite = !!rev && (rev.syncBusy || rev.askBusy)
 
   // ---- review: agent-ask + sync jobs ----
   const currentSerialized = () => (rev ? serializeDraft(rev) : null)
 
-  // §11: the ask box appends a "Change (draft)" section to the spec. That marks
-  // the workflow out of sync exactly like a manual spec edit — the Sync-steps
-  // flow (one §8 sync call on the in-editor draft) regenerates the steps.
-  const sendAsk = () => {
-    if (!rev || rev.syncBusy) return
+  // §11: the ask box runs one §8 `edit` job (spec call only) — the drafting
+  // agent gets the in-editor draft (spec + steps + build instructions) and
+  // grants context and returns the rewritten spec. The steps stay untouched:
+  // the new spec lands out of sync and the sync banner rebuilds them later.
+  const sendAsk = async () => {
+    if (!rev || rev.syncBusy || rev.askBusy) return
     if (!rev.ask.trim()) { showToast('Type the change you want first.'); return }
     const request = rev.ask.trim()
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // one edit at a time
-      spec: [...rev.spec, { k: 'h2', text: 'Change (draft)' }, { k: 'p', text: request }],
-      ask: '', dirty: true, dirtyWhy: 'spec', touched: true,
+      ask: '', askBusy: true, touched: true,
     })
-    showToast('Spec updated — the steps need a rewrite to match.', 2700)
+    try {
+      const { jobId } = await api.postDraftJob({
+        mode: 'edit', text: request, ...(isEdit && auto ? { autoId: auto.id } : {}),
+        agentId, current: currentSerialized(),
+        enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
+      })
+      startPoll(
+        jobId,
+        (d) => {
+          setRev((r) => r && ({
+            ...r, askBusy: false,
+            spec: d.spec ?? r.spec, dirty: true, dirtyWhy: 'spec',
+          }))
+          showToast('Spec updated — the workflow is out of sync. Sync the steps before saving.', 5800)
+        },
+        (msg) => {
+          setRev((r) => r && ({ ...r, askBusy: false }))
+          showToast(msg || 'The spec didn’t validate — try again or rephrase.', 4500)
+        },
+        () => setRev((r) => r && ({ ...r, askBusy: false })),
+      )
+    } catch (e) {
+      up({ askBusy: false })
+      showToast((e as Error).message)
+    }
   }
 
   const runSync = async () => {
-    if (!rev || rev.syncBusy) return
+    if (!rev || rev.syncBusy || rev.askBusy) return
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // discard unsaved edits
       syncBusy: true, touched: true,
@@ -591,6 +616,7 @@ export default function CreateFlow() {
       const { jobId } = await api.postDraftJob({
         mode: 'sync', ...(isEdit && auto ? { autoId: auto.id } : {}),
         agentId, current: currentSerialized(),
+        enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
       startPoll(
         jobId,
@@ -963,8 +989,9 @@ export default function CreateFlow() {
                 {saveBlocked && (
                   <span style={{ font: "400 12px var(--sans)", color: 'var(--amber)' }}>
                     {rev.syncBusy ? 'Syncing steps…'
-                      : rev.specEdit ? 'Finish editing the spec first — save or cancel your edits'
-                        : 'Sync and review the steps before saving'}
+                      : rev.askBusy ? 'Rewriting the spec…'
+                        : rev.specEdit ? 'Finish editing the spec first — save or cancel your edits'
+                          : 'Sync and review the steps before saving'}
                   </span>
                 )}
                 <button className="ad-btn-text dim" onClick={() => void startOver()} style={{ font: "500 12.5px var(--sans)", padding: '6px 4px' }}>
@@ -1097,20 +1124,20 @@ export default function CreateFlow() {
                     <input
                       value={rev.ask}
                       onChange={(e) => up({ ask: e.target.value })}
-                      onKeyDown={(e) => { if (e.key === 'Enter') sendAsk() }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') void sendAsk() }}
                       placeholder="Ask for a change — “also check on weekends”"
                       style={{
                         flex: 1, background: 'var(--bg-inset)', border: '1px solid rgba(255,255,255,.08)',
                         borderRadius: 8, color: 'var(--text)', font: "400 12.5px var(--sans)", padding: '8px 12px', outline: 'none',
                       }}
                     />
-                    {rev.syncBusy ? (
+                    {rev.syncBusy || rev.askBusy ? (
                       <span style={{
                         width: 14, height: 14, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
                         borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none', margin: '0 8px',
                       }} />
                     ) : (
-                      <button className="ad-btn-soft" onClick={sendAsk} style={{ borderRadius: 8, padding: '8px 12px', font: "500 12px var(--sans)", whiteSpace: 'nowrap' }}>
+                      <button className="ad-btn-soft" onClick={() => void sendAsk()} style={{ borderRadius: 8, padding: '8px 12px', font: "500 12px var(--sans)", whiteSpace: 'nowrap' }}>
                         Edit with agent
                       </button>
                     )}
@@ -1378,7 +1405,7 @@ export default function CreateFlow() {
                       </span>
                     )}
                   </div>
-                  {rev.dirty && !rev.syncBusy && (
+                  {rev.dirty && !rev.syncBusy && !rev.askBusy && (
                     <div style={{
                       background: 'oklch(0.8 0.13 85 / .07)', border: '1px solid oklch(0.8 0.13 85 / .28)',
                       borderRadius: 9, padding: '10px 12px', margin: '12px 14px',
