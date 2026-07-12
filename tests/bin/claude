@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Fake `claude` CLI for tests (tests/bin is prepended to PATH by conftest).
+
+The backend invokes agents only by shelling out to the real CLI, so tests get a
+deterministic stand-in binary instead of a mock code path inside the app. It
+answers `--version` and one-shot `claude -p ... <prompt>` calls with canned
+envelopes matching the §8 drafting contract.
+"""
+import re
+import sys
+
+SPEC_ENVELOPE = """===FILE: spec.md===
+# {title}
+
+{desc}
+
+## Schedule
+
+Every day at 8:00.
+
+## What it does
+
+- Fetches what it needs and checks for anything new.
+- Builds a short result you can read at a glance.
+===END===
+"""
+
+STEPS_ENVELOPE = """===FILE: manifest.yaml===
+name: {title}
+desc: {desc}
+note: Drafted by the mock agent
+params:
+  - {{ name: notify_only_on_changes, kind: toggle, label: Notify only on changes, help: Skip the notification when nothing is new., default: true }}
+steps:
+  - {{ file: 01-check.py, name: Check for changes, desc: Looks for anything new since the last run. }}
+  - {{ file: 02-report.py, name: Build the result, desc: Summarizes what it found. }}
+===FILE: 01-check.py===
+found = []
+log("checked — nothing to do in mock mode")
+memory.save("last_check", {{"found": len(found)}})
+===FILE: 02-report.py===
+result.status("ok")
+result.chip("All good")
+result.text("Mock run — nothing new.")
+if not params["notify_only_on_changes"]:
+    notify("Mock run finished")
+===END===
+"""
+
+
+def respond(prompt: str) -> str:
+    if "question:" in prompt.lower() and "TASK:" not in prompt:
+        return "Mock answer: nothing new."
+    if "TASK: build the automation" in prompt:
+        # §8 call 2 — title comes from the SPEC's # heading
+        m = re.search(r"^# (.+)$", prompt.rsplit("=== SPEC", 1)[-1], re.M)
+        title = (m.group(1).strip() if m else "New automation")[:48]
+        return STEPS_ENVELOPE.format(title=title, desc=f"{title} — drafted by the mock agent.")
+    # §8 call 1 — title comes from the USER REQUEST (the prompt's last line)
+    lines = [l.strip() for l in prompt.splitlines() if l.strip()]
+    user = lines[-1] if lines else "New automation"
+    title = user.strip().rstrip(".")[:48].capitalize() or "New automation"
+    return SPEC_ENVELOPE.format(title=title, desc=f"{title} — drafted by the mock agent.")
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    if "--version" in args:
+        print("0.0.0 (auto-dave test fake)")
+        return
+    prompt = args[-1] if args else ""
+    sys.stdout.write(respond(prompt))
+
+
+if __name__ == "__main__":
+    main()

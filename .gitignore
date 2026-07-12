@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Node / Electron
+node_modules/
+dist/
+out/
+*.tsbuildinfo
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+
+# Env / local
+.env
+.env.local
+*.local.yaml
+
+# Logs
+*.log
+.dev-home/

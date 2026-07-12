@@ -1,0 +1,147 @@
+// App shell (§9): 212px sidebar + independently scrolling content, state-driven nav.
+import React, { useEffect, useState } from 'react'
+import { useStore } from './store'
+import { CountPill, Spinner, Toast } from './ui'
+import AgentNewPage from './pages/AgentNewPage'
+import AgentsPage from './pages/AgentsPage'
+import AutomationDetail from './pages/AutomationDetail'
+import AutomationsList from './pages/AutomationsList'
+import CreateFlow from './pages/CreateFlow'
+import ExecutionPage from './pages/ExecutionPage'
+import ExecutionsList from './pages/ExecutionsList'
+import MenuBarPanel from './pages/MenuBarPanel'
+import Onboarding from './pages/Onboarding'
+import SecretsPage from './pages/SecretsPage'
+import SettingsPage from './pages/SettingsPage'
+
+const NAV: { page: string; label: string; icon: string }[] = [
+  { page: 'automations', label: 'Automations', icon: 'fa-bolt' },
+  { page: 'executions', label: 'Executions', icon: 'fa-clock-rotate-left' },
+  { page: 'agents', label: 'Agents', icon: 'fa-microchip' },
+  { page: 'secrets', label: 'Secrets', icon: 'fa-key' },
+  { page: 'settings', label: 'Settings', icon: 'fa-sliders' },
+]
+
+function Logo({ size = 26 }: { size?: number }) {
+  return (
+    <span style={{
+      width: size, height: size, borderRadius: size * 0.32, background: 'var(--accent)',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+    }}>
+      <i className="fa-solid fa-hammer" style={{ color: '#0b0d11', fontSize: size * 0.5 }} />
+    </span>
+  )
+}
+
+export { Logo }
+
+function Sidebar() {
+  const { page, go, autos, execs } = useStore()
+  const [hovPage, setHovPage] = useState<string | null>(null)
+  const activeRoot = page === 'automation' ? 'automations' : page === 'execution' ? 'executions' : page === 'agentNew' ? 'agents' : page
+  const counts: Record<string, number> = {
+    automations: autos.length,
+    executions: execs.length,
+    agents: useStore.getState().agents.length,
+    secrets: useStore.getState().secrets.length,
+  }
+  return (
+    <div style={{
+      width: 212, flex: 'none', background: 'var(--bg-sidebar)',
+      borderRight: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column',
+    }}>
+      <div className="ad-drag" style={{ height: 44, flex: 'none' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '2px 16px 18px' }}>
+        <Logo />
+        <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-.01em' }}>Auto Dave</span>
+      </div>
+      <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 10px' }}>
+        {NAV.map((n) => {
+          const active = activeRoot === n.page
+          return (
+            <button
+              key={n.page}
+              onClick={() => go(n.page as never, { autoId: null, execId: null })}
+              onMouseEnter={() => setHovPage(n.page)}
+              onMouseLeave={() => setHovPage(null)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 11px',
+                borderRadius: 7, fontSize: 13, fontWeight: 500, textAlign: 'left',
+                color: active ? 'var(--text)' : 'var(--text-muted)',
+                background: active ? 'rgba(255,255,255,.07)' : hovPage === n.page ? 'rgba(255,255,255,.05)' : 'transparent',
+              }}
+            >
+              <i className={`fa-solid ${n.icon}`} style={{ width: 16, fontSize: 12, opacity: 0.85 }} />
+              <span style={{ flex: 1 }}>{n.label}</span>
+              <CountPill n={counts[n.page] ?? 0} active={active} />
+            </button>
+          )
+        })}
+      </nav>
+    </div>
+  )
+}
+
+function Content() {
+  const page = useStore((s) => s.page)
+  switch (page) {
+    case 'automations': return <AutomationsList />
+    case 'automation': return <AutomationDetail />
+    case 'executions': return <ExecutionsList />
+    case 'execution': return <ExecutionPage />
+    case 'agents': return <AgentsPage />
+    case 'agentNew': return <AgentNewPage />
+    case 'secrets': return <SecretsPage />
+    case 'settings': return <SettingsPage />
+    default: return <AutomationsList />
+  }
+}
+
+// Boot gate: plain window background while connecting. The logo/spinner only
+// appears if boot is still pending after 300 ms, so a fast boot shows no flash.
+function BootSplash({ waiting }: { waiting: boolean }) {
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    const id = window.setTimeout(() => setShow(true), 300)
+    return () => clearTimeout(id)
+  }, [])
+  return (
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, background: 'var(--bg-window)' }} className="ad-drag">
+      {show && (
+        <>
+          <Logo size={40} />
+          <Spinner size={18} />
+          <div style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>
+            {waiting ? 'Waiting for the Auto Dave backend…' : 'Connecting…'}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function App() {
+  const { connected, surface, toast, boot, createFrom } = useStore()
+
+  useEffect(() => { void boot() }, [])
+
+  if (connected === null || connected === false) {
+    return <BootSplash waiting={connected === false} />
+  }
+
+  if (surface === 'menubar') return <MenuBarPanel />
+  if (surface === 'onboard') return <><Onboarding /><Toast msg={toast} /></>
+
+  const inShell = surface === 'app' || (surface === 'create' && createFrom !== 'onboard')
+  return (
+    <div style={{ height: '100vh', display: 'flex', background: 'var(--bg-window)' }}>
+      <div className="ad-drag" style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 18, zIndex: 100 }} />
+      {inShell && <Sidebar />}
+      <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-content)', position: 'relative' }}>
+        {!inShell && <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 5 }} />}
+        {surface === 'create' ? <CreateFlow /> : <Content />}
+      </div>
+      <Toast msg={toast} />
+    </div>
+  )
+}

@@ -1,0 +1,269 @@
+import importlib
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from conftest import make_version
+
+
+@pytest.fixture()
+def client(home):
+    from autodave import api
+    from autodave.storage import store
+
+    store.load_all()
+    store.autos.clear()
+    store.execs.clear()
+    store.agents = [{"id": "mock", "harness": "Claude Code", "mode": "default",
+                     "model": "Claude Sonnet 4.5", "default": True}]
+    c = TestClient(api.app)
+    c.headers["Authorization"] = f"Bearer {api.AUTH_TOKEN}"
+    return c
+
+
+def test_auth_required(client):
+    r = client.get("/state", headers={"Authorization": "Bearer wrong"})
+    assert r.status_code == 401
+    assert client.get("/health").status_code == 200  # health is open
+
+
+def test_state_shape(client):
+    r = client.get("/state").json()
+    assert set(r) >= {"autos", "execs", "agents", "secrets", "settings", "version"}
+
+
+def test_instructions_endpoint(client):
+    from autodave.drafting import CONTRACT_PREAMBLE, DEFAULT_INSTRUCTIONS
+
+    # §11/§19: both instruction files travel to the page verbatim
+    r = client.get("/instructions").json()
+    assert r["framework"] == CONTRACT_PREAMBLE
+    assert r["defaultBuild"] == DEFAULT_INSTRUCTIONS
+
+
+def test_secret_crud_and_usedby(client):
+    assert client.put("/secrets/bad-name", json={"value": "x"}).status_code == 422
+    assert client.put("/secrets/MY_TOKEN", json={"value": "abc"}).status_code == 200
+    names = [s["name"] for s in client.get("/secrets").json()]
+    assert "MY_TOKEN" in names
+    assert client.delete("/secrets/MY_TOKEN").status_code == 200
+
+
+def test_draft_job_and_create_flow(client):
+    r = client.post("/drafts", json={"mode": "create", "text": "Watch a product price", "agentId": "mock"})
+    job_id = r.json()["jobId"]
+    for _ in range(100):
+        j = client.get(f"/drafts/{job_id}").json()
+        if j["status"] in ("done", "failed"):
+            break
+        time.sleep(0.1)
+    assert j["status"] == "done", j
+    draft = j["draft"]
+    assert draft["steps"] and draft["spec"]
+    # §8: create drafts carry the seeded default build instructions back to Review
+    from autodave.drafting import DEFAULT_INSTRUCTIONS
+    assert draft["instr"] == DEFAULT_INSTRUCTIONS
+    r = client.post("/automations", json={"draft": draft, "agentId": "mock"})
+    assert r.status_code == 200
+    auto = r.json()
+    assert auto["version"] == 1 and auto["lastStatus"] == "none"
+    # §11 create toast state: nothing has run yet
+    assert auto["lastRunLabel"] == ""
+
+
+def _wait_job(client, job_id):
+    for _ in range(100):
+        j = client.get(f"/drafts/{job_id}").json()
+        if j["status"] in ("done", "failed"):
+            return j
+        time.sleep(0.1)
+    return j
+
+
+def test_sync_uses_provided_spec(client):
+    from autodave import paths
+    from autodave.storage import store
+
+    a = store.create_automation(make_version(), "Sync target", "mock")
+    marker = "The provided spec wins over the stored one."
+    r = client.post("/drafts", json={"mode": "sync", "autoId": a["id"], "agentId": "mock",
+                                     "spec": f"# Synced title\n\n{marker}"})
+    j = _wait_job(client, r.json()["jobId"])
+    assert j["status"] == "done", j
+    assert j["draft"]["spec"] is None  # sync returns no spec.md
+    logged = paths.app_log().read_text(encoding="utf-8")
+    assert marker in logged            # the prompt embedded the PROVIDED spec…
+    assert "It tests." not in logged   # …not the stored version's spec
+
+
+def test_sync_current_still_supported(client):
+    from autodave import paths
+    from autodave.storage import store
+
+    a = store.create_automation(make_version(), "Sync current", "mock")
+    cur = make_version(spec=[{"k": "h1", "text": "Edited"},
+                             {"k": "h2", "text": "Change (draft)"},
+                             {"k": "p", "text": "In-editor draft spec text."}])
+    r = client.post("/drafts", json={"mode": "sync", "autoId": a["id"], "agentId": "mock",
+                                     "current": cur})
+    j = _wait_job(client, r.json()["jobId"])
+    assert j["status"] == "done", j
+    logged = paths.app_log().read_text(encoding="utf-8")
+    assert "In-editor draft spec text." in logged
+
+
+def test_dryrun_honors_in_editor_grants(client, monkeypatch):
+    from autodave import api
+    from autodave.storage import store
+
+    ver = make_version(steps=[
+        {"file": "01-use.py", "name": "Use secret", "desc": "",
+         "code": "x = secrets.MY_SECRET\n"},
+        {"file": "02-ask.py", "name": "Ask", "desc": "", "agent": True, "why": "judgment",
+         "code": 'agent.ask("q", {})\n'},
+    ])
+    # saved grants: no secret allowed, only a nonexistent agent enabled
+    a = store.create_automation(ver, "Dry runner", "mock", enabled_agents=["ghost"])
+    client.put("/secrets/MY_SECRET", json={"value": "v"})
+    client.patch(f"/automations/{a['id']}", json={"paramValues": {"count": 0}})
+
+    events = []
+    monkeypatch.setattr(api.hub, "publish", lambda ev, **kw: events.append({"ev": ev, **kw}))
+
+    def run(body):
+        events.clear()
+        client.post(f"/automations/{a['id']}/dryrun", json=body)
+        for _ in range(100):
+            if any(e["ev"] == "dryrun.done" for e in events):
+                return [e for e in events if e["ev"] == "dryrun.line"]
+            time.sleep(0.05)
+        raise AssertionError(f"dryrun never finished: {events}")
+
+    lines = run({})  # saved grants
+    assert any("MY_SECRET isn't allowed" in e["text"] for e in lines)
+    assert any("no agent is enabled" in e["text"] for e in lines)
+    # number param below its min is advisory-amber
+    bad_num = next(e for e in lines if e["text"].startswith("Count:"))
+    assert bad_num["kind"] == "warn" and "needs attention" in bad_num["text"]
+
+    lines = run({"allowedSecrets": ["MY_SECRET"], "enabledAgents": ["mock"]})  # in-editor grants
+    assert any("MY_SECRET is in your Keychain and allowed" in e["text"] for e in lines)
+    assert any("an enabled agent is ready" in e["text"] for e in lines)
+
+    lines = run({"allowedSecrets": [], "enabledAgents": []})  # explicit empty overrides
+    assert any("MY_SECRET isn't allowed" in e["text"] for e in lines)
+    assert any("no agent is enabled" in e["text"] for e in lines)
+
+
+def test_run_and_execution_pages(client):
+    from autodave.storage import store
+
+    a = store.create_automation(make_version(), "API Runner", "mock")
+    r = client.post(f"/automations/{a['id']}/run", json={})
+    assert r.status_code == 200
+    exec_id = r.json()["execId"]
+    # §7: starting while live → 409
+    r2 = client.post(f"/automations/{a['id']}/run", json={})
+    assert r2.status_code == 409
+    for _ in range(100):
+        e = client.get(f"/executions/{exec_id}").json()
+        if e["status"] != "running":
+            break
+        time.sleep(0.1)
+    assert e["status"] == "succeeded"
+    assert e["result"]["chip"] == "All good"
+    assert any(l["k"] == "sys" for l in e["logs"])
+    autos = client.get("/automations").json()
+    me = next(x for x in autos if x["id"] == a["id"])
+    assert me["lastStatus"] == "succeeded"
+    assert me["resultChip"] == "All good"
+
+
+def test_patch_automation_schedule_and_grants(client):
+    from autodave.storage import store
+
+    a = store.create_automation(make_version(), "Patchable", "mock")
+    r = client.patch(f"/automations/{a['id']}", json={
+        "hour": 6, "min": 15, "dow": 3, "schedOff": True,
+        "allowedSecrets": ["X_TOKEN"], "paramValues": {"greeting": "yo"},
+    })
+    j = r.json()
+    assert j["schedule"] == "Wednesdays at 6:15"
+    assert j["schedOff"] is True
+    assert j["allowedSecrets"] == ["X_TOKEN"]
+    assert next(p for p in j["params"] if p["name"] == "greeting")["value"] == "yo"
+
+
+def test_save_version_and_restore(client):
+    from autodave.storage import store
+
+    a = store.create_automation(make_version(), "Versioner", "mock")
+    r = client.post(f"/automations/{a['id']}/versions",
+                    json={"draft": make_version(desc="second", note="Change")})
+    assert r.json()["version"] == 2
+    r = client.post(f"/automations/{a['id']}/restore", json={"v": 1})
+    assert r.json()["version"] == 3
+    j = client.get(f"/automations/{a['id']}").json()
+    assert [v["v"] for v in j["versions"]] == [2, 1]
+
+
+def test_delete_agent_reassigns_default(client):
+    from autodave.storage import store
+
+    r = client.post("/agents", json={"harness": "Ollama", "mode": "ollama",
+                                     "model": "qwen3:8b", "name": "Local"})
+    new_id = r.json()["id"]
+    client.patch(f"/agents/{new_id}", json={"default": True})
+    r = client.delete(f"/agents/{new_id}")
+    assert r.status_code == 200
+    agents = client.get("/agents").json()
+    assert any(g.get("default") for g in agents)
+
+
+def test_seed_then_state(client, home):
+    from autodave.storage import store
+    from seed_data import seed
+
+    seed(store)
+    r = client.get("/state").json()
+    names = {a["name"] for a in r["autos"]}
+    assert names == {"Track manga chapters", "Nightly folder backup",
+                     "Weekly report email", "Clean screenshots folder"}
+    assert len(r["execs"]) >= 10
+    statuses = {e["status"] for e in r["execs"]}
+    assert {"succeeded", "failed", "cancelled", "interrupted"} <= statuses
+    manga = next(a for a in r["autos"] if a["name"] == "Track manga chapters")
+    assert manga["version"] == 3
+    assert manga["latest"]["chip"] == "2 new chapters"
+    assert manga["schedule"] == "Daily at 8:00"
+    assert len(manga["versions"]) == 2  # v2, v1 in history
+    secrets = {s["name"] for s in r["secrets"]}
+    assert secrets == {"SMTP_PASSWORD", "VAULT_DRIVE_KEY"}
+    report = next(a for a in r["autos"] if a["name"] == "Weekly report email")
+    assert "SMTP_PASSWORD" in report["allowedSecrets"]
+
+    # terminal seeded executions carry finished_at (started + duration)
+    for h in store.execs.values():
+        if h["status"] in ("succeeded", "failed", "cancelled", "interrupted"):
+            assert h.get("finished_at"), h["id"]
+
+    # manga result table: §4.5 columns in order, `read` per row, isNew/href as metadata
+    manga_execs = [e for e in r["execs"] if e["autoName"] == "Track manga chapters"]
+    fulls = [client.get(f"/executions/{e['id']}").json() for e in manga_execs]
+    tabled = next(f for f in fulls if f.get("result") and f["result"].get("rows"))
+    assert tabled["result"]["columns"] == ["manga", "latest chapter", "updated", "new", "read"]
+    for row in tabled["result"]["rows"]:
+        assert {"manga", "latest chapter", "updated", "read", "isNew", "href"} <= set(row)
+
+    # logs.ndjson lines are {ts, t, step, k, text}; step markers carry their step's name
+    raw = store.read_logs(tabled["id"])
+    assert raw and all(set(l) == {"ts", "t", "step", "k", "text"} for l in raw)
+    first = raw[0]
+    assert first["text"].startswith("▸ Step 1") and first["step"] == "Read your manga list"
+    step2 = next(l for l in raw if l["text"].startswith("▸ Step 2"))
+    assert step2["step"] == "Check each site for new chapters"
+    # a line before any step marker is run-level (step: null)
+    shots_int = next(e for e in r["execs"] if e["status"] == "interrupted")
+    int_logs = store.read_logs(shots_int["id"])
+    assert int_logs and int_logs[0]["step"] is None

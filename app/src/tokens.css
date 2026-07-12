@@ -1,0 +1,183 @@
+/* Design tokens (§14; design/README.md is authoritative). Dark theme only. */
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-sans/700.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+@import '@fortawesome/fontawesome-free/css/all.min.css';
+
+:root {
+  --bg-window: #0b0e12;
+  --bg-content: #0e1116;
+  --bg-sidebar: #0a0d11;
+  --bg-card: #12151c;
+  --bg-card-sel: #14181f;
+  --bg-inset: #0d1015;
+  --bg-menu: #161a22;
+  --bg-toast: #1b202a;
+
+  --text: #e9ecf1;
+  --text-2: #a8b0bc;
+  --text-2em: #c6cdd6;
+  --text-2emx: #dfe4ea;
+  --text-muted: #8a93a0;
+  --text-faint: #67707c;
+  --text-faintest: #4f5763;
+
+  --hairline: rgba(255, 255, 255, 0.06);
+  --border-card: rgba(255, 255, 255, 0.07);
+  --border-input: rgba(255, 255, 255, 0.10);
+  --border-btn: rgba(255, 255, 255, 0.11);
+  --border-hover: rgba(255, 255, 255, 0.25);
+
+  --accent: oklch(0.74 0.155 52);
+  --accent-hover: oklch(0.79 0.155 52);
+  --accent-bg: oklch(0.74 0.155 52 / 0.15);
+  --accent-chip-bg: oklch(0.74 0.155 52 / 0.13);
+  --accent-hint-bg: oklch(0.74 0.155 52 / 0.08);
+  --on-accent: #16100a;
+  --link-hover: oklch(0.82 0.14 60);
+
+  --green: oklch(0.76 0.15 150);
+  --green-bg: oklch(0.76 0.15 150 / 0.13);
+  --cyan: oklch(0.78 0.12 210);
+  --cyan-bg: oklch(0.78 0.12 210 / 0.13);
+  --red: oklch(0.7 0.19 25);
+  --red-bg: oklch(0.7 0.19 25 / 0.13);
+  --amber: oklch(0.8 0.13 85);
+  --amber-bg: oklch(0.8 0.13 85 / 0.14);
+  --orange: oklch(0.72 0.15 60);
+  --orange-bg: oklch(0.72 0.15 60 / 0.13);
+  --magenta: oklch(0.72 0.16 340);
+  --magenta-bg: oklch(0.72 0.16 340 / 0.13);
+  --gray: #98a1ad;
+  --gray-bg: rgba(152, 161, 173, 0.13);
+
+  --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { height: 100%; }
+
+body {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-window);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+::selection { background: oklch(0.74 0.155 52 / 0.35); }
+
+input, textarea, select, button { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; }
+button:disabled { cursor: default; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--link-hover); text-decoration: underline; }
+
+/* Buttons — hover always via CSS :hover, never JS mouse-state (a JS hover flag
+   sticks when a re-render or layout shift moves the node under the cursor). */
+.ad-btn-primary {
+  background: var(--accent); color: var(--on-accent);
+  font-weight: 600; font-size: 13px; padding: 9px 16px; border-radius: 8px;
+  transition: background .15s ease;
+}
+.ad-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.ad-btn-primary:disabled { background: rgba(255, 255, 255, 0.08); color: var(--text-faint); }
+
+.ad-btn-ghost {
+  color: var(--text-muted); border: 1px solid var(--border-btn); background: transparent;
+  font-weight: 500; font-size: 13px; padding: 8px 15px; border-radius: 8px;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.ad-btn-ghost:hover:not(:disabled) { color: var(--text-2); border-color: var(--border-hover); background: rgba(255, 255, 255, 0.04); }
+.ad-btn-ghost.danger, .ad-btn-ghost.danger:hover:not(:disabled) { color: var(--red); }
+
+/* small bordered card-header button (Edit / Sync now / Run a dry check) */
+.ad-btn-soft {
+  background: rgba(255, 255, 255, 0.05); color: var(--text-2em);
+  border: 1px solid var(--border-btn); border-radius: 6px;
+  font: 500 11.5px var(--sans); padding: 4px 11px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.ad-btn-soft:hover:not(:disabled) { border-color: var(--border-hover); color: var(--text); }
+
+/* borderless text button; .dim for the fainter tone */
+.ad-btn-text { color: var(--text-muted); transition: color .15s ease; }
+.ad-btn-text:hover:not(:disabled) { color: var(--text); }
+.ad-btn-text.dim { color: var(--text-faint); }
+.ad-btn-text.dim:hover:not(:disabled) { color: var(--text-2); }
+
+/* mono pill trigger (agent picker, version menu) */
+.ad-btn-pill {
+  display: flex; align-items: center; gap: 6px;
+  font: 600 10.5px var(--mono); color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06); border-radius: 6px; padding: 3px 7px;
+  transition: color .15s ease, background .15s ease;
+}
+.ad-btn-pill:hover:not(:disabled) { color: var(--text-2em); background: rgba(255, 255, 255, 0.09); }
+
+/* dashed add-row button (+ Add line / + Add pair) */
+.ad-btn-dashed {
+  align-self: flex-start; background: none;
+  border: 1px dashed rgba(255, 255, 255, 0.14); border-radius: 7px;
+  color: var(--text-muted); font: 500 11.5px var(--sans); padding: 5px 11px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.ad-btn-dashed:hover:not(:disabled) { color: var(--text); border-color: rgba(255, 255, 255, 0.25); }
+
+/* row-remove ✕ */
+.ad-btn-x { color: #4a515c; width: 24px; flex: none; font: 500 14px var(--sans); transition: color .15s ease; }
+.ad-btn-x:hover:not(:disabled) { color: oklch(0.74 0.17 25); }
+
+/* example-prompt chip (create-flow Ask phase) */
+.ad-chip-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px; color: var(--text-2); font: 500 12px var(--sans); padding: 6px 13px;
+  transition: color .15s ease, border-color .15s ease, background .15s ease, transform .1s ease;
+}
+.ad-chip-btn i { font-size: 10px; color: var(--text-faint); transition: color .15s ease; }
+.ad-chip-btn:hover { border-color: oklch(0.74 0.155 52 / 0.45); background: var(--accent-hint-bg); color: var(--text); }
+.ad-chip-btn:hover i { color: var(--accent); }
+.ad-chip-btn:active { transform: translateY(1px); }
+
+/* popover menu row */
+.ad-menu-row { padding: 8px 11px; border-radius: 7px; cursor: pointer; font-size: 12.5px; color: var(--text-2); }
+.ad-menu-row:hover { background: rgba(255, 255, 255, 0.05); }
+.ad-menu-row.active { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+.ad-menu-row.danger { color: var(--red); }
+
+@keyframes adFadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes adFadeOutDown {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
+@keyframes adFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes adFadeOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes adSpin { to { transform: rotate(360deg); } }
+@keyframes adPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); background-clip: content-box; border: 2px solid transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+/* keep the textarea resize grip theme-colored — without this it flips to the
+   default light square once a scrollbar appears */
+::-webkit-resizer {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M10.5 5 5 10.5M10.5 8.5l-2 2' stroke='rgba(255,255,255,0.28)' stroke-width='1.2' stroke-linecap='round' fill='none'/%3E%3C/svg%3E") no-repeat bottom right / 12px 12px;
+}
+
+/* drag region for the hiddenInset title bar */
+.ad-drag { -webkit-app-region: drag; }
+.ad-drag button, .ad-drag a, .ad-drag input { -webkit-app-region: no-drag; }
