@@ -267,3 +267,23 @@ def test_seed_then_state(client, home):
     shots_int = next(e for e in r["execs"] if e["status"] == "interrupted")
     int_logs = store.read_logs(shots_int["id"])
     assert int_logs and int_logs[0]["step"] is None
+
+
+def test_settings_devmode_gates_request_logging(client):
+    import logging
+
+    from autodave.main import _DevModeFilter
+
+    # §4.9: default off; PATCH persists it
+    assert client.get("/settings").json()["devMode"] is False
+    flt = _DevModeFilter()
+    info = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1,
+                             "GET /state", None, None)
+    warn = logging.LogRecord("autodave.api", logging.WARNING, __file__, 1,
+                             "boom", None, None)
+    # §5: off → warnings only
+    assert not flt.filter(info)
+    assert flt.filter(warn)
+    assert client.patch("/settings", json={"devMode": True}).json()["devMode"] is True
+    # §5: the filter reads the live setting — no restart needed
+    assert flt.filter(info)

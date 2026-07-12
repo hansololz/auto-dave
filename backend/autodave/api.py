@@ -552,7 +552,7 @@ def get_settings() -> dict:
 
 @app.patch("/settings", dependencies=[Depends(auth)])
 def patch_settings(body: dict) -> dict:
-    for k in ("login", "mbIcon", "notif", "days", "keepForever"):
+    for k in ("login", "mbIcon", "notif", "days", "keepForever", "devMode"):
         if k in body:
             store.settings[k] = body[k]
     store.save_settings()

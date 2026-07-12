@@ -15,7 +15,7 @@
 # Isolated mode (opt-in): setting any AUTODAVE_* knob makes dev.sh spawn the
 # backend directly with that env instead of via launchd (the plist carries no
 # env). Knobs (§15): AUTODAVE_HOME (isolated data dir), AUTODAVE_PORT,
-# AUTODAVE_ACCESS_LOG=1, AUTODAVE_OLLAMA_URL, AUTODAVE_STEP_TIMEOUT.
+# AUTODAVE_OLLAMA_URL, AUTODAVE_STEP_TIMEOUT.
 #   --fresh    wipe the data dir first — refused unless AUTODAVE_HOME is set
 set -euo pipefail
 

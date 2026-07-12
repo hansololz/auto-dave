@@ -267,6 +267,8 @@ login: bool        — "Launch at login" ("Auto Dave starts quietly in the menu 
 mbIcon: bool       — "Show in the menu bar" ("The quickest way to run an automation.")
 notif: attention | all — "Only when something needs attention" / "After every run"
 days: int ≥ 1 (default 90) — history retention; keepForever: bool disables cleanup
+devMode: bool (default false) — "Developer mode" ("Logs every backend request and every AI
+  request — including the full prompt — to the backend log.") — gates request logging (§5)
 dataPath (default ~/Library/Application Support/Auto Dave/executions), dataSize
 ```
 Run-data section: Change then Reveal in Finder; Change opens the native macOS folder picker and the chosen
@@ -276,7 +278,8 @@ the new location (the old dir stays where it was).
 The "Keep runs for" days row is hidden (not just disabled) while "Keep run history forever" is
 on. One **ON THIS MAC** card holds two rows: **"Automations & settings"** (the fixed path
 `~/Library/Application Support/Auto Dave` with its own Reveal in Finder button — this location
-is not changeable) above the **Run data** row.
+is not changeable) above the **Run data** row. A **DEVELOPER** card sits last on the page with
+the single **Developer mode** toggle row (devMode above).
 
 ## 5. Storage (decided)
 
@@ -319,6 +322,17 @@ automations/<slug>/
 Console.app picks them up): `app.log` (backend application log), `backend.out.log` /
 `backend.err.log` (launchd stdout/stderr), and dev.sh's `vite.log`. With `AUTODAVE_HOME` set
 (§15) logs go to `<home>/logs/` instead, keeping dev/test runs fully isolated.
+
+**Request logging (behind the §4.9 `devMode` setting):** while Developer mode is on, the
+backend logs to its console every HTTP request it serves (uvicorn access log at `info` level —
+stdout, so `backend.out.log` under launchd) and every agent request — one `autodave.harness`
+INFO line per `harness.invoke()` with the harness, the model (agent's, else the harness
+default), and the full prompt (stderr, so `backend.err.log`). `./scripts/logs.sh` (§18)
+follows both plus `app.log`/`vite.log`. Implemented as a logging filter that reads the live setting on
+every record, so flipping the toggle applies immediately with no backend restart; while off,
+only WARNING+ prints. The filter rides in on uvicorn's `log_config` handlers (uvicorn's own
+dictConfig would wipe a filter attached to its loggers beforehand) and on the root handler for
+`autodave.*` logs.
 
 A version folder holds **what the agent wrote** (spec, instructions, steps + scripts, param
 definitions, desc); the top-level `automation.yaml` holds **what the user owns and operates**
@@ -932,7 +946,8 @@ configuration (they relocate or re-tune the same behavior, never select differen
 Every knob defaults to the release value and is developer opt-in; the single knob dev.sh sets
 itself is `AUTODAVE_RENDERER_URL` (below — same renderer source, served with HMR instead of
 pre-bundled). Dev runs use the real app-support dir, real Keychain, real agent CLIs, random
-port, warnings-only logging, and the real launchd service (§18 dev.sh).
+port, request logging via the §4.9 devMode setting (§5), and the real launchd service (§18
+dev.sh).
 
 Frontend state (localStorage/URL — production mechanisms, not dev branches): `ad-onboarded`
 (persisted onboarding completion; clearing it re-runs onboarding), `#menubar` URL hash (selects
@@ -944,11 +959,6 @@ Backend env knobs (configuration only):
 
 - `AUTODAVE_HOME` — overrides the app-support root (isolated dev/test homes); logs move to
   `<home>/logs/` (§5).
-- `AUTODAVE_ACCESS_LOG=1` — dev request logging (default logs warnings only): every HTTP request
-  (uvicorn access log at `info` level) and every agent request — one `autodave.harness` INFO line
-  per `harness.invoke()` with the harness, model (agent's, else the harness default), and the
-  full prompt. Opt-in (dev.sh does not set it); output lands in the backend's stderr log
-  (`backend.err.log` under the logs dir, §5).
 - `AUTODAVE_PORT` — fixed port instead of a random free one.
 - `AUTODAVE_OLLAMA_URL` — Ollama HTTP endpoint override (default `http://localhost:11434`).
 - `AUTODAVE_STEP_TIMEOUT` — per-step timeout in seconds (default 900).
@@ -997,7 +1007,7 @@ sleep"); `running` is inherently live and is not seeded.
   bridge), Vite + React + TS renderer under `src/` (`store.ts` central model, `api.ts` client,
   `ui.tsx` shared primitives, `tokens.css` design tokens, `pages/` one file per screen).
   `UI-GUIDE.md` records the renderer conventions.
-- `scripts/` — project scripts (`dev.sh`, `build.sh`, `prod.sh` — §18;
+- `scripts/` — project scripts (`dev.sh`, `build.sh`, `prod.sh`, `logs.sh` — §18;
   `gen_tray_icon.py` renders the tray template PNGs;
   `gen_app_icon.cjs` renders the dock icon `app/electron/appIcon.png` via Electron —
   run from `app/` as `./node_modules/.bin/electron ../scripts/gen_app_icon.cjs`;
@@ -1039,7 +1049,8 @@ Dev workflow:
   then (re)installs the real launchd LaunchAgent (`autodave service uninstall` +
   `service install`, `com.autodave.backend`, §3) so the backend runs exactly as in release:
   launchd-managed, RunAtLoad/KeepAlive, cwd `/`, minimal launchd PATH, random free port,
-  macOS Keychain, warnings-only logging to `backend.out.log`/`backend.err.log` under the logs
+  macOS Keychain, devMode-gated request logging (§5) to `backend.out.log`/`backend.err.log`
+  under the logs
   dir (§5), data in `~/Library/Application Support/Auto Dave` (starts empty on a fresh
   machine); starts a Vite dev server on a random free port (`npx vite --strictPort`, log
   `vite.log` under the logs dir, killed on script exit); waits for a fresh `backend.json`
@@ -1060,6 +1071,12 @@ Dev workflow:
   launchd PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), same log filenames under the chosen home.
   `--fresh` wipes the data dir first and is refused unless `AUTODAVE_HOME` is set (never wipes
   the real app data).
+- **`./scripts/logs.sh`** — follows all log streams in one terminal (`tail -n 25 -F`):
+  `backend.err.log`, `backend.out.log`, `app.log`, plus `vite.log` when present. Resolves the
+  logs dir exactly like dev.sh (`~/Library/Logs/Auto Dave`, or `<home>/logs` when
+  `AUTODAVE_HOME` is set, §5); creates missing backend logs so `tail` starts clean.
+  **`--clear`** truncates the logs in place first (`: >` — writers keep their open
+  append-mode handles), then follows.
 - Backend: `python3.12 -m venv .venv && .venv/bin/pip install -e "backend[dev]"`; run tests with
   `.venv/bin/python -m pytest tests/`; dev.sh launches the backend via `python -m autodave.main`
   (equivalent to the `autodave-backend` entry point); run an isolated backend (real agent CLIs,

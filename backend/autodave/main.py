@@ -2,6 +2,7 @@
 load files, start the scheduler, serve the API."""
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -13,6 +14,13 @@ from . import __version__, api, paths
 from .scheduler import Scheduler
 from .storage import store
 from .yamlio import atomic_write_text
+
+
+class _DevModeFilter(logging.Filter):
+    """§4.9 devMode: INFO request logs pass only while the setting is on."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno >= logging.WARNING or bool(store.settings.get("devMode"))
 
 
 def free_port() -> int:
@@ -31,14 +39,21 @@ def main() -> None:
     }), mode=0o600)
     scheduler = Scheduler(store, api.engine)
     scheduler.start()
-    # AUTODAVE_ACCESS_LOG=1 (§15, opt-in): log every HTTP request and every agent
-    # request. basicConfig makes autodave.* INFO logs print.
-    dev_log = os.environ.get("AUTODAVE_ACCESS_LOG") == "1"
-    if dev_log:
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
-    log_level = "info" if dev_log else "warning"
+    # §4.9 devMode: request logging (every HTTP request via the uvicorn access
+    # log, every agent request via autodave.harness) prints only while the
+    # Settings toggle is on. The filter reads the live setting, so flipping the
+    # toggle applies immediately — no restart. WARNING+ always prints.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
+    logging.getLogger().handlers[0].addFilter(_DevModeFilter())
+    # uvicorn's dictConfig would wipe filters added to its loggers up front, so
+    # the filter rides in on its log_config handlers instead.
+    log_config = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
+    log_config["filters"] = {"devmode": {"()": _DevModeFilter}}
+    for handler in log_config["handlers"].values():
+        handler.setdefault("filters", []).append("devmode")
     try:
-        uvicorn.run(api.app, host="127.0.0.1", port=port, log_level=log_level)
+        uvicorn.run(api.app, host="127.0.0.1", port=port, log_level="info",
+                    log_config=log_config)
     finally:
         scheduler.stop()
         try:

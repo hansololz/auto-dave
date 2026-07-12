@@ -33,6 +33,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "days": 90,
     "keepForever": False,
     "dataPath": None,  # None → paths.default_data_path()
+    "devMode": False,  # §4.9: request logging on/off, read live by the log filter
 }
 
 

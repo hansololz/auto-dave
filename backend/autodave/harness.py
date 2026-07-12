@@ -55,12 +55,10 @@ def invoke(agent: dict, prompt: str, timeout: int = 300,
 
     proc_holder, when given, receives {'proc': Popen} so a caller can cancel.
     """
-    if os.environ.get("AUTODAVE_ACCESS_LOG") == "1":
-        harness = agent.get("harness") or "?"
-        model = agent.get("model") or HARNESS_DEFAULT_MODEL.get(harness, "harness default")
-        log.info("agent request · harness=%s · model=%s · prompt (%d chars):\n%s",
-                 harness, model, len(prompt), prompt)
     harness = agent.get("harness")
+    model = agent.get("model") or HARNESS_DEFAULT_MODEL.get(harness or "?", "harness default")
+    log.info("agent request · harness=%s · model=%s · prompt (%d chars):\n%s",
+             harness or "?", model, len(prompt), prompt)
     if harness == "Ollama":
         return _ollama(agent.get("model") or "qwen3:8b", prompt, timeout)
     # §6: query-only runtime calls — invoke each harness with the strongest

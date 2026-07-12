@@ -124,6 +124,7 @@ export interface Settings {
   notif: 'attention' | 'all'
   days: number
   keepForever: boolean
+  devMode: boolean
   dataPath: string
   dataSize: string
   appPath?: string

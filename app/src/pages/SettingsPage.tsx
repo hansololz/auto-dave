@@ -193,6 +193,21 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+        <div style={sectionLabel}>DEVELOPER</div>
+        <div style={card}>
+          <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20 }}>
+            <div style={{ flex: 1 }}>
+              <div style={rowTitle}>Developer mode</div>
+              <div style={rowSub}>
+                Logs every backend request and every AI request — including the full prompt — to the backend log.
+              </div>
+            </div>
+            <Toggle on={settings.devMode} onChange={(v) => patch({ devMode: v })} />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
