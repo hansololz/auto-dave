@@ -17,7 +17,7 @@ import SettingsPage from './pages/SettingsPage'
 const NAV: { page: string; label: string; icon: string }[] = [
   { page: 'automations', label: 'Automations', icon: 'fa-bolt' },
   { page: 'executions', label: 'Executions', icon: 'fa-clock-rotate-left' },
-  { page: 'agents', label: 'Agents', icon: 'fa-microchip' },
+  { page: 'agents', label: 'Agents', icon: 'fa-robot' },
   { page: 'secrets', label: 'Secrets', icon: 'fa-key' },
   { page: 'settings', label: 'Settings', icon: 'fa-sliders' },
 ]

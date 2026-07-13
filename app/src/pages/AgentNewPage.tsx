@@ -57,8 +57,10 @@ const HARNESS_ID: Record<string, HarnessId> = {
 
 export default function AgentNewPage() {
   const { go, showToast, ollamaPull } = useStore()
-  // Consume the edit hand-off once, on mount.
-  const [editing] = useState(() => { const p = pendingEdit; pendingEdit = null; return p })
+  // Consume the edit hand-off on mount. The initializer must stay pure
+  // (StrictMode double-invokes it), so the stash is cleared in an effect.
+  const [editing] = useState(() => pendingEdit)
+  useEffect(() => { pendingEdit = null }, [])
   const editAgent = editing?.agent ?? null
   const editHid = editAgent ? (HARNESS_ID[editAgent.harness] ?? 'claude') : null
   const editIsDefModel = editAgent
