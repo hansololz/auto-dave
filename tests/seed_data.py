@@ -350,7 +350,12 @@ def seed(store: Store) -> None:
             store.append_log(h["id"], {"ts": started.isoformat(timespec="seconds"), "t": t,
                                        "step": cur_step, "k": k, "text": text})
         if result:
-            store.write_result(h["id"], result)
+            # chip + status live on the execution header; result.yaml keeps chips/values
+            h["chip"] = result.get("chip")
+            h["chip_status"] = result.get("status") if result.get("chip") else None
+            body = {k: v for k, v in result.items() if k in ("chips", "values") and v}
+            if body:
+                store.write_result(h["id"], body)
         for name, content in (files or {}).items():
             (store.exec_dir(h["id"]) / "result" / name).write_text(content, encoding="utf-8")
         store.update_execution(h)

@@ -56,9 +56,9 @@ def respond(prompt: str) -> str:
         m = re.search(r"^# (.+)$", prompt.rsplit("=== SPEC", 1)[-1], re.M)
         title = (m.group(1).strip() if m else "New automation")[:48]
         return STEPS_ENVELOPE.format(title=title, desc=f"{title} — drafted by the mock agent.")
-    # §8 call 1 — title comes from the USER REQUEST (the prompt's last line)
-    lines = [l.strip() for l in prompt.splitlines() if l.strip()]
-    user = lines[-1] if lines else "New automation"
+    # §8 call 1 — title comes from the USER REQUEST section
+    m = re.search(r"=== USER REQUEST ===\n(.+)", prompt)
+    user = m.group(1) if m else "New automation"
     title = user.strip().rstrip(".")[:48].capitalize() or "New automation"
     return SPEC_ENVELOPE.format(title=title, desc=f"{title} — drafted by the mock agent.")
 

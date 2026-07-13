@@ -231,9 +231,13 @@ class Engine:
                 h["status"] = "succeeded"
             h["finished_at"] = datetime.now().isoformat(timespec="seconds")
             if result_touched and not state["cancel"]:
-                if not result["chip"]:
-                    result["chip"] = {"changes": "Changes", "ok": "All good", "attention": "Needs attention"}[result["status"]]
-                self.store.write_result(h["id"], {k: v for k, v in result.items() if v not in (None, [], {})})
+                # The chip is optional (§4.5): it lives on the execution header,
+                # tinted by the run's result status; result.yaml keeps chips/values.
+                h["chip"] = result["chip"]
+                h["chip_status"] = result["status"] if result["chip"] else None
+                body = {k: v for k, v in result.items() if k in ("chips", "values") and v}
+                if body:
+                    self.store.write_result(h["id"], body)
             self.store.update_execution(h)
             self._notify_end(auto, h, result if result_touched else None, notify_text)
         except Exception as e:  # noqa: BLE001

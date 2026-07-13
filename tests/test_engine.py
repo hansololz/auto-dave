@@ -22,10 +22,32 @@ def test_run_lifecycle_success(store):
     logs = store.read_logs(h["id"])
     assert any("hello x3" in l["text"] for l in logs)
     assert any(l["text"].startswith("▸ Step 1") for l in logs)
+    # chip + status live on the execution header; result.yaml keeps only values
+    assert h["chip"] == "All good" and h["chip_status"] == "ok"
     result = store.read_result(h["id"])
-    assert result["chip"] == "All good" and result["status"] == "ok"
+    assert result == {"values": [{"name": "Summary", "value": "done"}]}
     # automation display state updated
     assert a["_last_status"] == "succeeded" and a["_live"] is None
+
+
+def test_chip_is_optional(store):
+    """§4.5: a run that never calls result.chip() has no chip anywhere."""
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"] = [
+        {"file": "01-quiet.py", "name": "Quiet", "desc": "",
+         "code": 'result.value("Summary", "done, no chip")\n'},
+    ]
+    a = store.create_automation(ver, "Chipless", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "succeeded"
+    assert h["chip"] is None and h["chip_status"] is None
+    j = store.auto_json(a)
+    assert j["resultChip"] is None and j["resultStatus"] is None
+    assert j["latest"] and "chip" not in j["latest"]  # values still form a result
 
 
 def test_failed_step_stops_run(store):
@@ -158,7 +180,7 @@ def test_memory_persists_between_runs(store):
     for expect in ("1", "2"):
         h = engine.start(a, "Manual")
         wait_done(engine, h["id"])
-        assert store.read_result(h["id"])["chip"] == expect
+        assert h["chip"] == expect
 
 
 def test_workspace_shared_between_steps(store):
@@ -178,7 +200,7 @@ def test_workspace_shared_between_steps(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
-    assert store.read_result(h["id"])["chip"] == "42"
+    assert h["chip"] == "42"
     assert (store.exec_dir(h["id"]) / "workspace" / "data.json").exists()
 
 

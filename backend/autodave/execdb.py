@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS executions (
   finished_at      INTEGER,
   dur_ms           INTEGER,
   note             TEXT,
+  chip             TEXT,
+  chip_status      TEXT,
   redacted_secrets TEXT NOT NULL DEFAULT '[]',
   params           TEXT NOT NULL DEFAULT '[]'
 );
@@ -65,14 +67,17 @@ class ExecDB:
         with self.conn:
             self.conn.execute(
                 'INSERT INTO executions (id, automation_id, automation_name, version, status,'
-                ' "trigger", started_at, finished_at, dur_ms, note, redacted_secrets, params)'
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                ' "trigger", started_at, finished_at, dur_ms, note, chip, chip_status,'
+                " redacted_secrets, params)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 " ON CONFLICT(id) DO UPDATE SET"
                 " automation_name=excluded.automation_name, status=excluded.status,"
                 " finished_at=excluded.finished_at, dur_ms=excluded.dur_ms, note=excluded.note,"
+                " chip=excluded.chip, chip_status=excluded.chip_status,"
                 " redacted_secrets=excluded.redacted_secrets, params=excluded.params",
                 (h["id"], h["auto_id"], h["auto_name"], h["ver"], h["status"], h["trigger"],
                  _ms(h["started_at"]), _ms(h.get("finished_at")), h["dur_ms"], h["note"],
+                 h.get("chip"), h.get("chip_status"),
                  json.dumps(h["redacted"]), json.dumps(h.get("params", []))))
             self.conn.execute("DELETE FROM execution_steps WHERE execution_id=?", (h["id"],))
             self.conn.executemany(
@@ -88,14 +93,16 @@ class ExecDB:
         out: dict[str, dict] = {}
         for row in self.conn.execute(
                 'SELECT id, automation_id, automation_name, version, status, "trigger",'
-                " started_at, finished_at, dur_ms, note, redacted_secrets, params FROM executions"):
+                " started_at, finished_at, dur_ms, note, chip, chip_status,"
+                " redacted_secrets, params FROM executions"):
             (eid, auto_id, auto_name, ver, status, trigger,
-             started, finished, dur_ms, note, redacted, params) = row
+             started, finished, dur_ms, note, chip, chip_status, redacted, params) = row
             out[eid] = {
                 "id": eid, "auto_id": auto_id, "auto_name": auto_name, "ver": ver,
                 "status": status, "trigger": trigger,
                 "started_at": _iso(started), "finished_at": _iso(finished),
                 "dur_ms": dur_ms, "note": note,
+                "chip": chip, "chip_status": chip_status,
                 "redacted": json.loads(redacted), "params": json.loads(params),
                 "steps": steps.get(eid, []),
             }

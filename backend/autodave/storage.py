@@ -195,7 +195,8 @@ class Store:
         }
 
     def _refresh_exec_derived(self) -> None:
-        """Fill last_status / result_chip / last_exec_at / live per automation (§5 load model)."""
+        """Fill last_status / last_exec_at / live per automation (§5 load model);
+        the result chip rides on the execution header itself."""
         for a in self.autos.values():
             latest = self._latest_exec(a["id"])
             a["_last_status"] = latest["status"] if latest else "none"
@@ -369,7 +370,7 @@ class Store:
                 "params": params or [],
                 "started_at": datetime.now().isoformat(timespec="seconds"),
                 "finished_at": None,
-                "dur_ms": None, "note": note, "redacted": [],
+                "dur_ms": None, "note": note, "chip": None, "chip_status": None, "redacted": [],
                 "steps": [{"name": s["name"], "status": s.get("status", "queued"), "dur_ms": s.get("dur_ms")} for s in steps],
             }
             d = self.exec_dir(h["id"])
@@ -434,15 +435,18 @@ class Store:
                 out.append({"name": f.name, "size": _size_label(f.stat().st_size)})
         return out
 
-    def result_json(self, exec_id: str) -> dict | None:
-        """§4.5 result object: yaml fields + files listing + dir path.
+    def result_json(self, h: dict) -> dict | None:
+        """§4.5 result object: header chip + yaml fields + files listing + dir path.
         A run with only output files (no builder calls) still has a result."""
-        r = self.read_result(exec_id)
-        files = self.result_files(exec_id)
-        if not r and not files:
+        r = self.read_result(h["id"])
+        files = self.result_files(h["id"])
+        if not r and not files and not h.get("chip"):
             return None
-        return {**({"status": "ok"} | (r or {})),
-                "files": files, "path": str(self.exec_dir(exec_id) / "result")}
+        out = {**(r or {}), "files": files, "path": str(self.exec_dir(h["id"]) / "result")}
+        if h.get("chip"):
+            out["chip"] = h["chip"]
+            out["chipStatus"] = h.get("chip_status") or "ok"
+        return out
 
     def delete_execution(self, exec_id: str) -> None:
         with self.lock:
@@ -543,7 +547,7 @@ class Store:
     def latest_result_json(self, a: dict) -> dict | None:
         hs = [h for h in self.execs.values() if h["auto_id"] == a["id"] and h["status"] != "running"]
         for h in sorted(hs, key=lambda x: x["started_at"] or "", reverse=True):
-            r = self.result_json(h["id"])
+            r = self.result_json(h)
             if r:
                 dt = datetime.fromisoformat(h["started_at"])
                 return {**r, "execId": h["id"], "when": f"from {timefmt.started_label(dt)}"}
@@ -558,9 +562,8 @@ class Store:
         chip = None
         chip_status = None  # tints the chip everywhere (§7 colors), incl. the list row
         if latest_h and latest_h["status"] == "succeeded":
-            r = self.read_result(latest_h["id"])
-            chip = (r or {}).get("chip")
-            chip_status = (r or {}).get("status", "ok") if chip else None
+            chip = latest_h.get("chip")
+            chip_status = latest_h.get("chip_status") if chip else None
         elif latest_h and latest_h["status"] == "failed":
             chip = "Needs attention"
             chip_status = "attention"
@@ -623,7 +626,7 @@ class Store:
         if full:
             logs = self.read_logs(h["id"])
             out["logs"] = [{"t": l.get("t", ""), "k": l.get("k", "out"), "text": l.get("text", "")} for l in logs]
-            out["result"] = self.result_json(h["id"])
+            out["result"] = self.result_json(h)
             out["redact"] = ", ".join(h["redacted"]) if h["redacted"] else None
             out["params"] = h.get("params", [])
         return out

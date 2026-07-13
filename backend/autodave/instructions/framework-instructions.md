@@ -14,7 +14,8 @@ Rules for everything you write:
 - Step scripts run one per subprocess with these globals (the autodave SDK):
   params (dict by param name), secrets.NAME (Keychain values, never log them),
   memory (persistent dir with .load(name, default)/.save(name, obj)), log/log.warn/log.error,
-  result (.status('changes'|'ok'|'attention'), .chip(text), .chips, .value(name, text_or_list) —
+  result (.status('changes'|'ok'|'attention'), .chip(text) — a short summary chip, optional:
+  skip it when the job has nothing worth summarizing in three words, .chips, .value(name, text_or_list) —
   named values shown first in the UI; result.path is a directory: write any output files there,
   result.md renders as markdown (use markdown tables), result.html as a styled page, images inline),
   notify(text), fetch_page(url), agent.ask(prompt, data) — agent.ask only in steps marked agent: true.

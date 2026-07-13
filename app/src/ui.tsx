@@ -2,7 +2,7 @@
 // popovers, toasts (prototype Component helpers, §14 tokens). The result
 // section and its views live in result.tsx.
 import React, { useEffect, useRef, useState } from 'react'
-import type { ParamDef, RunResult, Status } from './types'
+import type { ParamDef, Status } from './types'
 
 export const P = {
   accent: 'var(--accent)', accentBg: 'var(--accent-bg)',
@@ -58,10 +58,10 @@ export function Chip({ children, c, bg, style }: {
   )
 }
 
-export function resultChipColors(r: RunResult): { c: string; bg: string } {
-  if (r.status === 'changes') return { c: P.accent, bg: P.accentBg }
+export function resultChipColors(status: 'changes' | 'ok' | 'attention' | null | undefined): { c: string; bg: string } {
+  if (status === 'changes') return { c: P.accent, bg: P.accentBg }
   // §14: attention-flavored result chips use the dedicated chip orange, not status amber.
-  if (r.status === 'attention') return { c: P.orange, bg: P.orangeBg }
+  if (status === 'attention') return { c: P.orange, bg: P.orangeBg }
   return { c: P.green, bg: P.greenBg }
 }
 

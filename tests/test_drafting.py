@@ -132,17 +132,31 @@ def test_step_file_block_mismatch():
 def test_spec_prompt_carries_framework_instructions_and_request():
     p = build_spec_prompt("create", "Watch a product price", None, GRANTS)
     assert "automation writer inside Auto Dave" in p   # framework-instructions.md
-    assert "TASK: write the spec" in p
+    assert "TASK: update the SPEC" in p
     assert "=== USER REQUEST ===\nWatch a product price" in p
 
 
-def test_spec_prompt_edit_embeds_current_spec_and_steps():
+def test_spec_prompt_section_order():
+    # §8 call 1: agents, secrets, build instructions, framework, original spec,
+    # user request, then the TASK ask — in that order.
+    cur = {"instr": "Never touch the Documents folder.",
+           "spec": [{"k": "h1", "text": "Title"}, {"k": "p", "text": "Block spec body."}],
+           "params": [], "steps": []}
+    p = build_spec_prompt("edit", "also check weekends", cur, GRANTS)
+    order = [p.index("Available agents"), p.index("Available secrets"),
+             p.index("BUILD INSTRUCTIONS"), p.index("automation writer inside Auto Dave"),
+             p.index("=== ORIGINAL SPEC"), p.index("=== USER REQUEST"),
+             p.index("TASK: update the SPEC")]
+    assert order == sorted(order)
+
+
+def test_spec_prompt_edit_embeds_current_spec_but_no_step_code():
     cur = {"spec": [{"k": "h1", "text": "Title"}, {"k": "p", "text": "Block spec body."}],
            "params": [], "steps": [{"file": "01-a.py", "name": "A", "code": 'log("old")'}]}
     p = build_spec_prompt("edit", "also check weekends", cur, GRANTS)
-    assert "TASK: rewrite the spec" in p
+    assert "TASK: update the SPEC" in p
     assert "Block spec body." in p
-    assert 'log("old")' in p
+    assert 'log("old")' not in p
 
 
 def test_steps_prompt_embeds_spec_and_framework():

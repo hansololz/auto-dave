@@ -26,12 +26,6 @@ function fileKind(name: string): 'md' | 'html' | 'img' | null {
 
 const KIND_LABEL = { md: 'markdown', html: 'web page', img: 'image' } as const
 
-/** §7: a chipless result still shows a status label chip. */
-export function resultChipText(r: RunResult): string {
-  if (r.chip) return r.chip
-  return { changes: 'Changes', ok: 'All good', attention: 'Needs attention' }[r.status] ?? 'All good'
-}
-
 // ---------- collapsible view card ----------
 
 function ViewCard({ title, kind, meta, mono = true, children }: {
@@ -362,8 +356,8 @@ export function ResultSection({ label, result, execId, measure = 640 }: {
   label: string; result: RunResult & { when?: string }; execId: string; measure?: number
 }) {
   const [open, setOpen] = useState(true)
-  const { c, bg } = resultChipColors(result)
-  const chip = resultChipText(result)
+  const { c, bg } = resultChipColors(result.chipStatus)
+  const chip = result.chip
   const values = result.values ?? []
   const renderable = (result.files ?? []).filter((f) => fileKind(f.name) !== null)
   return (
@@ -379,12 +373,14 @@ export function ResultSection({ label, result, execId, measure = 640 }: {
           />
           <Eyebrow style={{ color: 'var(--text-faint)' }}>{label}</Eyebrow>
         </button>
-        <span style={{
-          display: 'inline-flex', padding: '3px 10px', borderRadius: 7, fontFamily: 'var(--mono)',
-          fontWeight: 600, fontSize: 11.5, letterSpacing: '.03em', background: bg, color: c,
-        }}>
-          {chip}
-        </span>
+        {chip && (
+          <span style={{
+            display: 'inline-flex', padding: '3px 10px', borderRadius: 7, fontFamily: 'var(--mono)',
+            fontWeight: 600, fontSize: 11.5, letterSpacing: '.03em', background: bg, color: c,
+          }}>
+            {chip}
+          </span>
+        )}
         {(result.chips ?? []).filter((t) => t !== chip).map((t) => (
           <span key={t} style={{
             display: 'inline-flex', padding: '3px 9px', borderRadius: 7, fontFamily: 'var(--mono)',

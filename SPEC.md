@@ -139,10 +139,11 @@ schedOff: bool — schedule disabled (Run now + menu bar still work)
 instr: optional multiline free-text user instructions to the agent
 lastStatus: succeeded | running | failed | cancelled | interrupted | none
 live: run id while a run is in progress, else null
-resultChip: short summary chip ("2 new chapters") | null — failed automations synthesize
-  "Needs attention"
+resultChip: short summary chip ("2 new chapters") | null — the chip is optional: null when the
+  last successful run never called result.chip(); failed automations synthesize "Needs attention"
 resultStatus: changes | ok | attention | null — tints resultChip with the §7 chip colors
-  everywhere it appears (list rows included); "attention" for failed automations
+  everywhere it appears (list rows included); null whenever resultChip is null; "attention" for
+  failed automations
 lastRunLabel: "just now" | "Xm ago" | "Xh ago" | "yesterday" | "Jun 28" | "running…"
 latest: last run's result object + when-label, for the detail page
 params: parameter list (§4.2)
@@ -218,15 +219,21 @@ note: optional note ("previous run still in progress", "Mac went to sleep") | nu
 
 Result object:
 ```
-{ status: changes|ok|attention, chip, chips[],
+{ chip?, chipStatus?: changes|ok|attention — both only when the run set a chip, chips[],
   values: [{ name, value }] — value is a string (paragraph, multiline OK) or a list of strings
         (bulleted); rendered as label/value rows in the Summary view (§7),
   files: [{ name, size }] — every file in the result dir (result.yaml included), plus the dir
         path for the "Show in Finder" button }
 ```
 
-On disk the result is a directory: the engine writes `result/result.yaml` (status, chip,
-chips, values) from the §6.1 builder calls at run end; the run writes any other output files
+The chip is optional — an automation may choose not to use one. It is stored on the execution
+record itself (`chip` + `chip_status` columns in `executions.db`, §5): the engine copies
+`result.chip(...)`'s text and the run's `result.status(...)` (default `ok`) onto the record at
+run end, with no synthesized fallback text — a run that never calls `result.chip()` shows no
+chip anywhere.
+
+On disk the rest of the result is a directory: the engine writes `result/result.yaml` (chips,
+values — only when either is non-empty) at run end; the run writes any other output files
 directly into `result/` (result.md, result.html, images, CSVs, …). There is no manifest — the
 file list is the directory listing. Renderable files get their own result views (§7): `.md`
 rendered as markdown, `.html` in a sandboxed iframe (no scripts, no remote loads — preserves
@@ -372,7 +379,8 @@ executions/
                                #     (snapshot at execution time — display fallback only),
                                #     version ("v3"/"Draft"), status, trigger, started_at /
                                #     finished_at (epoch ms; finished_at NULL while running),
-                               #     dur_ms, note, redacted_secrets (JSON), params (JSON)
+                               #     dur_ms, note, chip / chip_status (§4.5 — NULL when the
+                               #     run set no chip), redacted_secrets (JSON), params (JSON)
                                #   execution_steps: execution_id, idx, name, status, dur_ms
                                #   indexes: (started_at DESC, id), (automation_id, started_at),
                                #     (status, started_at)
@@ -383,8 +391,9 @@ executions/
                                # scratch space, shared across steps (step 1 writes a file,
                                # step 2 reads it); deleted with the execution by retention
     result/
-      result.yaml              # engine-written from builder calls: status, chip, chips[],
-                               # values[{name, value}]
+      result.yaml              # engine-written from builder calls: chips[],
+                               # values[{name, value}] — only when either is non-empty
+                               # (the chip itself lives on the execution record)
       <files>                  # any files the run writes via result.path (result.md,
                                # result.html, images, CSVs, …) — no manifest, the dir
                                # listing is the file list
@@ -395,16 +404,18 @@ parses every top-level `automation.yaml` plus each `versions/vN/` folder (its `a
 + `spec.md` + `instructions.md` + step scripts), and serves all automation reads (lists,
 detail, scheduler, menu bar) from memory. There is no automations table: the YAML files plus the
 startup walk are the whole story. The id → path map, `has_draft`, and `next_run_at` are derived
-in memory during/after the walk; execution-derived display state (`last_status`, `result_chip`,
+in memory during/after the walk; execution-derived display state (`last_status`,
 `last_execution_at`, `live_execution_id`) is filled by one startup query for the latest execution
-per `automation_id` and kept current as runs complete. `skipped` records never count as the
+per `automation_id` and kept current as runs complete; `resultChip`/`resultStatus` read straight
+off that latest execution's header (§4.5) — never from `result/`. `skipped` records never count as the
 "latest" execution for this display state — they never ran, and §4.1's `lastStatus` vocabulary
 excludes them (a mid-run schedule skip must not shadow the live run's final status/chip).
 
 Executions load **headers-eagerly, bodies-lazily**: startup reads every record from
 `executions.db` into an in-memory `executions` table — one record per execution with
 `id, automation_id, status, trigger, version_label, started_at, finished_at, dur_ms`, plus the
-light display fields (`automation_name`, `note`, redacted names, the step list) — kept queryable
+light display fields (`automation_name`, `note`, `chip`/`chip_status`, redacted names, the step
+list) — kept queryable
 by `trigger`, `status`, `automation_id`, and `started_at`; paths resolve on demand from the id.
 `result/` and `logs.ndjson` are read only when an execution is opened. The in-memory table is
 rebuilt from the DB at every launch. An automation folder whose `versions/` is
@@ -500,10 +511,11 @@ The engine's runner injects these globals — scripts may also `import autodave`
   `memory.save(name, obj)` YAML helpers.
 - `log` — `log(text)` / `log.warn(text)` / `log.error(text)` → `out`/`wrn`/`err` NDJSON lines
   (`log.info` is an alias of `log`).
-- `result` — builder used by the last step (any step may add): `result.chip(text)`,
-  `result.chips([...])`, `result.value(name, value)` (value: string or list of strings),
-  `result.status('changes'|'ok'|'attention')` — the engine writes `result/result.yaml` from
-  these at run end. `result.path` — `pathlib.Path` of the run's result dir for direct file
+- `result` — builder used by the last step (any step may add): `result.chip(text)` (optional —
+  an automation may not use a chip at all), `result.chips([...])`, `result.value(name, value)`
+  (value: string or list of strings), `result.status('changes'|'ok'|'attention')` — at run end
+  the engine stores chip + status on the execution record (§4.5) and writes chips/values to
+  `result/result.yaml`. `result.path` — `pathlib.Path` of the run's result dir for direct file
   output (result.md, result.html, images, CSVs, …); any file dropped there is part of the
   result (§4.5), so there is no attach call, and tables are markdown tables in result.md.
 - `notify(text)` — requests the end-of-run notification (engine still applies the §4.9 setting
@@ -562,9 +574,9 @@ a redaction note ("secrets redacted: `<name>`") and empty state "No logs — thi
 started." The Results tab is a collapsible **Results section** holding a stack of individually
 collapsible **result views**, each with a chevron + title header and right-aligned mono meta
 ("4 values", "4.1 KB") — everything expanded by default, collapse state per-session only
-(never persisted). The section header row carries the result chip — tinted by result status
-(changes = accent, ok = green, attention = amber), falling back to a status label ("Changes" /
-"All good" / "Needs attention") when the run set no chip text — plus metadata chips; the run's
+(never persisted). The section header row carries the result chip when the run set one — tinted
+by its chip status (changes = accent, ok = green, attention = orange); a run that set no chip
+gets no chip here — plus metadata chips; the run's
 own status badge stays in the page title row, never here. View order: first the **Summary
 view** (result.yaml `values` rendered as a two-column grid — label column left, wrapping for
 long names; value right: paragraph for a string, bullets for a list; 620 px measure — the
@@ -586,7 +598,7 @@ execution page.
 Drafting is a **two-call pipeline**: the backend first asks the agent to write the **spec**,
 then — in a second, independent call — to build the **steps, parameters, and schedule** from
 that spec. Each mode runs the calls it needs (see Modes below); `edit` stops after the spec
-call and `sync` runs only the steps call. Both calls open with the same two
+call and `sync` runs only the steps call. Both calls carry the same two
 instruction files, invoke the chosen agent harness headless through a per-harness adapter
 (`claude -p`, `gemini -p`, `codex exec`, `opencode run`, Ollama via its local HTTP API), and
 parse one text response each. Everything below is harness-independent; adapters only translate
@@ -596,8 +608,8 @@ only after validation passes.
 **Instruction files** (markdown next to the code, loaded at import — never inline in Python;
 also served to the create/edit page via §19 `GET /instructions`):
 
-- `backend/autodave/instructions/framework-instructions.md` — the contract preamble that opens
-  **every** call: the agent's role, the generic file-block envelope (the per-call TASK directive
+- `backend/autodave/instructions/framework-instructions.md` — the contract preamble that travels
+  with **every** call: the agent's role, the generic file-block envelope (the per-call TASK directive
   names the exact files), the `autodave` SDK reference, the curated package list, the parameter
   kinds table (§4.2), schedule- and step-design duties, and all five §6 policy sections. The §11
   Framework-instructions card shows this file verbatim.
@@ -613,20 +625,22 @@ change request — the Review page's "ask the agent" box — to the in-editor dr
 return the rewritten spec; the steps are untouched and a later `sync` rebuilds them) · `sync`
 (call 2 only: regenerate steps to match the provided spec; the spec itself must not change).
 
-**Call 1 — write the spec** (`create`/`edit`; skipped on `sync`). Prompt sections in order:
+**Call 1 — write the spec** (`create`/`edit`; skipped on `sync`). Step code never travels in
+this call; the prompt just asks to update the spec from the user request. Sections in order:
 
-1. `framework-instructions.md` (verbatim).
-2. **TASK directive** — `create`: draft `spec.md` for a brand-new automation from the USER
-   REQUEST (markdown, `#` title first, plain words, no code/yaml/file names); `edit`: apply the
-   USER REQUEST to the CURRENT `spec.md` and return the full updated file, keeping everything
-   the request doesn't touch unchanged.
-3. **Grants context** — enabled agent names and allowed secret **names** (never values, memory
-   contents, or execution logs). The §19 body's grant arrays (the in-editor toggles) win over
-   the stored automation's; absent both, the drafting agent's own name and no secrets.
-4. **Build instructions** — the user's standing rules (or the seeded default), context only;
+1. **Available agents** — enabled agent names.
+2. **Available secrets** — allowed secret **names** (never values, memory contents, or
+   execution logs). For both grant lines the §19 body's grant arrays (the in-editor toggles)
+   win over the stored automation's; absent both, the drafting agent's own name and no secrets.
+3. **Build instructions** — the user's standing rules (or the seeded default), context only;
    the agent never returns this file.
-5. **Current version** (`edit` only) — `spec.md` plus today's step scripts as context.
+4. `framework-instructions.md` (verbatim).
+5. **Original spec** (`edit` only) — the current `spec.md`.
 6. **USER REQUEST** — the description (`create`) or the change request (`edit`).
+7. **TASK directive** — update the SPEC based on the USER REQUEST and return exactly one file
+   block, the full updated `spec.md` (markdown, `#` title first, plain words, no code/yaml/file
+   names); keep everything the request doesn't touch unchanged; with no original spec, write it
+   fresh from the request.
 
 Response: exactly one file block, `spec.md`. Validation: block present with no extras; must
 start with an `# title`; must have body content. The parsed §5 blocks become the draft's spec.
@@ -716,8 +730,9 @@ attempt has failed; boot retries every 1.2 s). Fast boots therefore show no spla
 ### 9.1 Automations list
 
 1200 px page, "Automations" title + New button. One card per automation: name, description,
-status badge, schedule chip (plus an OFF tag when the schedule is off), result-summary chip
-(tinted by `resultStatus` with the §7 chip colors — same tint as the detail and run pages), and
+status badge, schedule chip (plus an OFF tag when the schedule is off), result-summary chip when
+the last run set one (tinted by `resultStatus` with the §7 chip colors — same tint as the detail
+and run pages), and
 an **inline run button** per card (disabled while that automation is running, tooltip explains
 why). The card carries no last-run label — `lastRunLabel` appears on the detail page and in the
 menu bar. Empty state (dashed card):
@@ -730,9 +745,10 @@ Back link ("‹ Automations"), title row: name, version chip dropdown (§4.4 Run
 explainer), status badge, Run now (accent), Edit, ellipsis menu (Delete automation… in red).
 Sections top to bottom:
 
-- Optional **Draft banner** (§4.4), then **LATEST RESULT** card — status chip + metadata chips,
-  then the full §7 result view stack for the latest run (Summary view at 640 px measure, file
-  views, FILES footer — same collapsible behavior and chip rules). No-runs empty state (dashed
+- Optional **Draft banner** (§4.4), then **LATEST RESULT** card — the run's chip (if it set one)
+  + metadata chips, then the full §7 result view stack for the latest run (Summary view at 640 px
+  measure, file views, FILES footer — same collapsible behavior and chip rules). No-runs empty
+  state (dashed
   card): "No runs yet / Press Run now — the first result will appear right here."
 - **WAYS TO RUN** card — schedule row (schedule chip + §4.3 status line) with an on/off toggle
   switch (drives `schedOff`), and a second row: bordered mono Run-now button, copy "Manual runs

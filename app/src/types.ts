@@ -36,8 +36,8 @@ export interface ResultValue { name: string; value: string | string[] }
 export interface ResultFile { name: string; size: string }
 
 export interface RunResult {
-  status: 'changes' | 'ok' | 'attention'
   chip?: string
+  chipStatus?: 'changes' | 'ok' | 'attention'
   chips?: string[]
   values?: ResultValue[]
   files?: ResultFile[]

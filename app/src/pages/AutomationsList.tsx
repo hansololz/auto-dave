@@ -87,8 +87,8 @@ function AutoCard({ a }: { a: Auto }) {
         {a.resultChip && (
           <span style={{
             fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11,
-            color: resultChipColors({ status: a.resultStatus ?? 'ok' }).c,
-            background: resultChipColors({ status: a.resultStatus ?? 'ok' }).bg,
+            color: resultChipColors(a.resultStatus).c,
+            background: resultChipColors(a.resultStatus).bg,
             borderRadius: 6, padding: '3px 8px',
           }}>
             {a.resultChip}

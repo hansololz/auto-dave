@@ -130,8 +130,8 @@ def test_draft_edit_honors_in_editor_grants(client):
     assert j["draft"]["spec"] is not None
     assert "steps" not in j["draft"]
     logged = paths.app_log().read_text(encoding="utf-8")
-    assert "enabled agents (agent: true steps allowed only if nonempty): Claude Code" in logged
-    assert "allowed secret names: MY_SECRET" in logged
+    assert "Available agents (agent: true steps allowed only if nonempty): Claude Code" in logged
+    assert "Available secrets (allowed secret names): MY_SECRET" in logged
     assert "Also check on weekends" in logged      # the USER REQUEST reached the prompt
     assert "TASK: build the automation" not in logged  # no steps call on edit
 
@@ -196,6 +196,7 @@ def test_run_and_execution_pages(client):
         time.sleep(0.1)
     assert e["status"] == "succeeded"
     assert e["result"]["chip"] == "All good"
+    assert e["result"]["chipStatus"] == "ok"  # served from the execution header
     assert any(l["k"] == "sys" for l in e["logs"])
     autos = client.get("/automations").json()
     me = next(x for x in autos if x["id"] == a["id"])
