@@ -1,7 +1,7 @@
 import pytest
 
-from autodave.drafting import (build_spec_prompt, build_steps_prompt, parse_envelope,
-                               spec_as_md, validate_spec, validate_steps)
+from autodave.drafting import (build_spec_prompt, build_steps_prompt, parse_blockers,
+                               parse_envelope, spec_as_md, validate_spec, validate_steps)
 
 GOOD_SPEC = """prose the parser must ignore
 ===FILE: spec.md===
@@ -127,6 +127,56 @@ def test_step_file_block_mismatch():
     assert any("1:1" in e for e in errors)
 
 
+# ---------- §8 blocker envelope ----------
+
+BLOCKED = """prose the parser must ignore
+===BLOCKED===
+blockers:
+  - reason: Needs physical mail.
+    fix: Use a digital source.
+    details: Only files and web pages are reachable.
+===END===
+"""
+
+
+def test_parse_blockers_good():
+    assert parse_blockers(BLOCKED) == [{"reason": "Needs physical mail.",
+                                        "fix": "Use a digital source.",
+                                        "details": "Only files and web pages are reachable."}]
+
+
+def test_parse_blockers_details_optional():
+    bl = parse_blockers(BLOCKED.replace("    details: Only files and web pages are reachable.\n", ""))
+    assert bl[0]["details"] == ""
+
+
+def test_parse_blockers_none_for_file_envelopes():
+    # a normal file-block response isn't a blocker — validation proceeds as usual
+    assert parse_blockers(GOOD_SPEC) is None
+    assert parse_blockers(GOOD_STEPS) is None
+
+
+def test_blocker_requires_reason_and_fix():
+    with pytest.raises(ValueError, match="reason and fix"):
+        parse_blockers(BLOCKED.replace("    fix: Use a digital source.\n", ""))
+
+
+def test_blocker_list_must_be_nonempty():
+    with pytest.raises(ValueError, match="nonempty"):
+        parse_blockers("===BLOCKED===\nblockers: []\n===END===\n")
+
+
+def test_blocker_must_not_mix_file_blocks():
+    mixed = BLOCKED.replace("===BLOCKED===", "===FILE: spec.md===\n# Sneaky\n===BLOCKED===")
+    with pytest.raises(ValueError, match="must not carry file blocks"):
+        parse_blockers(mixed)
+
+
+def test_truncated_blocker_rejected():
+    with pytest.raises(ValueError, match="truncated"):
+        parse_blockers(BLOCKED.replace("===END===", ""))
+
+
 # ---------- prompts ----------
 
 def test_spec_prompt_carries_framework_instructions_and_request():
@@ -134,6 +184,13 @@ def test_spec_prompt_carries_framework_instructions_and_request():
     assert "automation writer inside Auto Dave" in p   # framework-instructions.md
     assert "TASK: update the SPEC" in p
     assert "=== USER REQUEST ===\nWatch a product price" in p
+
+
+def test_prompts_carry_blocker_contract():
+    # §8: framework-instructions travel with every call, blocker envelope included
+    for p in (build_spec_prompt("create", "x", None, GRANTS),
+              build_steps_prompt("sync", "# T\n\nBody.", None, GRANTS)):
+        assert "===BLOCKED===" in p
 
 
 def test_spec_prompt_section_order():

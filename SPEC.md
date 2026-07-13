@@ -612,7 +612,7 @@ also served to the create/edit page via §19 `GET /instructions`):
 
 - `backend/autodave/instructions/framework-instructions.md` — the contract preamble that travels
   with **every** call: the agent's role, the generic file-block envelope (the per-call TASK directive
-  names the exact files), the `autodave` SDK reference, the curated package list, the parameter
+  names the exact files), the blocker envelope and when to use it, the `autodave` SDK reference, the curated package list, the parameter
   kinds table (§4.2), schedule- and step-design duties, and all five §6 policy sections. The §11
   Framework-instructions card shows this file verbatim.
 - `backend/autodave/instructions/default-build-instructions.md` — the default best-practice
@@ -696,6 +696,28 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    spec's words (no time given → one that fits the job; fallback daily 8:00). It is applied only
    when creating (v1's schedule, pre-filled on Review); on sync the saved schedule is
    user-owned (§5) and never changed by a draft.
+
+**Blocker response (either call).** When the task cannot be built as asked — a needed
+capability, grant, or framework policy makes it impossible — the agent returns, instead of its
+file blocks, a blocker envelope:
+
+```
+===BLOCKED===
+blockers:
+  - reason: One sentence naming the problem.
+    fix: The suggested resolution, in plain words.
+    details: Optional longer explanation.
+===END===
+```
+
+Validation: YAML with a nonempty `blockers` list; every entry carries a nonempty `reason` and
+`fix` (`details` optional); no file blocks alongside it. `framework-instructions.md` tells the
+agent to use it only for genuine impossibility (never mere uncertainty), to report **all**
+blockers in one response, and to write plain words. A valid blocker envelope ends the job in
+its own terminal state **`blocked`** — not `failed`: there is nothing to repair, so the repair
+round below is skipped and no error is raised. A malformed blocker envelope is an invalid
+response like any other (repair round, then failure). The blockers ride the job payload (§19)
+and are logged with the invocation like any response. UI handling is §11's Blocker panel.
 
 **Failure policy:** one automatic repair round **per call** — the same prompt plus the previous
 raw response and the machine-generated validation errors. A second invalid response fails the
@@ -834,6 +856,25 @@ product's price (fa-tag) / Tidy my screenshots folder (fa-broom). "Written by `<
 the §8 job's `stage`, agent label; then Review. On failure the backend's error is the headline
 (spec vs. steps message per §8) with validation details beneath, plus Back / Try again.
 
+**Blocker panel.** When a §8 job ends `blocked`, the checklist gives way to a panel: headline
+"Your AI hit a blocker" ("… hit N blockers" when several), one card per blocker with three
+labeled, editable text fields — **Reason** / **How to fix** / **Details** — pre-filled from the
+agent's answer; the user edits any of them (usually the fix). Actions depend on which call
+blocked:
+
+- **Steps call** (create): primary **"Apply to the spec & rebuild the steps"** — each card is
+  written into the draft spec under a `## Constraints & resolutions` section (created on first
+  use, extended after), one bullet per blocker — "`reason` — `fix`", using the edited text —
+  then a new steps call runs against the amended spec and the checklist re-enters "Generating
+  the steps". The resolutions live in the spec document itself, so they survive later edits and
+  syncs and version like any spec text. If the rebuild blocks again the panel returns with the
+  new blockers plus a muted "Previously resolved" list of this session's earlier resolutions,
+  so a fix that didn't take is visible. Ghost **Back** returns to Ask with the description
+  intact. No automatic loop cap — the cycle is user-driven and Back/cancel always exits.
+- **Spec call** (create): no spec exists yet to amend — the cards are read-only and the primary
+  action is **"Back to the request"**, returning to Ask with the description preserved for a
+  rephrase (the fix text is the agent's advice on what to change).
+
 **Review.** 1400 px max-width page. Title row: name (single line, shrinks with ellipsis so a long name never pushes the
 buttons out of the window), version dropdown (edit mode), agent picker, Start over ghost
 (edit: "Discard draft"), primary Create/Save. Lede: "Read what your AI wrote. Change anything —
@@ -850,8 +891,10 @@ secrets, instructions, framework; right column: steps, schedule, parameters, dry
   edit (toast "Spec updated — the workflow is out of sync. Sync the steps before saving."), and
   the sync banner's "Sync now" rebuilds the steps later. While the job runs the ask box shows a
   spinner and the Save hint reads "Rewriting the spec…"; on failure the backend's §8 error shows
-  as a toast and the draft is untouched. Spec/instructions/agent-ask edits are mutually
-  exclusive (one edit at a time).
+  as a toast and the draft is untouched. A `blocked` outcome (§8) instead shows a persistent
+  amber notice under the ask box — "Your AI hit a blocker: `<reason>` — `<fix>`" (one line per
+  blocker, dismissible) — and the draft is untouched; the user rephrases the request. Spec/
+  instructions/agent-ask edits are mutually exclusive (one edit at a time).
 - **BUILD INSTRUCTIONS** — collapsible card holding the §4.1 `instr` free text, with view/edit
   states; edit placeholder "One rule per line — 'Prefer Python.' 'Never delete files — move them
   to the Trash.'", empty state "No instructions yet — press Edit to add standing rules." In
@@ -860,7 +903,10 @@ secrets, instructions, framework; right column: steps, schedule, parameters, dry
 - **Dirty gating** — any spec/instruction/agent-ask/agent-enablement/secret-allowance change
   marks the workflow out of sync and **blocks saving** until the sync banner's "Sync now" button
   runs one §8 `sync` call regenerating the steps ("Steps synced with the spec — review them,
-  then save."). Disabled Save shows an amber hint ("Sync and review the steps before saving." /
+  then save."). A `blocked` sync opens the §11 Blocker panel as a modal over Review: its
+  primary button amends the in-editor spec (same `## Constraints & resolutions` rule as the
+  Building panel) and re-runs the sync; closing the modal leaves the workflow out of sync with
+  the sync banner still up. Disabled Save shows an amber hint ("Sync and review the steps before saving." /
   "Finish editing the spec first…" / "Syncing steps…" / "Rewriting the spec…"); saving is also
   blocked while any §8 job runs, and the sync banner hides while one runs. Picking a different agent for a single
   step does **not** dirty the workflow — it only marks the draft touched (toast "Step N now
@@ -1187,7 +1233,10 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
   the stored automation's for the §8 grants context; progress via
-  WS; `GET /drafts/{jobId}` → state + validated §8 draft payload; `DELETE /drafts/{jobId}` cancels
+  WS; `GET /drafts/{jobId}` → state + validated §8 draft payload — a `blocked` job's state is
+  `blocked` and it carries the §8 `blockers` list plus `blockedAt: spec | steps`; a create job
+  blocked at the steps call also carries call 1's spec as its draft payload, so the §11 Blocker
+  panel can amend and rebuild it; `DELETE /drafts/{jobId}` cancels
   (kills the harness process)
 - `GET /executions?auto=&status=` (headers) · `GET /executions/{id}` (steps + logs + result) ·
   `GET /executions/{id}/result/{name}` (raw result-dir file for the §7 file views; plain

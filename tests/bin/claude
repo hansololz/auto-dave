@@ -48,9 +48,24 @@ if not params["notify_only_on_changes"]:
 """
 
 
+BLOCKED_ENVELOPE = """===BLOCKED===
+blockers:
+  - reason: The task needs access to physical mail.
+    fix: Point it at a digital source instead.
+    details: Auto Dave scripts can only read files and web pages.
+===END===
+"""
+
+
 def respond(prompt: str) -> str:
     if "question:" in prompt.lower() and "TASK:" not in prompt:
         return "Mock answer: nothing new."
+    # §8 blocker envelope on demand: "blocked-spec" blocks call 1,
+    # "blocked-steps" blocks call 2 (it reaches call 2 via the spec title).
+    if "blocked-spec" in prompt.lower() and "TASK: update the SPEC" in prompt:
+        return BLOCKED_ENVELOPE
+    if "blocked-steps" in prompt.lower() and "TASK: build the automation" in prompt:
+        return BLOCKED_ENVELOPE
     if "TASK: build the automation" in prompt:
         # §8 call 2 — title comes from the SPEC's # heading
         m = re.search(r"^# (.+)$", prompt.rsplit("=== SPEC", 1)[-1], re.M)

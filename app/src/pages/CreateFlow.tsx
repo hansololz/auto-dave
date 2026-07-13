@@ -4,8 +4,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { Agent, Auto, DraftPayload, SpecBlock, Step, VersionInfo } from '../types'
-import { BtnGhost, BtnPrimary, ConfirmModal, Toggle, paramSummary, usePopover, validUrl } from '../ui'
+import type { Agent, Auto, Blocker, DraftPayload, SpecBlock, Step, VersionInfo } from '../types'
+import { BtnGhost, BtnPrimary, ConfirmModal, Modal, Toggle, paramSummary, usePopover, validUrl } from '../ui'
 
 // ---------- helpers ----------
 
@@ -33,6 +33,21 @@ function textToSpec(text: string): SpecBlock[] {
         : s.startsWith('- ') ? { k: 'li', text: s.slice(2) }
           : { k: 'p', text: s })
 }
+
+// §11 Blocker panel: each blocker's reason + edited fix lands in the spec under
+// a "Constraints & resolutions" section — the resolution lives in the document
+// itself, so it survives later edits and syncs and versions like any spec text.
+const CONSTRAINTS_TITLE = 'Constraints & resolutions'
+function amendSpec(spec: SpecBlock[], blockers: Blocker[]): SpecBlock[] {
+  const items: SpecBlock[] = blockers.map((b) => ({ k: 'li', text: `${b.reason.trim()} — ${b.fix.trim()}` }))
+  const at = spec.findIndex((b) => b.k === 'h2' && b.text.trim().toLowerCase() === CONSTRAINTS_TITLE.toLowerCase())
+  if (at < 0) return [...spec, { k: 'h2', text: CONSTRAINTS_TITLE }, ...items]
+  let end = at + 1
+  while (end < spec.length && spec[end].k !== 'h2' && spec[end].k !== 'h1') end++
+  return [...spec.slice(0, end), ...items, ...spec.slice(end)]
+}
+
+const blockerLine = (b: Blocker) => `${b.reason.trim()} — ${b.fix.trim()}`
 
 interface SecretRef { name: string; steps: number[] }
 function secretRefsOf(steps: Step[]): SecretRef[] {
@@ -94,6 +109,45 @@ function WarnBanner({ text }: { text: string }) {
     }}>
       <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', flex: 'none', marginTop: 5 }} />
       <div style={{ font: "400 11.5px/1.5 var(--sans)", color: '#c6cdd6' }}>{text}</div>
+    </div>
+  )
+}
+
+/** §11 Blocker panel cards — one per blocker, three labeled fields pre-filled
+ * from the agent's answer; the user edits any of them (usually the fix).
+ * readOnly for spec-call blockers, where the cards are informational. */
+function BlockerCards({ blockers, onChange, readOnly }: {
+  blockers: Blocker[]; onChange?: (i: number, patch: Partial<Blocker>) => void; readOnly?: boolean
+}) {
+  const field = (label: string, value: string, rows: number, set: (v: string) => void, placeholder?: string) => (
+    <div style={{ padding: '8px 16px 0' }}>
+      <div style={eyebrowStyle}>{label}</div>
+      {readOnly ? (
+        value && (
+          <div style={{ font: "400 12.5px/1.6 var(--sans)", color: '#c6cdd6', padding: '4px 0 6px' }}>{value}</div>
+        )
+      ) : (
+        <textarea
+          value={value} rows={rows} placeholder={placeholder}
+          onChange={(e) => set(e.target.value)}
+          style={{
+            width: '100%', margin: '5px 0 2px', background: 'var(--bg-inset)',
+            border: '1px solid rgba(255,255,255,.08)', borderRadius: 7, color: 'var(--text)',
+            font: "400 12.5px/1.55 var(--sans)", padding: '7px 10px', resize: 'vertical', outline: 'none',
+          }}
+        />
+      )}
+    </div>
+  )
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+      {blockers.map((b, i) => (
+        <div key={i} style={{ ...cardStyle, borderColor: 'oklch(0.75 0.13 75 / .35)', paddingBottom: 12, textAlign: 'left' }}>
+          {field('REASON', b.reason, 2, (v) => onChange?.(i, { reason: v }))}
+          {field('HOW TO FIX', b.fix, 2, (v) => onChange?.(i, { fix: v }), 'What should change so this can be built')}
+          {field('DETAILS', b.details ?? '', 2, (v) => onChange?.(i, { details: v }))}
+        </div>
+      ))}
     </div>
   )
 }
@@ -174,6 +228,10 @@ interface Rev {
   ask: string
   syncBusy: boolean
   askBusy: boolean
+  // §11: a blocked `sync` opens the Blocker panel as a modal; a blocked `edit`
+  // (ask box) shows an amber notice under the ask box instead.
+  syncBlocked: { blockers: Blocker[]; resolved: string[] } | null
+  askBlockers: Blocker[] | null
   stepsMeta: string | null
   stepOpen: number | null
   viewing: 'draft' | number
@@ -187,7 +245,9 @@ const revDefaults = {
   dirty: false, dirtyWhy: null as Rev['dirtyWhy'], touched: false,
   specEdit: false, specText: '', specTextOrig: '',
   instrEdit: false, instrDraft: null as string | null,
-  ask: '', syncBusy: false, askBusy: false, stepsMeta: null as string | null, stepOpen: null as number | null,
+  ask: '', syncBusy: false, askBusy: false,
+  syncBlocked: null as Rev['syncBlocked'], askBlockers: null as Rev['askBlockers'],
+  stepsMeta: null as string | null, stepOpen: null as number | null,
   viewing: 'draft' as Rev['viewing'],
   agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
 }
@@ -232,7 +292,8 @@ function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr
     params: snap.params ? snap.params.map((p) => ({ ...p })) : r.params,
     instr: snap.instr || '',
     specEdit: false, specText: '', specTextOrig: '', instrEdit: false, instrDraft: null,
-    dirty: false, dirtyWhy: null, syncBusy: false, askBusy: false, stepsMeta: null, stepOpen: null, ask: '',
+    dirty: false, dirtyWhy: null, syncBusy: false, askBusy: false,
+    syncBlocked: null, askBlockers: null, stepsMeta: null, stepOpen: null, ask: '',
     viewing,
   }
 }
@@ -440,10 +501,18 @@ export default function CreateFlow() {
 
   const [buildStage, setBuildStage] = useState(0)
   const [buildErr, setBuildErr] = useState<{ msg: string; detail?: string[] } | null>(null)
+  // §11 Blocker panel (Building screen): `spec` is call 1's spec for the
+  // steps-call case (amended + rebuilt from here); `resolved` lists this
+  // session's earlier resolutions so a fix that didn't take is visible.
+  const [blocked, setBlocked] = useState<{
+    at: 'spec' | 'steps'; blockers: Blocker[]; spec: SpecBlock[] | null; resolved: string[]
+  } | null>(null)
   const jobIdRef = useRef<string | null>(null)
 
   const [rev, setRev] = useState<Rev | null>(null)
   const [confirmSpecCancel, setConfirmSpecCancel] = useState(false)
+  // Blocker-modal apply travels through Modal's animated close (ConfirmModal pattern).
+  const applyBlockedRef = useRef(false)
   const draftSnap = useRef<Rev | null>(null)
   const seededRef = useRef(false)
 
@@ -457,6 +526,7 @@ export default function CreateFlow() {
     onDone: (d: DraftPayload) => void,
     onFail: (msg: string, detail?: string[]) => void,
     onCancelled?: () => void,
+    onBlocked?: (blockers: Blocker[], at: 'spec' | 'steps', spec: SpecBlock[] | null) => void,
   ) => {
     stopPoll()
     jobIdRef.current = jobId
@@ -469,6 +539,10 @@ export default function CreateFlow() {
             stopPoll()
             if (j.draft) onDone(j.draft)
             else onFail('The agent returned an empty draft.')
+          } else if (j.status === 'blocked') {
+            stopPoll()
+            if (onBlocked) onBlocked(j.blockers ?? [], j.blockedAt ?? 'steps', j.draft?.spec ?? null)
+            else onFail(j.error || 'Your AI hit a blocker.')
           } else if (j.status === 'failed') {
             stopPoll()
             onFail(j.error || '', j.errorDetail)
@@ -526,6 +600,7 @@ export default function CreateFlow() {
     if (!text.trim()) { setAskHint(true); return }
     setAskHint(false)
     setBuildErr(null)
+    setBlocked(null)
     setBuildStage(0)
     setPhase('building')
     try {
@@ -535,6 +610,7 @@ export default function CreateFlow() {
         (d) => { setRev(seedFromPayload(d, agents)); setPhase('review') },
         (msg, detail) => setBuildErr({ msg, detail }),
         () => setPhase('ask'),
+        (blockers, at, spec) => setBlocked({ at, blockers, spec, resolved: [] }),
       )
     } catch (e) {
       setBuildErr({ msg: (e as Error).message })
@@ -544,7 +620,39 @@ export default function CreateFlow() {
     stopPoll()
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
     setBuildErr(null)
+    setBlocked(null)
     setPhase('ask')
+  }
+
+  // §11 Blocker panel, steps-call case: write each card (edited text) into the
+  // spec's "Constraints & resolutions" section, then rebuild the steps against
+  // the amended spec — one §8 `sync` call; the checklist re-enters step 2.
+  const applyBlockers = async () => {
+    if (!blocked?.spec || blocked.blockers.some((b) => !b.reason.trim() || !b.fix.trim())) return
+    const spec = amendSpec(blocked.spec, blocked.blockers)
+    const resolved = [...blocked.resolved, ...blocked.blockers.map(blockerLine)]
+    setBlocked(null)
+    setBuildStage(1)
+    try {
+      const { jobId } = await api.postDraftJob({
+        mode: 'sync', agentId, current: { spec, instr: defaultBuildCache },
+      })
+      startPoll(
+        jobId,
+        (d) => {
+          const r = seedFromPayload(d, agents)
+          // sync payloads never carry the spec (or, without a manifest name, a
+          // useful one) — the amended spec and its # title are the truth here.
+          setRev({ ...r, spec, name: d.name || spec.find((b) => b.k === 'h1')?.text || r.name })
+          setPhase('review')
+        },
+        (msg, detail) => setBuildErr({ msg, detail }),
+        () => setPhase('ask'),
+        (blockers, at, sp) => setBlocked({ at, blockers, spec: sp ?? spec, resolved }),
+      )
+    } catch (e) {
+      setBuildErr({ msg: (e as Error).message })
+    }
   }
 
   // ---- review: derived ----
@@ -577,7 +685,7 @@ export default function CreateFlow() {
     const request = rev.ask.trim()
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // one edit at a time
-      ask: '', askBusy: true, touched: true,
+      ask: '', askBusy: true, askBlockers: null, touched: true,
     })
     try {
       const { jobId } = await api.postDraftJob({
@@ -599,6 +707,9 @@ export default function CreateFlow() {
           showToast(msg || 'The spec didn’t validate — try again or rephrase.', 4500)
         },
         () => setRev((r) => r && ({ ...r, askBusy: false })),
+        // §11: a blocked edit call shows a persistent amber notice under the
+        // ask box — the draft is untouched, the user rephrases the request.
+        (blockers) => setRev((r) => r && ({ ...r, askBusy: false, askBlockers: blockers })),
       )
     } catch (e) {
       up({ askBusy: false })
@@ -606,16 +717,19 @@ export default function CreateFlow() {
     }
   }
 
-  const runSync = async () => {
+  // §11: a blocked sync opens the Blocker panel modal; applying amends the
+  // in-editor spec (specOverride) and re-runs the sync with it.
+  const runSync = async (specOverride?: SpecBlock[], resolved: string[] = []) => {
     if (!rev || rev.syncBusy || rev.askBusy) return
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // discard unsaved edits
       syncBusy: true, touched: true,
+      ...(specOverride ? { spec: specOverride, syncBlocked: null } : {}),
     })
     try {
       const { jobId } = await api.postDraftJob({
         mode: 'sync', ...(isEdit && auto ? { autoId: auto.id } : {}),
-        agentId, current: currentSerialized(),
+        agentId, current: { ...serializeDraft(rev), spec: specOverride ?? rev.spec },
         enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
       startPoll(
@@ -639,11 +753,21 @@ export default function CreateFlow() {
           showToast(`The draft didn’t validate — try again or rephrase.${msg ? ' ' + msg : ''}`, 4500)
         },
         () => setRev((r) => r && ({ ...r, syncBusy: false })),
+        (blockers) => setRev((r) => r && ({
+          ...r, syncBusy: false, syncBlocked: { blockers, resolved },
+        })),
       )
     } catch (e) {
       up({ syncBusy: false })
       showToast((e as Error).message)
     }
+  }
+
+  const applySyncBlockers = () => {
+    if (!rev?.syncBlocked) return
+    const { blockers, resolved } = rev.syncBlocked
+    if (blockers.some((b) => !b.reason.trim() || !b.fix.trim())) return
+    void runSync(amendSpec(rev.spec, blockers), [...resolved, ...blockers.map(blockerLine)])
   }
 
   // ---- version menu (edit mode) ----
@@ -698,6 +822,7 @@ export default function CreateFlow() {
     stopPoll()
     setRev(null)
     setBuildErr(null)
+    setBlocked(null)
     setPhase('ask')
   }
 
@@ -852,7 +977,51 @@ export default function CreateFlow() {
         )}
 
         {/* ============ BUILDING ============ */}
-        {phase === 'building' && !buildErr && (
+        {phase === 'building' && !buildErr && blocked && (
+          <div style={{
+            maxWidth: 660, margin: '0 auto', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', gap: 18, padding: '48px 32px 60px', animation: 'adFadeUp .3s ease',
+          }}>
+            <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--amber)' }} />
+            <div style={{ font: "600 16px var(--sans)", color: 'var(--text)' }}>
+              {blocked.blockers.length > 1 ? `Your AI hit ${blocked.blockers.length} blockers` : 'Your AI hit a blocker'}
+            </div>
+            <div style={{ font: "400 13px/1.6 var(--sans)", color: 'var(--text-2)', textAlign: 'center', margin: '-8px 0 2px' }}>
+              {blocked.at === 'steps'
+                ? 'It couldn’t build the steps as the spec asks. Edit the fix below, then apply it to the spec and rebuild.'
+                : 'It couldn’t write a spec for this request. Rephrase the request with the advice below.'}
+            </div>
+            <BlockerCards
+              blockers={blocked.blockers}
+              readOnly={blocked.at === 'spec'}
+              onChange={(i, patch) => setBlocked((z) => z && ({
+                ...z, blockers: z.blockers.map((b, k) => (k === i ? { ...b, ...patch } : b)),
+              }))}
+            />
+            {blocked.resolved.length > 0 && (
+              <div style={{ width: '100%', font: "400 11.5px/1.7 var(--sans)", color: 'var(--text-faint)' }}>
+                <div style={eyebrowStyle}>PREVIOUSLY RESOLVED</div>
+                {blocked.resolved.map((s, i) => <div key={i}>– {s}</div>)}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10 }}>
+              {blocked.at === 'steps' ? (
+                <>
+                  <BtnGhost onClick={() => { setBlocked(null); setPhase('ask') }}>Back</BtnGhost>
+                  <BtnPrimary
+                    onClick={() => void applyBlockers()}
+                    disabled={blocked.blockers.some((b) => !b.reason.trim() || !b.fix.trim())}
+                  >
+                    Apply to the spec & rebuild the steps
+                  </BtnPrimary>
+                </>
+              ) : (
+                <BtnPrimary onClick={() => { setBlocked(null); setPhase('ask') }}>Back to the request</BtnPrimary>
+              )}
+            </div>
+          </div>
+        )}
+        {phase === 'building' && !buildErr && !blocked && (
           <div style={{
             minHeight: 420, height: '100%', display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center', gap: 28, padding: 40,
@@ -1142,6 +1311,27 @@ export default function CreateFlow() {
                       </button>
                     )}
                   </div>
+                  {/* §11: blocked edit call — persistent amber notice, draft untouched */}
+                  {rev.askBlockers && (
+                    <div style={{
+                      borderTop: '1px solid var(--hairline)', background: 'oklch(0.75 0.13 75 / .06)',
+                      padding: '10px 14px', display: 'flex', alignItems: 'flex-start', gap: 9,
+                    }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)', flex: 'none', marginTop: 5 }} />
+                      <div style={{ flex: 1, minWidth: 0, font: "400 12px/1.6 var(--sans)", color: '#c6cdd6' }}>
+                        {rev.askBlockers.map((b, i) => (
+                          <div key={i}>Your AI hit a blocker: {blockerLine(b)}</div>
+                        ))}
+                      </div>
+                      <button
+                        className="ad-btn-text dim" title="Dismiss"
+                        onClick={() => up({ askBlockers: null })}
+                        style={{ font: "500 12px var(--sans)", padding: '0 2px', flex: 'none' }}
+                      >
+                        <i className="fa-solid fa-xmark" style={{ fontSize: 11 }} />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* AGENTS · AVAILABLE TO STEPS */}
@@ -1727,6 +1917,49 @@ export default function CreateFlow() {
           onConfirm={() => { setConfirmSpecCancel(false); up({ specEdit: false, specText: '', specTextOrig: '' }) }}
           onCancel={() => setConfirmSpecCancel(false)}
         />
+      )}
+
+      {/* §11: blocked sync — Blocker panel as a modal over Review. Applying
+          amends the in-editor spec and re-runs the sync; closing leaves the
+          workflow out of sync with the sync banner still up. */}
+      {rev?.syncBlocked && (
+        <Modal
+          onClose={() => { if (applyBlockedRef.current) { applyBlockedRef.current = false; applySyncBlockers() } else up({ syncBlocked: null }) }}
+          width={620} zIndex={80} cardStyle={{ padding: 22, maxHeight: '80vh', overflowY: 'auto' }}
+        >
+          {(close) => (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
+                {rev.syncBlocked!.blockers.length > 1 ? `Your AI hit ${rev.syncBlocked!.blockers.length} blockers` : 'Your AI hit a blocker'}
+              </div>
+              <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)', marginBottom: 14 }}>
+                It couldn’t sync the steps with the spec. Edit the fix below, then apply it to the spec and sync again.
+              </div>
+              <BlockerCards
+                blockers={rev.syncBlocked!.blockers}
+                onChange={(i, patch) => setRev((r) => r && r.syncBlocked && ({
+                  ...r,
+                  syncBlocked: { ...r.syncBlocked, blockers: r.syncBlocked.blockers.map((b, k) => (k === i ? { ...b, ...patch } : b)) },
+                }))}
+              />
+              {rev.syncBlocked!.resolved.length > 0 && (
+                <div style={{ margin: '12px 0 0', font: "400 11.5px/1.7 var(--sans)", color: 'var(--text-faint)' }}>
+                  <div style={eyebrowStyle}>PREVIOUSLY RESOLVED</div>
+                  {rev.syncBlocked!.resolved.map((s, i) => <div key={i}>– {s}</div>)}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
+                <BtnGhost onClick={close}>Close</BtnGhost>
+                <BtnPrimary
+                  onClick={() => { applyBlockedRef.current = true; close() }}
+                  disabled={rev.syncBlocked!.blockers.some((b) => !b.reason.trim() || !b.fix.trim())}
+                >
+                  Apply to the spec & sync again
+                </BtnPrimary>
+              </div>
+            </>
+          )}
+        </Modal>
       )}
     </div>
   )

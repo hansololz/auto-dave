@@ -144,14 +144,25 @@ export interface DraftPayload {
   secretRefs?: string[]
 }
 
+// §8 blocker envelope entry — a `blocked` job's payload.
+export interface Blocker {
+  reason: string
+  fix: string
+  details?: string
+}
+
 export interface DraftJob {
   id: string
-  status: 'building' | 'done' | 'failed' | 'cancelled'
+  status: 'building' | 'done' | 'failed' | 'cancelled' | 'blocked'
   stage: string | null
   error: string | null
   errorDetail?: string[]
   draft: DraftPayload | null
   mode: 'create' | 'edit' | 'sync'
+  // blocked jobs only: which call blocked; on a blocked steps call in create
+  // mode `draft.spec` carries call 1's spec so the Blocker panel can amend it.
+  blockedAt?: 'spec' | 'steps'
+  blockers?: Blocker[]
 }
 
 export interface StateSnapshot {

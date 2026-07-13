@@ -75,10 +75,46 @@ def test_draft_job_and_create_flow(client):
 def _wait_job(client, job_id):
     for _ in range(100):
         j = client.get(f"/drafts/{job_id}").json()
-        if j["status"] in ("done", "failed"):
+        if j["status"] in ("done", "failed", "blocked"):
             return j
         time.sleep(0.1)
     return j
+
+
+def test_draft_job_blocked_at_steps_carries_spec(client):
+    # §8: a valid blocker envelope ends the job `blocked` (not failed), with the
+    # blocker list; in create mode call 1's spec rides along so the §11 Blocker
+    # panel can amend it and rebuild.
+    r = client.post("/drafts", json={"mode": "create", "text": "blocked-steps mail watcher",
+                                     "agentId": "mock"})
+    j = _wait_job(client, r.json()["jobId"])
+    assert j["status"] == "blocked", j
+    assert j["blockedAt"] == "steps"
+    assert j["error"] is None
+    assert j["blockers"] and j["blockers"][0]["reason"] and j["blockers"][0]["fix"]
+    assert j["draft"]["spec"]
+
+
+def test_draft_job_blocked_at_spec(client):
+    r = client.post("/drafts", json={"mode": "create", "text": "blocked-spec mail watcher",
+                                     "agentId": "mock"})
+    j = _wait_job(client, r.json()["jobId"])
+    assert j["status"] == "blocked", j
+    assert j["blockedAt"] == "spec"
+    assert j["draft"] is None  # no spec exists yet to amend
+
+
+def test_sync_blocked_has_no_draft(client):
+    from autodave.storage import store
+
+    # sync: the caller already holds the spec — the blocked payload carries none
+    a = store.create_automation(make_version(), "Sync blocked", "mock")
+    r = client.post("/drafts", json={"mode": "sync", "autoId": a["id"], "agentId": "mock",
+                                     "spec": "# blocked-steps title\n\nBody."})
+    j = _wait_job(client, r.json()["jobId"])
+    assert j["status"] == "blocked", j
+    assert j["blockedAt"] == "steps"
+    assert j["draft"] is None
 
 
 def test_sync_uses_provided_spec(client):

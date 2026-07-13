@@ -6,7 +6,8 @@ step code never travels here. Call 2 (create/sync; sync starts here): framework
 instructions + build instructions + the spec → manifest.yaml (params, schedule) + step files.
 `edit` runs call 1 only — the rewritten spec lands out of sync and a later `sync`
 job rebuilds the steps. Each call is followed by deterministic validation with
-one automatic repair round.
+one automatic repair round; a valid ===BLOCKED=== envelope instead ends the job
+in the terminal `blocked` state with the agent's blocker list (§8).
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from .storage import SECRET_REF_RE
 PARAM_KINDS = {"toggle", "list", "kv", "number", "text"}
 STEP_FILE_RE = re.compile(r"^(\d{2})-[a-z0-9][a-z0-9-]*\.py$")
 FILE_MARK_RE = re.compile(r"^===FILE: (.+?)===\s*$", re.M)
+BLOCKED_MARK_RE = re.compile(r"^===BLOCKED===\s*$", re.M)
 
 # §8 prompt texts live as markdown next to the code so they can be read and
 # edited without touching Python: framework-instructions.md travels with EVERY
@@ -146,6 +148,34 @@ def parse_envelope(text: str) -> dict[str, str]:
         end = marks[i + 1].start() if i + 1 < len(marks) else len(body)
         files[m.group(1).strip()] = body[m.end():end].strip("\n") + "\n"
     return files
+
+
+def parse_blockers(text: str) -> list[dict] | None:
+    """§8 blocker envelope. None when the response isn't one; the parsed nonempty
+    blocker list when it is; ValueError when it is one but malformed (which sends
+    it through the normal repair round like any invalid response)."""
+    m = BLOCKED_MARK_RE.search(text)
+    if not m:
+        return None
+    if "===END===" not in text:
+        raise ValueError("blocker response is truncated — no ===END=== marker")
+    if FILE_MARK_RE.search(text):
+        raise ValueError("a blocker envelope must not carry file blocks — return one or the other")
+    try:
+        data = yaml.safe_load(text[m.end(): text.index("===END===")])
+    except yaml.YAMLError as e:
+        raise ValueError(f"blocker envelope doesn't parse as yaml: {e}")
+    blockers = data.get("blockers") if isinstance(data, dict) else None
+    if not isinstance(blockers, list) or not blockers:
+        raise ValueError("the blocker envelope needs a nonempty `blockers` list")
+    out = []
+    for b in blockers:
+        if not isinstance(b, dict) or not str(b.get("reason") or "").strip() \
+                or not str(b.get("fix") or "").strip():
+            raise ValueError("every blocker needs a nonempty reason and fix")
+        out.append({"reason": str(b["reason"]).strip(), "fix": str(b["fix"]).strip(),
+                    "details": str(b.get("details") or "").strip()})
+    return out
 
 
 def validate_spec(files: dict[str, str]) -> tuple[dict, list[str]]:
@@ -313,10 +343,12 @@ class DraftJobs:
         spec_blocks = None
         if mode in ("create", "edit"):
             # ---- call 1: the spec ----
-            spec, errors = self._call_with_repair(
+            spec, errors, blockers = self._call_with_repair(
                 job, agent, build_spec_prompt(mode, user_text, current, grants), validate_spec)
             if job["_cancel"]:
                 return True
+            if blockers:
+                return self._block(job, "spec", blockers, None)
             if errors:
                 return self._fail(job, "The spec didn't validate — try again or rephrase.", errors)
             spec_md, spec_blocks = spec["md"], spec["blocks"]
@@ -333,10 +365,15 @@ class DraftJobs:
 
         # ---- call 2: steps, params, schedule ----
         self._stage(job, "Generating the steps")
-        draft, errors = self._call_with_repair(
+        draft, errors, blockers = self._call_with_repair(
             job, agent, build_steps_prompt(mode, spec_md, current, grants), validate_steps)
         if job["_cancel"]:
             return True
+        if blockers:
+            # Hand call 1's spec along (create) so the §11 Blocker panel can
+            # amend it and rebuild — on sync the caller already holds the spec.
+            return self._block(job, "steps",
+                               blockers, {"spec": spec_blocks} if spec_blocks else None)
         if errors:
             return self._fail(job, "The steps didn't validate — try again or rephrase.", errors)
 
@@ -350,14 +387,15 @@ class DraftJobs:
         return False
 
     def _call_with_repair(self, job: dict, agent: dict, prompt: str,
-                          validator) -> tuple[dict, list[str]]:
-        """One harness call + one automatic repair round against `validator`."""
+                          validator) -> tuple[dict, list[str], list[dict] | None]:
+        """One harness call + one automatic repair round against `validator`.
+        A valid §8 blocker envelope is terminal — returned as-is, no repair."""
         self._log_app(f"draft {job['id']} prompt:\n{prompt}")
         raw = harness.invoke(agent, prompt, timeout=300, proc_holder=job["_proc"])
         self._log_app(f"draft {job['id']} response:\n{raw}")
         if job["_cancel"]:
-            return {}, []
-        result, errors = self._parse_validate(raw, validator)
+            return {}, [], None
+        result, errors, blockers = self._parse_validate(raw, validator)
         if errors:
             repair = (prompt + "\n\n=== YOUR PREVIOUS RESPONSE ===\n" + raw
                       + "\n\n=== VALIDATION ERRORS — fix these and resend the full envelope ===\n- "
@@ -365,9 +403,9 @@ class DraftJobs:
             raw2 = harness.invoke(agent, repair, timeout=300, proc_holder=job["_proc"])
             self._log_app(f"draft {job['id']} repair response:\n{raw2}")
             if job["_cancel"]:
-                return {}, []
-            result, errors = self._parse_validate(raw2, validator)
-        return result, errors
+                return {}, [], None
+            result, errors, blockers = self._parse_validate(raw2, validator)
+        return result, errors, blockers
 
     def _stage(self, job: dict, label: str) -> None:
         job["stage"] = label
@@ -381,12 +419,25 @@ class DraftJobs:
         return False
 
     @staticmethod
-    def _parse_validate(raw: str, validator) -> tuple[dict, list[str]]:
+    def _block(job: dict, at: str, blockers: list[dict], draft: dict | None) -> bool:
+        # §8: a valid blocker envelope is its own terminal outcome, not a failure.
+        job["status"] = "blocked"
+        job["blockedAt"] = at
+        job["blockers"] = blockers
+        job["draft"] = draft
+        return False
+
+    @staticmethod
+    def _parse_validate(raw: str, validator) -> tuple[dict, list[str], list[dict] | None]:
         try:
+            blockers = parse_blockers(raw)
+            if blockers is not None:
+                return {}, [], blockers
             files = parse_envelope(raw)
         except ValueError as e:
-            return {}, [str(e)]
-        return validator(files)
+            return {}, [str(e)], None
+        result, errors = validator(files)
+        return result, errors, None
 
     @staticmethod
     def _log_app(text: str) -> None:
