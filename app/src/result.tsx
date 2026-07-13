@@ -359,7 +359,9 @@ export function ResultSection({ label, result, execId, measure = 640 }: {
   const { c, bg } = resultChipColors(result.chipStatus)
   const chip = result.chip
   const values = result.values ?? []
-  const renderable = (result.files ?? []).filter((f) => fileKind(f.name) !== null)
+  const files = result.files ?? []
+  const renderable = files.filter((f) => fileKind(f.name) !== null)
+  const empty = values.length === 0 && files.length === 0
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -395,11 +397,20 @@ export function ResultSection({ label, result, execId, measure = 640 }: {
         )}
       </div>
       {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {values.length > 0 && <SummaryView values={values} measure={measure} />}
-          {renderable.map((f) => <FileView key={f.name} execId={execId} file={f} />)}
-          <FilesFooter files={result.files ?? []} path={result.path} />
-        </div>
+        empty ? (
+          <div style={{
+            background: 'var(--bg-card)', border: '1px dashed rgba(255,255,255,.12)',
+            borderRadius: 12, padding: 22, textAlign: 'center', fontSize: 12.5, color: 'var(--text-muted)',
+          }}>
+            The latest execution didn’t produce any result files.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {values.length > 0 && <SummaryView values={values} measure={measure} />}
+            {renderable.map((f) => <FileView key={f.name} execId={execId} file={f} />)}
+            <FilesFooter files={files} path={result.path} />
+          </div>
+        )
       )}
     </div>
   )

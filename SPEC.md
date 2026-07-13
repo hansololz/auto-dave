@@ -584,7 +584,9 @@ Latest Result card on the detail page uses 640 px), then one **file view** per r
 file in alphabetical order (`.md` markdown, `.html` sandboxed iframe, images inline; titled
 by filename), then a collapsible **FILES footer** ("FILES · N" header): the result-dir path
 in mono, every file as name + size rows, and a "Show in Finder" button opening the dir in
-Finder. No values and no renderable files → the section is just the footer.
+Finder. No values but files present (even if none renderable) → the section is just the footer.
+No values and no files at all → the whole view stack (footer included) is replaced by a dashed
+placeholder card: "The latest execution didn't produce any result files."
 Deleted-automation handling: historical name, marked deleted.
 
 **Executions list:** all executions across automations; each row shows the automation name plus
