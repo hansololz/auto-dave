@@ -729,6 +729,17 @@ start at the second, edit jobs end after the first). Every invocation's full pro
 response are logged to the app log
 (never to execution logs) for debugging.
 
+**Issue-analysis call (§11 Test run).** When a test run's step fails, the backend makes one
+more call with the same drafting agent: `framework-instructions.md` + the spec + the failing
+step's code + its error and log tail + earlier steps' log tails (the cause is often upstream)
+→ TASK: analyze the failure and return a **blocker envelope** — the same `===BLOCKED===`
+format, `reason` holding what happened. One envelope shape means one parser, one validation
+rule, and one §11 panel for build-time refusals and run-time failures alike. Validation and
+the one-repair-round policy apply as above; if the second response is still invalid the
+analysis is dropped and the §11 Issue panel opens with the step's raw error instead. Same
+5-minute cap, same app-log logging. Secret values never travel: the log tail is the
+already-redacted execution output (§6).
+
 ## 9. Navigation & app shell
 
 One 100 vh dark window with macOS traffic lights. The window drags from its top edge, Apple
@@ -881,7 +892,7 @@ buttons out of the window), version dropdown (edit mode), agent picker, Start ov
 nothing runs until you create it." When a run is live during an edit, a cyan pulsing banner
 shows: "A run is happening right now on vN. Saving won't interrupt it — that run finishes on vN.
 vN+1 takes over from the next run (`<schedule>`)." Sections (left column: spec, agents,
-secrets, instructions, framework; right column: steps, schedule, parameters, dry-run):
+secrets, instructions, framework; right column: steps, schedule, parameters, test run):
 - **Spec** — editable as markdown-ish text (`#`, `##`, `-`, plain ↔ h1/h2/li/p blocks). Also an
   "ask the agent" box ("Edit with agent") that runs one §8 `edit` job (spec call only) with the
   selected drafting agent (the automation's agent, falling back to the default agent): the agent
@@ -935,18 +946,26 @@ secrets, instructions, framework; right column: steps, schedule, parameters, dry
   `default-build-instructions.md` as the fallback pre-fill for the Build instructions card.
   Collapsed hint and footer copy: built-in instructions the AI reads before writing anything,
   word for word — they update with the app, nothing for the user to maintain.
-- **Dry-run test** — streams check lines and ends in a done state. **Semantics (decided):** a
-  dry run executes no step code and writes no execution record. The backend streams one check
-  line per item over the §19 WebSocket: param values validate against definitions (URL counts
-  per §4.2), each referenced secret exists and is allowed, each agent step has an enabled agent,
-  memory dir status (size or "empty"), notification plan from the current setting, plus an HTTP
-  `HEAD` reachability probe (5 s timeout, probes run concurrently) for each valid URL in
-  `validate: true` list params. `number` params are checked numeric and ≥ min; `kv` reports entry
-  count. Secret/agent checks use the in-editor (unsaved) grants — the renderer sends
-  `enabledAgents`/`allowedSecrets` overrides (§19). Dry-run is available in both create and edit
-  mode: edit mode uses `POST /automations/{id}/dryrun`; create mode (no saved id yet) uses
-  `POST /dryrun` with the full draft, and the memory line reports "empty — new automation". Any
-  failing line renders amber/red but never blocks saving — dry-run is advisory.
+- **Test run** — executes the draft's **real steps** through the same engine path as a real
+  run (there is no dry-run): in-editor param values and grants, a throwaway workspace, and
+  **scratch memory** — edit mode copies the automation's memory dir, create mode starts empty —
+  all discarded when the run ends, so a test can never poison the memory the deployed version
+  reads (§4.1). Side effects outside memory are real (emails send, files move, notifications
+  post per settings) and the card says so plainly. Step statuses (§4.6 vocabulary) and log
+  lines (secret values redacted, §6) stream into the card live over the §19 `test.*` WS
+  events; the run stops at the first failed step and is cancellable from the card. A test run
+  writes **no execution record** — it exists to iterate on the draft; the detail page's "Run
+  draft" (§4.4) remains the stored, `ver: Draft` path. A succeeded run shows green plus the
+  run's result summary (chip + values) in the card, with no agent call. On failure the card
+  shows "Analyzing the failure…" (agent label) while the backend runs the §8 issue-analysis
+  call, then opens the **Issue panel** — the same cards, fields, and editing as the Blocker
+  panel, headline "The test run hit an issue"; its primary button **"Apply to the spec & sync
+  the steps"** amends the in-editor spec (same `## Constraints & resolutions` rule) and runs a
+  §8 sync, and "Previously resolved" carries across rounds — build-time blockers and run-time
+  issues are one convergent repair loop with two entry points. If the analysis call itself
+  fails, the panel still opens with the failing step's raw error as the reason and an empty
+  fix for the user to fill in. Advisory like the dry-run was: a failed test never blocks
+  saving.
 
 Create (new) → version 1, `lastStatus: none`, navigate to detail, toast "Created — nothing has
 run yet. Press Run now when you're ready." Save (edit) → §4.4.
@@ -1225,11 +1244,13 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `POST /automations/{id}/restore` `{ v }` — copy vX to vN+1 (§5)
 - `POST /automations/{id}/memory/clear` — empty the §4.1 memory directory (backs §9.2 "Clear
   memory")
-- `POST /automations/{id}/dryrun` `{ draft?, enabledAgents?, allowedSecrets? }` —
-  streams §11 check lines as WS events; when the grant arrays are present (even empty) they
-  replace the saved grants for the checks
-- `POST /dryrun` `{ draft, enabledAgents?, allowedSecrets? }` — create-mode dry run against an
-  unsaved draft (no automation id); same check lines and WS events, memory line reports empty
+- `POST /testruns` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets? }` → `{ runId }`
+  — the §11 Test run: executes the sent draft's steps ephemerally (scratch memory copied from
+  `autoId`'s memory dir when given, else empty; no execution record); grant arrays as in
+  `/drafts`; progress via the `test.*` WS events; on failure the backend runs the §8
+  issue-analysis call with `agentId` (default-agent fallback) and emits its blockers in
+  `test.issue`. `DELETE /testruns/{runId}` cancels (kills the running step subprocess or the
+  analysis harness process)
 - `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
   the stored automation's for the §8 grants context; progress via
@@ -1261,8 +1282,11 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   run-data location; creates the dir, reloads from it, moves nothing)
 - `WS /ws?token=` — events, each `{ ev, ... }`: `exec.started`, `exec.step` (status change),
   `exec.log` (one NDJSON line), `exec.finished`, `auto.changed`, `agents.changed`,
-  `secrets.changed`, `settings.changed`, `draft.progress`, `dryrun.line`, `dryrun.done`,
-  `ollama.pull` (model-pull progress). Clients re-`GET /state` on reconnect.
+  `secrets.changed`, `settings.changed`, `draft.progress`, `test.step` (§11 test-run step
+  status change), `test.log` (one redacted NDJSON line), `test.done` (`{ status, result? }` —
+  result summary on success), `test.issue` (the §8 issue-analysis blockers, after a failed
+  run's analysis finishes), `ollama.pull` (model-pull progress). Clients re-`GET /state` on
+  reconnect.
 
 ## 20. Deliberate divergences from the design prototype
 

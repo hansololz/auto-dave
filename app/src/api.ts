@@ -62,10 +62,9 @@ export const api = {
   putDraft: (autoId: string, draft: unknown) => req('PUT', `/automations/${autoId}/draft`, { draft }),
   deleteDraft: (autoId: string) => req('DELETE', `/automations/${autoId}/draft`),
   restore: (autoId: string, v: number) => req<{ version: number }>('POST', `/automations/${autoId}/restore`, { v }),
-  dryrun: (autoId: string, draft?: unknown, grants?: { enabledAgents: string[]; allowedSecrets: string[] }) =>
-    req('POST', `/automations/${autoId}/dryrun`, { draft, ...(grants ?? {}) }),
-  dryrunDraft: (draft: unknown, grants?: { enabledAgents: string[]; allowedSecrets: string[] }) =>
-    req('POST', '/dryrun', { draft, ...(grants ?? {}) }),
+  // §19 test run: executes the sent draft's steps ephemerally; progress via test.* WS events
+  postTestRun: (body: Record<string, unknown>) => req<{ runId: string }>('POST', '/testruns', body),
+  cancelTestRun: (runId: string) => req('DELETE', `/testruns/${runId}`),
   postDraftJob: (body: Record<string, unknown>) => req<{ jobId: string }>('POST', '/drafts', body),
   getDraftJob: (jobId: string) => req<DraftJob>('GET', `/drafts/${jobId}`),
   cancelDraftJob: (jobId: string) => req('DELETE', `/drafts/${jobId}`),

@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent, Auto, Blocker, DraftPayload, SpecBlock, Step, VersionInfo } from '../types'
-import { BtnGhost, BtnPrimary, ConfirmModal, Modal, Toggle, paramSummary, usePopover, validUrl } from '../ui'
+import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, Toggle, paramSummary, resultChipColors, usePopover, validUrl } from '../ui'
 
 // ---------- helpers ----------
 
@@ -72,11 +72,12 @@ const stepList = (idx: number[]) => idx.map((i) => i + 1).join(', ')
 let fwCache: string | null = null
 let defaultBuildCache = ''
 
-function dryColor(kind: string): string {
+// §4.5 log-line kinds streamed by the §11 test run
+function logColor(kind: string): string {
   if (kind === 'err') return 'var(--red)'
-  if (kind === 'warn') return 'var(--amber)'
-  if (kind === 'ok') return '#c6cdd6'
-  return 'var(--text-faint)'
+  if (kind === 'wrn') return 'var(--amber)'
+  if (kind === 'out') return '#c6cdd6'
+  return 'var(--text-faint)' // sys
 }
 
 // ---------- small shared bits ----------
@@ -228,9 +229,12 @@ interface Rev {
   ask: string
   syncBusy: boolean
   askBusy: boolean
-  // §11: a blocked `sync` opens the Blocker panel as a modal; a blocked `edit`
-  // (ask box) shows an amber notice under the ask box instead.
-  syncBlocked: { blockers: Blocker[]; resolved: string[] } | null
+  // §11: one repair modal, two entry points — a blocked `sync` and a failed
+  // test run's issue analysis both land here; `resolved` is the session's
+  // applied resolutions ("Previously resolved"). A blocked `edit` (ask box)
+  // shows an amber notice under the ask box instead.
+  repair: { source: 'sync' | 'test'; blockers: Blocker[] } | null
+  resolved: string[]
   askBlockers: Blocker[] | null
   stepsMeta: string | null
   stepOpen: number | null
@@ -246,7 +250,7 @@ const revDefaults = {
   specEdit: false, specText: '', specTextOrig: '',
   instrEdit: false, instrDraft: null as string | null,
   ask: '', syncBusy: false, askBusy: false,
-  syncBlocked: null as Rev['syncBlocked'], askBlockers: null as Rev['askBlockers'],
+  repair: null as Rev['repair'], resolved: [] as string[], askBlockers: null as Rev['askBlockers'],
   stepsMeta: null as string | null, stepOpen: null as number | null,
   viewing: 'draft' as Rev['viewing'],
   agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
@@ -293,7 +297,7 @@ function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr
     instr: snap.instr || '',
     specEdit: false, specText: '', specTextOrig: '', instrEdit: false, instrDraft: null,
     dirty: false, dirtyWhy: null, syncBusy: false, askBusy: false,
-    syncBlocked: null, askBlockers: null, stepsMeta: null, stepOpen: null, ask: '',
+    repair: null, resolved: [], askBlockers: null, stepsMeta: null, stepOpen: null, ask: '',
     viewing,
   }
 }
@@ -487,7 +491,7 @@ function MissingSecretRow({ name, sub, onAdded }: { name: string; sub: string; o
 
 export default function CreateFlow() {
   const store = useStore()
-  const { agents, secrets, autos, createFrom, autoId, go, setSurface, showToast, loadAuto, dryrun, clearDryrun } = store
+  const { agents, secrets, autos, createFrom, autoId, go, setSurface, showToast, loadAuto, testrun, beginTestrun, clearTestrun, consumeTestIssue } = store
   const isEdit = createFrom === 'edit'
   const isOnboard = createFrom === 'onboard'
   const auto = isEdit ? autos.find((a) => a.id === autoId) ?? null : null
@@ -557,7 +561,13 @@ export default function CreateFlow() {
       })()
     }, 700)
   }
-  useEffect(() => () => { stopPoll(); clearDryrun() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => {
+    stopPoll()
+    // Leaving the editor abandons any live test run — it's ephemeral (§11).
+    const t = useStore.getState().testrun
+    if (t?.status === 'running') void api.cancelTestRun(t.runId).catch(() => { /* already gone */ })
+    useStore.getState().clearTestrun()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- guards + edit-mode seeding ----
   useEffect(() => {
@@ -717,14 +727,14 @@ export default function CreateFlow() {
     }
   }
 
-  // §11: a blocked sync opens the Blocker panel modal; applying amends the
-  // in-editor spec (specOverride) and re-runs the sync with it.
-  const runSync = async (specOverride?: SpecBlock[], resolved: string[] = []) => {
+  // §11: a blocked sync opens the repair modal; applying amends the in-editor
+  // spec (specOverride) and re-runs the sync with it.
+  const runSync = async (specOverride?: SpecBlock[]) => {
     if (!rev || rev.syncBusy || rev.askBusy) return
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // discard unsaved edits
       syncBusy: true, touched: true,
-      ...(specOverride ? { spec: specOverride, syncBlocked: null } : {}),
+      ...(specOverride ? { spec: specOverride } : {}),
     })
     try {
       const { jobId } = await api.postDraftJob({
@@ -754,7 +764,7 @@ export default function CreateFlow() {
         },
         () => setRev((r) => r && ({ ...r, syncBusy: false })),
         (blockers) => setRev((r) => r && ({
-          ...r, syncBusy: false, syncBlocked: { blockers, resolved },
+          ...r, syncBusy: false, repair: { source: 'sync', blockers },
         })),
       )
     } catch (e) {
@@ -763,12 +773,22 @@ export default function CreateFlow() {
     }
   }
 
-  const applySyncBlockers = () => {
-    if (!rev?.syncBlocked) return
-    const { blockers, resolved } = rev.syncBlocked
+  // §11 repair modal apply — same door for both sources: write the edited cards
+  // into the spec's "Constraints & resolutions" section, then sync the steps.
+  const applyRepair = () => {
+    if (!rev?.repair) return
+    const { blockers } = rev.repair
     if (blockers.some((b) => !b.reason.trim() || !b.fix.trim())) return
-    void runSync(amendSpec(rev.spec, blockers), [...resolved, ...blockers.map(blockerLine)])
+    up({ repair: null, resolved: [...rev.resolved, ...blockers.map(blockerLine)] })
+    void runSync(amendSpec(rev.spec, blockers))
   }
+
+  // §11: a failed test run's issue analysis lands in the same repair modal.
+  useEffect(() => {
+    if (!testrun?.issue || !rev) return
+    up({ repair: { source: 'test', blockers: testrun.issue } })
+    consumeTestIssue()
+  }, [testrun?.issue]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- version menu (edit mode) ----
   const [verOpen, setVerOpen, verRef] = usePopover()
@@ -870,16 +890,24 @@ export default function CreateFlow() {
     go('automations')
   }
 
-  // ---- dry run (§11: create and edit mode) ----
-  const runDry = () => {
-    if (!rev) return
-    clearDryrun()
-    // Send the in-editor grants too, so the dry check reflects unsaved toggles.
-    const grants = { enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets }
-    void (isEdit && auto
-      ? api.dryrun(auto.id, serializeDraft(rev), grants)
-      : api.dryrunDraft(serializeDraft(rev), grants)
-    ).catch((e: Error) => showToast(e.message))
+  // ---- test run (§11: create and edit mode) — runs the draft's REAL steps ----
+  const runTest = async () => {
+    if (!rev || testrun?.status === 'running') return
+    clearTestrun()
+    try {
+      const { runId } = await api.postTestRun({
+        draft: serializeDraft(rev),
+        ...(isEdit && auto ? { autoId: auto.id } : {}), // edit: scratch memory copies the automation's
+        agentId, // the drafting agent also runs the §8 issue analysis on failure
+        enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
+      })
+      beginTestrun(runId)
+    } catch (e) {
+      showToast((e as Error).message)
+    }
+  }
+  const cancelTest = () => {
+    if (testrun?.status === 'running') void api.cancelTestRun(testrun.runId).catch(() => { /* already done */ })
   }
 
   // Create-mode param editing (§4.2 behaviors): edits write both the merged display
@@ -1847,46 +1875,88 @@ export default function CreateFlow() {
                   })()}
                 </div>
 
-                {/* TEST RUN · DRY CHECK — §11: create mode dry-checks the unsaved draft */}
+                {/* TEST RUN — §11: runs the draft's real steps, scratch memory */}
                 <div style={cardStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
-                      <span style={eyebrowStyle}>TEST RUN · DRY CHECK</span>
-                      {!dryrun && (
-                        <button className="ad-btn-soft" onClick={runDry} style={{ padding: '4px 10px' }}>
-                          Run a dry check
+                      <span style={eyebrowStyle}>TEST RUN</span>
+                      {testrun?.status === 'running' ? (
+                        <button className="ad-btn-soft" onClick={cancelTest} style={{ padding: '4px 10px' }}>
+                          Cancel
+                        </button>
+                      ) : (
+                        <button className="ad-btn-soft" onClick={() => void runTest()} style={{ padding: '4px 10px' }}>
+                          {testrun ? 'Run again' : 'Run the draft'}
                         </button>
                       )}
                     </div>
-                    {dryrun ? (
-                      <div style={{ padding: '12px 20px', font: "400 11.5px/1.8 var(--mono)", background: '#07090d' }}>
-                        {dryrun.lines.map((l, i) => (
-                          <div key={i} style={{ color: dryColor(l.kind), whiteSpace: 'pre-wrap' }}>{l.text}</div>
-                        ))}
-                        {!dryrun.done && (
-                          <div style={{ color: 'var(--text-faint)', marginTop: 6 }}>
-                            <span style={{
-                              display: 'inline-block', width: 11, height: 11, border: '2px solid rgba(255,255,255,.15)',
-                              borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'adSpin .8s linear infinite',
-                              marginRight: 7, verticalAlign: -1,
-                            }} />
-                            checking…
+                    {testrun ? (
+                      <>
+                        {testrun.steps.length > 0 && (
+                          <div style={{ padding: '10px 20px 4px' }}>
+                            {testrun.steps.map((s, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '3px 0' }}>
+                                <span style={{ font: "500 11px var(--mono)", color: 'var(--text-faint)', width: 14, flex: 'none' }}>{i + 1}</span>
+                                <span style={{ flex: 1, minWidth: 0, font: "400 12px var(--sans)", color: '#c6cdd6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</span>
+                                <Badge status={s.status} />
+                              </div>
+                            ))}
                           </div>
                         )}
-                        {dryrun.done && (
-                          dryrun.lines.some((l) => l.kind === 'err') ? (
+                        <div style={{ padding: '10px 20px 12px', font: "400 11.5px/1.8 var(--mono)", background: '#07090d', maxHeight: 260, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+                          {testrun.lines.map((l, i) => (
+                            <div key={i} style={{ color: logColor(l.k), whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}>{l.text}</div>
+                          ))}
+                          {testrun.status === 'running' && (
+                            <div style={{ color: 'var(--text-faint)', marginTop: 6 }}>
+                              <span style={{
+                                display: 'inline-block', width: 11, height: 11, border: '2px solid rgba(255,255,255,.15)',
+                                borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'adSpin .8s linear infinite',
+                                marginRight: 7, verticalAlign: -1,
+                              }} />
+                              running the draft…
+                            </div>
+                          )}
+                          {testrun.status === 'succeeded' && (
+                            <div style={{ marginTop: 6 }}>
+                              <div style={{ color: 'var(--green)' }}>
+                                <i className="fa-solid fa-check" style={{ fontSize: 11 }} /> Test run finished — the memory copy was discarded.
+                              </div>
+                              {testrun.result?.chip && (
+                                <Chip {...resultChipColors(testrun.result.chipStatus)} style={{ marginTop: 7 }}>{testrun.result.chip}</Chip>
+                              )}
+                              {(testrun.result?.values ?? []).map((v) => (
+                                <div key={v.name} style={{ color: '#9fb3c8', marginTop: 4 }}>
+                                  <span style={{ color: 'var(--text-faint)' }}>{v.name}: </span>
+                                  {Array.isArray(v.value) ? v.value.join(' · ') : v.value}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {testrun.status === 'failed' && testrun.analyzing && (
                             <div style={{ color: 'var(--amber)', marginTop: 6 }}>
-                              <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} /> Dry check finished — some checks need attention. Nothing was changed on your Mac.
+                              <span style={{
+                                display: 'inline-block', width: 11, height: 11, border: '2px solid rgba(255,255,255,.15)',
+                                borderTopColor: 'var(--amber)', borderRadius: '50%', animation: 'adSpin .8s linear infinite',
+                                marginRight: 7, verticalAlign: -1,
+                              }} />
+                              Analyzing the failure… {selAgent ? `(${agName(selAgent)})` : ''}
                             </div>
-                          ) : (
-                            <div style={{ color: 'var(--green)', marginTop: 6 }}>
-                              <i className="fa-solid fa-check" style={{ fontSize: 11 }} /> Dry check passed — nothing was changed on your Mac.
+                          )}
+                          {testrun.status === 'failed' && !testrun.analyzing && (
+                            <div style={{ color: 'var(--amber)', marginTop: 6 }}>
+                              <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} /> Test run failed.
                             </div>
-                          )
-                        )}
-                      </div>
+                          )}
+                          {testrun.status === 'cancelled' && (
+                            <div style={{ color: 'var(--text-faint)', marginTop: 6 }}>
+                              Test run cancelled.
+                            </div>
+                          )}
+                        </div>
+                      </>
                     ) : (
-                      <div style={{ padding: '12px 20px', font: "400 11.5px var(--mono)", color: '#4a515c' }}>
-                        Checks your links and permissions without running anything.
+                      <div style={{ padding: '12px 20px', font: "400 11.5px/1.6 var(--mono)", color: '#4a515c' }}>
+                        Runs the draft's real steps on this Mac — emails send, files move. Memory is a scratch copy; real runs aren't affected.
                       </div>
                     )}
                   </div>
@@ -1919,42 +1989,47 @@ export default function CreateFlow() {
         />
       )}
 
-      {/* §11: blocked sync — Blocker panel as a modal over Review. Applying
-          amends the in-editor spec and re-runs the sync; closing leaves the
-          workflow out of sync with the sync banner still up. */}
-      {rev?.syncBlocked && (
+      {/* §11: the repair modal — one convergent loop, two entry points: a
+          blocked sync ('sync') and a failed test run's issue analysis ('test').
+          Applying amends the in-editor spec and re-runs the sync; closing a
+          'sync' repair leaves the workflow out of sync with the banner up. */}
+      {rev?.repair && (
         <Modal
-          onClose={() => { if (applyBlockedRef.current) { applyBlockedRef.current = false; applySyncBlockers() } else up({ syncBlocked: null }) }}
+          onClose={() => { if (applyBlockedRef.current) { applyBlockedRef.current = false; applyRepair() } else up({ repair: null }) }}
           width={620} zIndex={80} cardStyle={{ padding: 22, maxHeight: '80vh', overflowY: 'auto' }}
         >
           {(close) => (
             <>
               <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
-                {rev.syncBlocked!.blockers.length > 1 ? `Your AI hit ${rev.syncBlocked!.blockers.length} blockers` : 'Your AI hit a blocker'}
+                {rev.repair!.source === 'test'
+                  ? (rev.repair!.blockers.length > 1 ? `The test run hit ${rev.repair!.blockers.length} issues` : 'The test run hit an issue')
+                  : (rev.repair!.blockers.length > 1 ? `Your AI hit ${rev.repair!.blockers.length} blockers` : 'Your AI hit a blocker')}
               </div>
               <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)', marginBottom: 14 }}>
-                It couldn’t sync the steps with the spec. Edit the fix below, then apply it to the spec and sync again.
+                {rev.repair!.source === 'test'
+                  ? 'A step failed when the draft ran. Edit the fix below, then apply it to the spec and sync the steps.'
+                  : 'It couldn’t sync the steps with the spec. Edit the fix below, then apply it to the spec and sync again.'}
               </div>
               <BlockerCards
-                blockers={rev.syncBlocked!.blockers}
-                onChange={(i, patch) => setRev((r) => r && r.syncBlocked && ({
+                blockers={rev.repair!.blockers}
+                onChange={(i, patch) => setRev((r) => r && r.repair && ({
                   ...r,
-                  syncBlocked: { ...r.syncBlocked, blockers: r.syncBlocked.blockers.map((b, k) => (k === i ? { ...b, ...patch } : b)) },
+                  repair: { ...r.repair, blockers: r.repair.blockers.map((b, k) => (k === i ? { ...b, ...patch } : b)) },
                 }))}
               />
-              {rev.syncBlocked!.resolved.length > 0 && (
+              {rev.resolved.length > 0 && (
                 <div style={{ margin: '12px 0 0', font: "400 11.5px/1.7 var(--sans)", color: 'var(--text-faint)' }}>
                   <div style={eyebrowStyle}>PREVIOUSLY RESOLVED</div>
-                  {rev.syncBlocked!.resolved.map((s, i) => <div key={i}>– {s}</div>)}
+                  {rev.resolved.map((s, i) => <div key={i}>– {s}</div>)}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
                 <BtnGhost onClick={close}>Close</BtnGhost>
                 <BtnPrimary
                   onClick={() => { applyBlockedRef.current = true; close() }}
-                  disabled={rev.syncBlocked!.blockers.some((b) => !b.reason.trim() || !b.fix.trim())}
+                  disabled={rev.repair!.blockers.some((b) => !b.reason.trim() || !b.fix.trim())}
                 >
-                  Apply to the spec & sync again
+                  {rev.repair!.source === 'test' ? 'Apply to the spec & sync the steps' : 'Apply to the spec & sync again'}
                 </BtnPrimary>
               </div>
             </>
