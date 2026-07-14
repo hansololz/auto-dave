@@ -11,13 +11,17 @@ def hm(hour: int, minute: int) -> str:
     return f"{hour}:{minute:02d}"
 
 
-def schedule_label(hour: int, minute: int = 0, dow: int | None = None) -> str:
+def schedule_label(hour: int | None, minute: int = 0, dow: int | None = None) -> str:
+    if hour is None:
+        return "No schedule"
     if dow is None:
         return f"Daily at {hm(hour, minute)}"
     return f"{DOW_LONG[dow]} at {hm(hour, minute)}"
 
 
-def schedule_short(hour: int, minute: int = 0, dow: int | None = None) -> str:
+def schedule_short(hour: int | None, minute: int = 0, dow: int | None = None) -> str:
+    if hour is None:
+        return "No schedule"
     if dow is None:
         return f"Daily {hm(hour, minute)}"
     return f"{DOW_SHORT[dow]} {hm(hour, minute)}"

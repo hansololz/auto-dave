@@ -77,6 +77,21 @@ def test_parse_and_validate_steps_good():
     assert "spec" not in draft  # the spec is settled in call 1
 
 
+def test_no_schedule_key_means_no_schedule():
+    # GOOD_STEPS carries no `schedule:` — the automation runs manual / menu bar only.
+    draft, errors = validate_steps(parse_envelope(GOOD_STEPS))
+    assert errors == []
+    assert draft["schedule"] is None
+
+
+def test_schedule_key_is_parsed():
+    withsched = GOOD_STEPS.replace(
+        "note: Created\n", "note: Created\nschedule: { hour: 7, min: 30, dow: 2 }\n")
+    draft, errors = validate_steps(parse_envelope(withsched))
+    assert errors == []
+    assert draft["schedule"] == {"hour": 7, "min": 30, "dow": 2}
+
+
 def test_steps_call_must_not_return_spec():
     files = parse_envelope(GOOD_STEPS)
     files["spec.md"] = "# Sneaky\n"

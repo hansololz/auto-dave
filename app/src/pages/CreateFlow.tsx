@@ -18,7 +18,7 @@ const agName = (ag: Agent) => ag.name || ag.harness
 
 const DAYS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
 function schedLabel(s?: { hour: number; min: number; dow: number | null } | null): string {
-  if (!s) return 'Daily at 9:00'
+  if (!s) return 'No schedule'
   const t = `${s.hour}:${String(s.min || 0).padStart(2, '0')}`
   return s.dow == null ? `Daily at ${t}` : `${DAYS[s.dow]} at ${t}`
 }
@@ -262,7 +262,7 @@ function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
     ...revDefaults,
     name: d.name || 'New automation', desc: d.desc || '', note: d.note || '',
     spec: d.spec ?? [], steps: d.steps ?? [], params: d.params ?? [],
-    sched: d.schedule ?? { hour: 9, min: 0, dow: null }, schedLabel: schedLabel(d.schedule),
+    sched: d.schedule ?? null, schedLabel: schedLabel(d.schedule),
     instr: d.instr ?? defaultBuildCache, // backend seeds instr from default-build-instructions.md
     enabledAgents: agents.map((g) => g.id),
     allowedSecrets: [],
@@ -279,7 +279,7 @@ function seedFromAuto(a: Auto, agents: Agent[], secretNames: string[]): Rev {
     spec: (src.spec ?? []).map((b) => ({ ...b })),
     steps: (src.steps ?? []).map((s) => ({ ...s })),
     params: (src.params ?? a.params ?? []).map((p) => ({ ...p })),
-    sched: { hour: a.hour, min: a.min, dow: a.dow }, schedLabel: a.schedule,
+    sched: a.hour == null ? null : { hour: a.hour, min: a.min, dow: a.dow }, schedLabel: a.schedule,
     instr: src.instr || '',
     enabledAgents: a.stepAgents ? a.stepAgents.filter((id) => agents.some((g) => g.id === id)) : agents.map((g) => g.id),
     allowedSecrets: a.allowedSecrets
@@ -1696,7 +1696,9 @@ export default function CreateFlow() {
                     }}>
                       {rev.schedLabel}
                     </span>
-                    <span style={{ font: "400 11.5px var(--sans)", color: 'var(--text-faint)' }}>Runs even when the app is closed.</span>
+                    <span style={{ font: "400 11.5px var(--sans)", color: 'var(--text-faint)' }}>
+                      {rev.sched ? 'Runs even when the app is closed.' : 'No time set — runs only when you Run now or use the menu bar.'}
+                    </span>
                   </div>
                 </div>
 

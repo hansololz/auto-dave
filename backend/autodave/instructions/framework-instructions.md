@@ -70,8 +70,7 @@ Python stdlib, `autodave`, `requests`, `httpx`, `bs4`, `lxml`, `feedparser`,
 ## Schedule
 
 Pick hour/min (plus dow for weekly) from the user's words ("every morning at 8"
-→ `hour: 8`). When no time is given, choose one that fits the job (backups at
-night, digests in the morning); the fallback is daily 8:00.
+→ `hour: 8`). When no time is given, do not set a time.
 
 ## Parameters
 

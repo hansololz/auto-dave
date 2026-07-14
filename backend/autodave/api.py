@@ -158,7 +158,7 @@ def create_auto(body: dict) -> dict:
         _draft_to_version(d),
         name=body.get("name") or d.get("name") or "New automation",
         agent_id=body.get("agentId"),
-        hour=sched.get("hour", 8), minute=sched.get("min", 0), dow=sched.get("dow"),
+        hour=sched.get("hour"), minute=sched.get("min", 0), dow=sched.get("dow"),
         enabled_agents=body.get("stepAgents"),
         allowed_secrets=body.get("allowedSecrets"),
     )

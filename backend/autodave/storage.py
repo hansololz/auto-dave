@@ -145,7 +145,7 @@ class Store:
             "slug": d.name,
             "name": top.get("name", d.name),
             "current_version": int(top.get("current_version", 1)),
-            "hour": sched.get("hour", 8),
+            "hour": sched.get("hour"),  # None -> no schedule (manual / menu bar only)
             "min": sched.get("min", 0),
             "dow": sched.get("dow"),
             "sched_off": bool(sched.get("off", False)),
@@ -212,9 +212,12 @@ class Store:
 
     # ---------- automation writes ----------
     def _write_toplevel(self, a: dict) -> None:
-        sched: dict[str, Any] = {"hour": a["hour"], "min": a["min"]}
-        if a["dow"] is not None:
-            sched["dow"] = a["dow"]
+        sched: dict[str, Any] = {}
+        if a["hour"] is not None:
+            sched["hour"] = a["hour"]
+            sched["min"] = a["min"]
+            if a["dow"] is not None:
+                sched["dow"] = a["dow"]
         if a["sched_off"]:
             sched["off"] = True
         save_yaml(self.auto_dir(a) / "automation.yaml", {
@@ -256,7 +259,7 @@ class Store:
             (vd / "instructions.md").unlink()
 
     def create_automation(self, ver: dict, name: str, agent_id: str | None,
-                          hour: int = 8, minute: int = 0, dow: int | None = None,
+                          hour: int | None = None, minute: int = 0, dow: int | None = None,
                           enabled_agents: list[str] | None = None,
                           allowed_secrets: list[str] | None = None) -> dict:
         with self.lock:

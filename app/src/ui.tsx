@@ -203,7 +203,7 @@ export function validUrl(s: string): boolean {
 }
 
 /** §4.3 countdown "next in Xd Xh" / "Xh Xm". */
-export function nextIn(a: { hour: number; min: number; dow: number | null }): string {
+export function nextIn(a: { hour: number | null; min: number; dow: number | null }): string {
   const now = new Date()
   const nxt = new Date(now)
   nxt.setHours(a.hour ?? 8, a.min || 0, 0, 0)

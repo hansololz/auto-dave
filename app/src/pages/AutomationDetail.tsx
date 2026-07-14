@@ -355,15 +355,18 @@ export default function AutomationDetail() {
   if (!auto) return null
 
   const running = !!auto.live
+  const noSched = auto.hour == null
   const schedOff = !!auto.schedOff
-  const countdown = nextIn(auto)
+  const countdown = noSched ? '' : nextIn(auto)
   const schedChip = running ? `${auto.schedule} · running now`
+    : noSched ? 'No schedule'
     : schedOff ? `${auto.schedule} · schedule off`
     : `${auto.schedule} · next in ${countdown}`
   const schedStatusText = running ? 'Running now… the schedule is unchanged.'
+    : noSched ? 'No schedule set — runs only when you Run now or use the menu bar.'
     : schedOff ? 'Off — won’t run on its own. Run now and the menu bar still work.'
     : `Next run in ${countdown} · runs even when the app is closed.`
-  const schedChipOn = running || !schedOff
+  const schedChipOn = running || (!schedOff && !noSched)
   const runLabel = running ? 'Running…' : 'Run now'
   const runIconCls = running ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play'
 
@@ -593,7 +596,7 @@ export default function AutomationDetail() {
           borderRadius: 6, padding: '3px 9px', transition: 'color .18s ease,background .18s ease',
         }}>
           <i
-            className={running ? 'fa-solid fa-spinner fa-spin' : schedOff ? 'fa-solid fa-pause' : 'fa-solid fa-clock'}
+            className={running ? 'fa-solid fa-spinner fa-spin' : (schedOff || noSched) ? 'fa-solid fa-pause' : 'fa-solid fa-clock'}
             style={{ fontSize: 9 }}
           />
           {schedChip}
@@ -670,12 +673,12 @@ export default function AutomationDetail() {
           <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', gap: 15, alignItems: 'center' }}>
             <span style={{
               width: 32, height: 32, borderRadius: 8,
-              background: schedOff ? 'rgba(255,255,255,.05)' : 'oklch(0.74 0.155 52 / .13)',
-              color: schedOff ? 'var(--text-faint)' : 'var(--accent)',
+              background: (schedOff || noSched) ? 'rgba(255,255,255,.05)' : 'oklch(0.74 0.155 52 / .13)',
+              color: (schedOff || noSched) ? 'var(--text-faint)' : 'var(--accent)',
               display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
               transition: 'background .18s ease,color .18s ease',
             }}>
-              <i className={schedOff ? 'fa-solid fa-pause' : 'fa-solid fa-clock'} style={{ fontSize: 13 }} />
+              <i className={(schedOff || noSched) ? 'fa-solid fa-pause' : 'fa-solid fa-clock'} style={{ fontSize: 13 }} />
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -699,7 +702,9 @@ export default function AutomationDetail() {
               </div>
               <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 3 }}>{schedStatusText}</div>
             </div>
-            <Toggle on={!schedOff} onChange={toggleSchedule} title={schedOff ? 'Turn the schedule on' : 'Turn the schedule off'} />
+            {!noSched && (
+              <Toggle on={!schedOff} onChange={toggleSchedule} title={schedOff ? 'Turn the schedule on' : 'Turn the schedule off'} />
+            )}
           </div>
           <div style={{ padding: '13px 18px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <HoverBtn

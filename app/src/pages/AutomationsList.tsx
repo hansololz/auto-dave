@@ -63,7 +63,7 @@ function AutoCard({ a }: { a: Auto }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
         <span style={{
           fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11,
-          color: a.schedOff ? 'var(--text-faint)' : 'var(--text-muted)',
+          color: (a.schedOff || a.hour == null) ? 'var(--text-faint)' : 'var(--text-muted)',
           background: 'rgba(255,255,255,.05)', borderRadius: 6, padding: '3px 8px',
         }}>
           {a.scheduleShort}

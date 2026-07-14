@@ -19,6 +19,21 @@ def test_create_and_reload_roundtrip(store, home):
     assert ver["spec"][0] == {"k": "h1", "text": "Test automation"}
 
 
+def test_no_schedule_roundtrip(store, home):
+    from autodave.storage import Store
+
+    # No hour given -> no schedule (manual / menu bar only).
+    a = store.create_automation(make_version(), "No Sched Job", "agent-1")
+    assert a["hour"] is None
+
+    s2 = Store()
+    s2.load_all()
+    b = s2.autos[a["id"]]
+    assert b["hour"] is None
+    assert s2.auto_json(b)["schedule"] == "No schedule"
+    assert s2.auto_json(b)["scheduleShort"] == "No schedule"
+
+
 def test_versioning_and_restore(store):
     a = store.create_automation(make_version(), "Versioned", None)
     n = store.save_new_version(a, make_version(desc="v2 desc", note="Second"))

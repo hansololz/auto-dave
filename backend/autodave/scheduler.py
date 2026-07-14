@@ -71,7 +71,8 @@ class Scheduler:
             autos = list(self.store.autos.values())
         for a in autos:
             base = self._baseline.setdefault(a["id"], now)
-            if a["sched_off"]:
+            # No schedule (hour None) or turned off -> never fires on its own.
+            if a["hour"] is None or a["sched_off"]:
                 self._baseline[a["id"]] = now
                 continue
             occ = next_occurrence(a["hour"], a["min"], a["dow"], after=base)

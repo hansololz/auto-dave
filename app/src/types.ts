@@ -62,7 +62,7 @@ export interface Auto {
   version: number
   schedule: string
   scheduleShort: string
-  hour: number
+  hour: number | null   // null = no schedule (manual / menu bar only)
   min: number
   dow: number | null
   schedOff: boolean

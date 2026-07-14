@@ -58,7 +58,7 @@ desc: One-line description
 note: One-line version note for the history menu
 params:                                # each param MUST carry a default
   - { name: snake_case_name, kind: toggle|list|kv|number|text, label: ..., help: ..., default: ... }
-schedule: { hour: 8, min: 0 }          # add dow: 0-6 (Sun=0) for weekly; omit -> daily 8:00
+schedule: { hour: 8, min: 0 }          # add dow: 0-6 (Sun=0) for weekly; omit the whole key if the spec names no time (no schedule -> manual / menu bar only)
 steps:                                 # ordered; file names NN-name.py, two-digit, gapless from 01
   - { file: 01-fetch.py, name: ..., desc: ... }
   - { file: 02-judge.py, name: ..., desc: ..., agent: true, why: one line — why judgment is needed }
@@ -267,9 +267,11 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
             errors.append("schedule out of range (hour 0-23, min 0-59, dow 0-6)")
     if errors:
         return {}, errors
+    # No schedule key -> the automation has no schedule (manual / menu bar only).
     draft = {
-        "schedule": {"hour": int(sched.get("hour", 8)), "min": int(sched.get("min", 0)),
-                     "dow": int(sched["dow"]) if sched.get("dow") is not None else None},
+        "schedule": {"hour": int(sched["hour"]), "min": int(sched.get("min", 0)),
+                     "dow": int(sched["dow"]) if sched.get("dow") is not None else None}
+        if sched else None,
         "name": manifest.get("name"),
         "desc": manifest.get("desc", ""),
         "note": manifest.get("note", ""),

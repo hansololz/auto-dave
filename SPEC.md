@@ -132,9 +132,9 @@ The on-disk representation of these entities is §5.
 id: uuid
 name, desc: strings
 version: int (current)
-schedule: display string ("Daily at 8:00", "Mondays at 9:00")
-scheduleShort: chip string ("Daily 8:00", "Mon 9:00")
-hour: 0–23; min: 0–59 (default 0); dow: 0–6 (Sun=0), absent = daily
+schedule: display string ("Daily at 8:00", "Mondays at 9:00"); "No schedule" when hour absent
+scheduleShort: chip string ("Daily 8:00", "Mon 9:00"); "No schedule" when hour absent
+hour: 0–23 or absent (no schedule — manual/menu bar only); min: 0–59 (default 0); dow: 0–6 (Sun=0), absent = daily
 schedOff: bool — schedule disabled (Run now + menu bar still work)
 instr: optional multiline free-text user instructions to the agent
 lastStatus: succeeded | running | failed | cancelled | interrupted | none
@@ -183,6 +183,8 @@ every 30 s.
 
 Detail-page schedule status line:
 - running → "`<schedule>` · running now" / "Running now… the schedule is unchanged." (spinner icon)
+- no schedule (hour absent) → "No schedule" / "No schedule set — runs only when you Run now or use
+  the menu bar." (pause icon)
 - schedOff → "`<schedule>` · schedule off" / "Off — won't run on its own. Run now and the menu bar
   still work." (pause icon)
 - else → "`<schedule>` · next in `<countdown>`" / "Next run in `<countdown>` · runs even when the
@@ -667,7 +669,7 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    name: Suggested automation name   # create only (ignored on sync)
    desc: One-line description
    note: Version note for the history menu (§4.4)
-   schedule: { hour: 8, min: 0 }     # add dow: 0–6 (Sun=0) for weekly; omitted → daily 8:00
+   schedule: { hour: 8, min: 0 }     # add dow: 0–6 (Sun=0) for weekly; omit the whole key if the spec names no time (no schedule — manual/menu bar only)
    params:                           # full definitions per §4.2, each with a default
      - { name: sources, kind: list, label: Manga URLs, help: ..., validate: true }
    steps:                            # ordered; file names NN-name.py, two-digit, gapless
@@ -698,10 +700,11 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    (§11). Unknown or un-allowed secret references are Review warnings, not validation failures.
 6. Steps carry only `agent: true` as the query-only marker (§6); the backend assigns `agent_id`
    from the automation's enabled agents. `why` is required when `agent` is true.
-7. `schedule` is validated (hour 0–23, min 0–59, dow 0–6); the agent picks the time from the
-   spec's words (no time given → one that fits the job; fallback daily 8:00). It is applied only
-   when creating (v1's schedule, pre-filled on Review); on sync the saved schedule is
-   user-owned (§5) and never changed by a draft.
+7. `schedule` is optional and, when present, validated (hour 0–23, min 0–59, dow 0–6); the agent
+   picks the time from the spec's words, and when the spec names no time it omits the key (no
+   schedule — the automation runs only via Run now / menu bar). It is applied only when creating
+   (v1's schedule, pre-filled on Review); on sync the saved schedule is user-owned (§5) and never
+   changed by a draft.
 
 **Blocker response (either call).** When the task cannot be built as asked — a needed
 capability, grant, or framework policy makes it impossible — the agent returns, instead of its

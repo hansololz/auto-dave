@@ -23,6 +23,8 @@ def test_labels():
     assert schedule_label(8, 0, None) == "Daily at 8:00"
     assert schedule_label(9, 0, 1) == "Mondays at 9:00"
     assert schedule_short(21, 0, 0) == "Sun 21:00"
+    assert schedule_label(None) == "No schedule"
+    assert schedule_short(None) == "No schedule"
     assert countdown(10, 0, None, now=datetime(2026, 7, 10, 8, 30)) == "1h 30m"
     assert countdown(8, 0, 1, now=datetime(2026, 7, 10, 9, 0)) == "2d 23h"
 
