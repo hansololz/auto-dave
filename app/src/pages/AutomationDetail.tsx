@@ -4,7 +4,7 @@ import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto, ParamDef, Step } from '../types'
 import {
-  Badge, BtnPrimary, ConfirmModal, Eyebrow, Toggle,
+  Badge, BtnPrimary, ConfirmModal, Eyebrow, PyCode, Toggle,
   nextIn, paramSummary, usePopover, validUrl,
 } from '../ui'
 import { ResultSection } from '../result'
@@ -316,14 +316,12 @@ function StepRow({ s, n, open, onToggle, last }: {
               </span>
             </div>
           )}
-          <pre className="ad-copy" style={{
+          <PyCode className="ad-copy" code={s.code} style={{
             margin: 0, background: '#07090d', borderTop: '1px solid rgba(255,255,255,.05)',
             padding: '14px 18px 14px 45px', fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.75,
             color: '#9fb3c8', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', minWidth: 0,
             animation: 'adFadeUp .22s ease both',
-          }}>
-            {s.code}
-          </pre>
+          }} />
         </>
       )}
     </div>

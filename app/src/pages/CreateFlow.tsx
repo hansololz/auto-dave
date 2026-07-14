@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent, Auto, Blocker, DraftPayload, SpecBlock, Step, VersionInfo } from '../types'
-import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, Toggle, paramSummary, resultChipColors, usePopover, validUrl } from '../ui'
+import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, paramSummary, resultChipColors, usePopover, validUrl } from '../ui'
 import { Markdown } from '../result'
 
 // ---------- helpers ----------
@@ -416,13 +416,11 @@ function StepRow({ step, i, open, onToggle, availAgents, onPickAgent }: {
               </span>
             </div>
           )}
-          <pre className="ad-copy" style={{
+          <PyCode className="ad-copy" code={step.code || '# script not written yet'} style={{
             margin: 0, background: '#07090d', borderTop: '1px solid rgba(255,255,255,.05)',
             padding: '12px 20px 12px 44px', font: "400 11.5px/1.75 var(--mono)", color: '#9fb3c8',
             whiteSpace: 'pre-wrap', overflowWrap: 'break-word', minWidth: 0, animation: 'adFadeUp .22s ease both',
-          }}>
-            {step.code || '# script not written yet'}
-          </pre>
+          }} />
         </>
       )}
     </div>
@@ -1303,7 +1301,7 @@ export default function CreateFlow() {
                       </div>
                     </>
                   ) : (
-                    <div style={{ padding: '6px 20px 18px', maxHeight: 440, overflowY: 'auto' }}>
+                    <div className="ad-copy" style={{ padding: '6px 20px 18px', maxHeight: 440, overflowY: 'auto' }}>
                       {rev.spec.map((b, i) => {
                         if (b.k === 'h1') return <div key={i} style={{ font: "600 17px var(--sans)", margin: '14px 0 4px' }}>{b.text}</div>
                         if (b.k === 'h2') return <div key={i} style={{ font: "600 10.5px var(--mono)", letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '16px 0 6px' }}>{b.text}</div>
@@ -1555,7 +1553,7 @@ export default function CreateFlow() {
                     </div>
                   )}
                   {instrOpenEff && !rev.instrEdit && (
-                    <div style={{ borderTop: '1px solid var(--hairline)', padding: '10px 20px 16px' }}>
+                    <div className="ad-copy" style={{ borderTop: '1px solid var(--hairline)', padding: '10px 20px 16px' }}>
                       {rev.instr.split('\n').map((s) => s.trim()).filter(Boolean).map((t, i) => (
                         <div key={i} style={{ display: 'flex', gap: 8, margin: '3px 0' }}>
                           <span style={{ color: 'var(--text-faint)' }}>–</span>

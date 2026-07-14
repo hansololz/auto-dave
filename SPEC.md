@@ -767,7 +767,8 @@ Text selection is an allowlist: chrome (nav, titles, badges, chips, buttons, cli
 is unselectable via a global `user-select: none`; content surfaces opt in with the `.ad-copy`
 class — log pane, run-id chip, parameter values, result Summary values, markdown/file views,
 FILES footer (paths + names), file-load error lines, step script `pre`s (detail + draft
-editor), the SPEC panel, and the memory info line. Inputs/textareas are always selectable; the
+editor), the SPEC panel (detail page, plus the edit page's SPEC and BUILD INSTRUCTIONS
+read-mode views), and the memory info line. Inputs/textareas are always selectable; the
 sandboxed result iframe is selectable (its own document). Copying is native: highlight, then
 right-click — the Electron main process shows a context menu with Copy on any selection (both
 windows); text fields get Cut/Copy/Paste/Select All. There are no in-UI copy buttons.
@@ -948,7 +949,11 @@ secrets, instructions, framework; right column: steps, schedule, parameters, tes
   to the automation page — changes there apply on the next run, no new version."). Empty state:
   "No settings needed — your AI didn't ask for any."
 - **Steps** — readable scripts with per-step agent menus (menu empty state: "No agents enabled —
-  turn one on under 'Agents · available to steps'."). Agent steps without any enabled agent
+  turn one on under 'Agents · available to steps'."). An expanded step ("view script") renders its
+  `code` with Python syntax highlighting — a self-contained tokenizer (`PyCode` in `ui.tsx`, no
+  dependency) coloring keywords, constants, strings, numbers, comments, decorators, builtins,
+  `def`/`class` names, and call names over the base mono `.ad-copy` `pre`. Language is always
+  Python (§15); the same `PyCode` renders the detail page and the draft/create step editor. Agent steps without any enabled agent
   show a red warning ("Step N needs an agent, but none is enabled — the run would fail there.
   Enable one below."). Per-automation agent enablement list with "X of Y enabled"; enabled
   agents called by steps show a "called by step N" note.

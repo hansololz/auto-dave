@@ -334,3 +334,73 @@ export function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onC
     </Modal>
   )
 }
+
+// ---------- Python syntax highlighting ----------
+// Step scripts are always Python (SPEC §15 — single bundled CPython). Tiny
+// zero-dependency tokenizer keeps the bundle lean and Vite-friendly.
+
+const PY_KEYWORDS = new Set([
+  'and', 'as', 'assert', 'async', 'await', 'break', 'class', 'continue', 'def',
+  'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'global', 'if',
+  'import', 'in', 'is', 'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise',
+  'return', 'try', 'while', 'with', 'yield', 'match', 'case',
+])
+const PY_CONSTS = new Set(['True', 'False', 'None'])
+const PY_BUILTINS = new Set([
+  'abs', 'all', 'any', 'bool', 'bytes', 'bytearray', 'dict', 'enumerate',
+  'filter', 'float', 'format', 'frozenset', 'getattr', 'hasattr', 'hash',
+  'input', 'int', 'isinstance', 'issubclass', 'iter', 'len', 'list', 'map',
+  'max', 'min', 'next', 'object', 'open', 'ord', 'print', 'range', 'repr',
+  'reversed', 'round', 'set', 'setattr', 'sorted', 'str', 'sum', 'super',
+  'tuple', 'type', 'zip', 'Exception', 'ValueError', 'KeyError', 'TypeError',
+])
+const PY_COLOR = {
+  keyword: '#c792ea', const: '#f78c6c', string: '#c3e88d', number: '#f78c6c',
+  comment: '#5c6b7a', builtin: '#82aaff', call: '#82aaff', def: '#ffcb6b',
+  decorator: '#ffcb6b',
+}
+
+// Whitespace, newline, (prefix)string, comment, decorator, number, identifier, symbol.
+const PY_TOKEN = /([ \t]+)|(\r?\n)|((?:[rbfuRBFU]{0,2})(?:'''[\s\S]*?'''|"""[\s\S]*?"""|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?))|(#[^\n]*)|(@[A-Za-z_][\w.]*)|(\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?[jJ]?)|([A-Za-z_]\w*)|([\s\S])/g
+
+function highlightPython(code: string): React.ReactNode[] {
+  const out: React.ReactNode[] = []
+  let m: RegExpExecArray | null
+  let prevIdent = ''
+  PY_TOKEN.lastIndex = 0
+  while ((m = PY_TOKEN.exec(code)) !== null) {
+    const [full, ws, nl, str, comment, deco, num, ident] = m
+    const key = out.length
+    if (ws) { out.push(ws); continue }
+    if (nl) { out.push('\n'); prevIdent = ''; continue }
+    let color: string | undefined
+    if (str !== undefined) color = PY_COLOR.string
+    else if (comment !== undefined) color = PY_COLOR.comment
+    else if (deco !== undefined) color = PY_COLOR.decorator
+    else if (num !== undefined) color = PY_COLOR.number
+    else if (ident !== undefined) {
+      if (PY_KEYWORDS.has(ident)) color = PY_COLOR.keyword
+      else if (PY_CONSTS.has(ident)) color = PY_COLOR.const
+      else if (prevIdent === 'def' || prevIdent === 'class') color = PY_COLOR.def
+      else if (PY_BUILTINS.has(ident)) color = PY_COLOR.builtin
+      else if (code[PY_TOKEN.lastIndex] === '(') color = PY_COLOR.call
+    }
+    if (ident !== undefined) prevIdent = ident
+    else if (str === undefined && comment === undefined) prevIdent = ''
+    if (color) {
+      const italic = comment !== undefined
+      out.push(<span key={key} style={{ color, ...(italic ? { fontStyle: 'italic' } : null) }}>{full}</span>)
+    } else {
+      out.push(full)
+    }
+  }
+  return out
+}
+
+// Highlighted Python <pre>. Pass the same style/className the plain <pre> used;
+// per-token colors override the base text color for recognized tokens.
+export function PyCode({ code, className, style }: {
+  code: string; className?: string; style?: React.CSSProperties
+}) {
+  return <pre className={className} style={style}>{highlightPython(code)}</pre>
+}
