@@ -1302,7 +1302,7 @@ export default function CreateFlow() {
                       </div>
                     </>
                   ) : (
-                    <div style={{ padding: '6px 20px 18px', maxHeight: 440, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+                    <div style={{ padding: '6px 20px 18px', maxHeight: 440, overflowY: 'auto' }}>
                       {rev.spec.map((b, i) => {
                         if (b.k === 'h1') return <div key={i} style={{ font: "600 17px var(--sans)", margin: '14px 0 4px' }}>{b.text}</div>
                         if (b.k === 'h2') return <div key={i} style={{ font: "600 10.5px var(--mono)", letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '16px 0 6px' }}>{b.text}</div>
@@ -1902,7 +1902,7 @@ export default function CreateFlow() {
                             ))}
                           </div>
                         )}
-                        <div style={{ padding: '10px 20px 12px', font: "400 11.5px/1.8 var(--mono)", background: '#07090d', maxHeight: 260, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+                        <div style={{ padding: '10px 20px 12px', font: "400 11.5px/1.8 var(--mono)", background: '#07090d', maxHeight: 260, overflowY: 'auto' }}>
                           {testrun.lines.map((l, i) => (
                             <div key={i} style={{ color: logColor(l.k), whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}>{l.text}</div>
                           ))}
