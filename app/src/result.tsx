@@ -72,7 +72,7 @@ function ViewCard({ title, kind, meta, mono = true, children }: {
 function SummaryView({ values, measure }: { values: ResultValue[]; measure: number }) {
   return (
     <ViewCard title="Summary" kind="values" meta={`${values.length} value${values.length === 1 ? '' : 's'}`} mono={false}>
-      <div style={{ padding: '0 18px 6px' }}>
+      <div className="ad-copy" style={{ padding: '0 18px 6px' }}>
         {values.map((v, i) => (
           <div key={i} style={{
             display: 'grid', gridTemplateColumns: '180px 1fr', gap: 18, padding: '11px 0',
@@ -219,7 +219,7 @@ export function Markdown({ text }: { text: string }) {
     while (i < lines.length && lines[i].trim() && !/^(#{1,3}\s|[-*]\s|\d+\.\s|\||```)/.test(lines[i])) buf.push(lines[i++])
     out.push(<p key={key} style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-2em)', textWrap: 'pretty' }}>{mdInline(buf.join(' '), key)}</p>)
   }
-  return <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{out}</div>
+  return <div className="ad-copy" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{out}</div>
 }
 
 // ---------- file views ----------
@@ -288,7 +288,7 @@ function FileView({ execId, file }: { execId: string; file: ResultFile }) {
   return (
     <ViewCard title={file.name} kind={KIND_LABEL[kind]} meta={file.size}>
       {err ? (
-        <div style={{ padding: '0 18px 14px', fontSize: 12.5, color: 'var(--text-faint)' }}>Couldn’t load {file.name} — {err}</div>
+        <div className="ad-copy" style={{ padding: '0 18px 14px', fontSize: 12.5, color: 'var(--text-faint)' }}>Couldn’t load {file.name} — {err}</div>
       ) : kind === 'img' ? (
         imgUrl
           ? <div style={{ padding: '0 18px 16px' }}><img src={imgUrl} alt={file.name} style={{ maxWidth: '100%', borderRadius: 8 }} /></div>
@@ -309,7 +309,7 @@ function FileView({ execId, file }: { execId: string; file: ResultFile }) {
 function FilesFooter({ files, path }: { files: ResultFile[]; path?: string }) {
   return (
     <ViewCard title={`FILES · ${files.length}`} mono>
-      <div style={{ padding: '0 18px 12px' }}>
+      <div className="ad-copy" style={{ padding: '0 18px 12px' }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 10,
           borderBottom: '1px solid var(--hairline)',

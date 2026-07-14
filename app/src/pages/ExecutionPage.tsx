@@ -176,7 +176,7 @@ export default function ExecutionPage() {
         {e.autoDeleted && (
           <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>(deleted)</span>
         )}
-        <span style={{
+        <span className="ad-copy" style={{
           fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500, color: 'var(--text-muted)',
           background: 'rgba(255,255,255,.06)', borderRadius: 6, padding: '3px 8px',
         }}>
@@ -248,7 +248,7 @@ export default function ExecutionPage() {
             ))}
           </div>
           {params.length > 0 && (
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, padding: '13px 16px' }}>
+            <div className="ad-copy" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, padding: '13px 16px' }}>
               <div style={{ ...eyebrow, marginBottom: 4 }}>PARAMETERS</div>
               {params.map((p) => (
                 <div key={p.name} style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,.05)' }}>
@@ -312,6 +312,7 @@ export default function ExecutionPage() {
                 {e.redact && redactNote}
               </div>
               <div
+                className="ad-copy"
                 ref={logRef}
                 onScroll={() => {
                   const el = logRef.current

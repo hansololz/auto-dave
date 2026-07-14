@@ -759,6 +759,15 @@ current one and replays the fade-up entrance. Centering must not use `transform`
 animation animates `transform` and would knock the toast off-center while it runs); it uses
 `left/right: 0` + auto margins + fit-content width.
 
+Text selection is an allowlist: chrome (nav, titles, badges, chips, buttons, clickable rows)
+is unselectable via a global `user-select: none`; content surfaces opt in with the `.ad-copy`
+class — log pane, run-id chip, parameter values, result Summary values, markdown/file views,
+FILES footer (paths + names), file-load error lines, step script `pre`s (detail + draft
+editor), the SPEC panel, and the memory info line. Inputs/textareas are always selectable; the
+sandboxed result iframe is selectable (its own document). Copying is native: highlight, then
+right-click — the Electron main process shows a context menu with Copy on any selection (both
+windows); text fields get Cut/Copy/Paste/Select All. There are no in-UI copy buttons.
+
 Boot gate: until the renderer connects to the backend and loads the state snapshot, only the
 plain window background renders. If boot is still pending after 300 ms, a centered logo +
 spinner appears with "Connecting…" (or "Waiting for the Auto Dave backend…" once a connection

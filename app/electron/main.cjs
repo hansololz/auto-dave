@@ -1,5 +1,5 @@
 // Electron main: one app window + a tray (menu-bar) panel window (§9, §13).
-const { app, BrowserWindow, Tray, dialog, nativeImage, ipcMain, shell, screen } = require('electron')
+const { app, BrowserWindow, Menu, Tray, dialog, nativeImage, ipcMain, shell, screen } = require('electron')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -36,6 +36,24 @@ function load(w, hash) {
   }
 }
 
+// Right-click copy for selected text; text fields get the full edit menu.
+function attachContextMenu(w) {
+  w.webContents.on('context-menu', (_e, params) => {
+    const items = params.isEditable
+      ? [
+          { role: 'cut', enabled: params.editFlags.canCut },
+          { role: 'copy', enabled: params.editFlags.canCopy },
+          { role: 'paste', enabled: params.editFlags.canPaste },
+          { type: 'separator' },
+          { role: 'selectAll' },
+        ]
+      : params.selectionText.trim()
+        ? [{ role: 'copy' }]
+        : []
+    if (items.length) Menu.buildFromTemplate(items).popup({ window: w })
+  })
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -48,6 +66,7 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   })
   load(win, '/app')
+  attachContextMenu(win)
   win.on('closed', () => { win = null })
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
@@ -96,6 +115,7 @@ function togglePanel() {
       webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
     })
     load(panel, '/menubar')
+    attachContextMenu(panel)
     panel.on('blur', () => panel.hide())
   }
   const pt = screen.getCursorScreenPoint()

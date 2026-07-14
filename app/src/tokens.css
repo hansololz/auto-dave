@@ -73,10 +73,15 @@ body {
   user-select: none;
 }
 
+/* Selection allowlist: chrome is unselectable; content surfaces (logs, results,
+   spec text, scripts, paths) opt in with .ad-copy. Right-click shows Copy. */
+.ad-copy { user-select: text; }
+input, textarea { user-select: text; }
+
 ::selection { background: oklch(0.74 0.155 52 / 0.35); }
 
 input, textarea, select, button { font: inherit; color: inherit; }
-button { cursor: pointer; background: none; border: none; }
+button { cursor: pointer; background: none; border: none; user-select: none; }
 button:disabled { cursor: default; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--link-hover); text-decoration: underline; }

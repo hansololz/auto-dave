@@ -416,7 +416,7 @@ function StepRow({ step, i, open, onToggle, availAgents, onPickAgent }: {
               </span>
             </div>
           )}
-          <pre style={{
+          <pre className="ad-copy" style={{
             margin: 0, background: '#07090d', borderTop: '1px solid rgba(255,255,255,.05)',
             padding: '12px 20px 12px 44px', font: "400 11.5px/1.75 var(--mono)", color: '#9fb3c8',
             whiteSpace: 'pre-wrap', overflowWrap: 'break-word', minWidth: 0, animation: 'adFadeUp .22s ease both',

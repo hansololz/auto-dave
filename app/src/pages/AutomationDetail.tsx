@@ -316,7 +316,7 @@ function StepRow({ s, n, open, onToggle, last }: {
               </span>
             </div>
           )}
-          <pre style={{
+          <pre className="ad-copy" style={{
             margin: 0, background: '#07090d', borderTop: '1px solid rgba(255,255,255,.05)',
             padding: '14px 18px 14px 45px', fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.75,
             color: '#9fb3c8', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', minWidth: 0,
@@ -801,7 +801,7 @@ export default function AutomationDetail() {
             background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12,
             padding: '13px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
           }}>
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-muted)' }}>
+            <span className="ad-copy" style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-muted)' }}>
               {auto.memory.size} · {auto.memory.updated}
             </span>
             <div style={{ flex: 1 }} />
@@ -895,7 +895,7 @@ export default function AutomationDetail() {
               </span>
             </HoverRow>
             {specOpen && (
-              <div style={{ borderTop: '1px solid var(--hairline)', padding: '8px 22px 18px' }}>
+              <div className="ad-copy" style={{ borderTop: '1px solid var(--hairline)', padding: '8px 22px 18px' }}>
                 {spec.map((sb, i) => {
                   if (sb.k === 'h1') return <div key={i} style={{ fontSize: 17, fontWeight: 600, margin: '14px 0 4px' }}>{sb.text}</div>
                   if (sb.k === 'h2') {
