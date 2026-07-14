@@ -240,6 +240,7 @@ interface Rev {
   stepsMeta: string | null
   stepOpen: number | null
   viewing: 'draft' | number
+  specSecOpen: boolean | null
   agSecOpen: boolean | null
   secSecOpen: boolean | null
   instrSecOpen: boolean | null
@@ -254,7 +255,7 @@ const revDefaults = {
   repair: null as Rev['repair'], resolved: [] as string[], askBlockers: null as Rev['askBlockers'],
   stepsMeta: null as string | null, stepOpen: null as number | null,
   viewing: 'draft' as Rev['viewing'],
-  agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
+  specSecOpen: null as boolean | null, agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
 }
 
 function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
@@ -674,6 +675,7 @@ export default function CreateFlow() {
   const secMissing = secRefs.filter((r) => !secrets.some((z) => z.name === r.name))
   const agWarn = !!rev && agentStepIdx.length > 0 && availAgents.length === 0
   const secWarn = !!rev && (secNotAllowed.length > 0 || secMissing.length > 0)
+  const specOpenEff = !!rev?.specEdit || ((rev?.specSecOpen ?? null) == null ? isEdit : !!rev?.specSecOpen)
   const agSecOpenEff = ((rev?.agSecOpen ?? null) == null ? isEdit : !!rev?.agSecOpen) || agWarn
   const secSecOpenEff = ((rev?.secSecOpen ?? null) == null ? isEdit : !!rev?.secSecOpen) || secWarn
   const instrOpenEff = (rev?.instrSecOpen ?? null) == null ? isEdit : !!rev?.instrSecOpen
@@ -1240,9 +1242,15 @@ export default function CreateFlow() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {/* SPEC */}
                 <div style={cardStyle}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
-                    <span style={eyebrowStyle}>SPEC</span>
-                    {!rev.specEdit ? (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: specOpenEff ? '1px solid var(--hairline)' : 'none' }}>
+                    <span
+                      onClick={() => { if (!rev.specEdit) up({ specSecOpen: !specOpenEff }) }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: rev.specEdit ? 'default' : 'pointer', userSelect: 'none' }}
+                    >
+                      <i className={specOpenEff ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-right'} style={{ width: 14, flex: 'none', textAlign: 'center', fontSize: 10, color: '#4a515c' }} />
+                      <span style={eyebrowStyle}>SPEC</span>
+                    </span>
+                    {specOpenEff && (!rev.specEdit ? (
                       <button
                         className="ad-btn-soft"
                         onClick={() => {
@@ -1284,8 +1292,9 @@ export default function CreateFlow() {
                           Save
                         </button>
                       </div>
-                    )}
+                    ))}
                   </div>
+                  {specOpenEff && (<>
                   {rev.specEdit ? (
                     <>
                       <textarea
@@ -1359,6 +1368,7 @@ export default function CreateFlow() {
                       </button>
                     </div>
                   )}
+                  </>)}
                 </div>
 
                 {/* AGENTS · AVAILABLE TO STEPS */}

@@ -912,7 +912,10 @@ nothing runs until you create it." When a run is live during an edit, a cyan pul
 shows: "A run is happening right now on vN. Saving won't interrupt it — that run finishes on vN.
 vN+1 takes over from the next run (`<schedule>`)." Sections (left column: spec, agents,
 secrets, instructions, framework; right column: steps, schedule, parameters, test run):
-- **Spec** — editable as markdown-ish text (`#`, `##`, `-`, plain ↔ h1/h2/li/p blocks). Also an
+- **Spec** — collapsible card (caret + `SPEC` header toggle; defaults open on the edit page,
+  collapsed on create; force-open while the spec is being edited, and the Edit/Cancel/Save
+  buttons + body + ask box hide when collapsed). Editable as markdown-ish text (`#`, `##`, `-`,
+  plain ↔ h1/h2/li/p blocks). Also an
   "ask the agent" box ("Edit with agent") that runs one §8 `edit` job (spec call only) with the
   selected drafting agent (the automation's agent, falling back to the default agent): the agent
   receives the in-editor draft (spec + steps + build instructions) and the in-editor grants
