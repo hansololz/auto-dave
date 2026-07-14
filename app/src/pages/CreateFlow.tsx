@@ -6,6 +6,7 @@ import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent, Auto, Blocker, DraftPayload, SpecBlock, Step, VersionInfo } from '../types'
 import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, Toggle, paramSummary, resultChipColors, usePopover, validUrl } from '../ui'
+import { Markdown } from '../result'
 
 // ---------- helpers ----------
 
@@ -1600,11 +1601,14 @@ export default function CreateFlow() {
                   )}
                   {rev.fwOpen && (
                     <div style={{ padding: '12px 20px 16px', borderTop: '1px solid var(--hairline)' }}>
-                      <div style={{ whiteSpace: 'pre-wrap', font: "400 12px/1.65 var(--mono)", color: '#c6cdd6', maxHeight: 420, overflowY: 'auto' }}>
-                        {fw || 'Couldn’t load framework-instructions.md — reopen this page to retry.'}
+                      {/* 18px side padding + matching negative margin so Markdown's full-bleed tables (-18px) fit */}
+                      <div style={{ maxHeight: 420, overflowY: 'auto', padding: '0 18px', margin: '0 -18px' }}>
+                        {fw
+                          ? <Markdown text={fw} />
+                          : <div style={{ font: "400 12px/1.65 var(--mono)", color: '#c6cdd6' }}>Couldn’t load framework-instructions.md — reopen this page to retry.</div>}
                       </div>
                       <div style={{ marginTop: 14, font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-faintest)' }}>
-                        framework-instructions.md, word for word — sent to your AI with every drafting request. Updates with the app, nothing for you to maintain.
+                        framework-instructions.md — sent to your AI, word for word, with every drafting request. Updates with the app, nothing for you to maintain.
                       </div>
                     </div>
                   )}

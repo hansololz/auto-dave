@@ -611,10 +611,12 @@ only after validation passes.
 also served to the create/edit page via §19 `GET /instructions`):
 
 - `backend/autodave/instructions/framework-instructions.md` — the contract preamble that travels
-  with **every** call: the agent's role, the generic file-block envelope (the per-call TASK directive
+  with **every** call, written as structured markdown (headings, fenced code blocks for the
+  envelopes and SDK reference, a table for parameter kinds): the agent's role, the generic
+  file-block envelope (the per-call TASK directive
   names the exact files), the blocker envelope and when to use it, the `autodave` SDK reference, the curated package list, the parameter
   kinds table (§4.2), schedule- and step-design duties, and all five §6 policy sections. The §11
-  Framework-instructions card shows this file verbatim.
+  Framework-instructions card renders this file as markdown.
 - `backend/autodave/instructions/default-build-instructions.md` — the default best-practice
   build instructions (never delete files, write only to memory/workspace, small single-purpose
   steps, fail loudly, quiet runs stay quiet, track seen items in memory). In `create` mode, when
@@ -939,9 +941,10 @@ secrets, instructions, framework; right column: steps, schedule, parameters, tes
   agents called by steps show a "called by step N" note.
 - **Secrets** — step code is scanned for `secrets.NAME`; secrets in Keychain but not allowed, and
   secrets missing from Keychain, each produce warnings with fix affordances. "X of Y allowed".
-- **Framework instructions** — read-only card showing `framework-instructions.md` **verbatim**
-  (mono, pre-wrap, max-height 420 px with inner scroll): the §8 contract preamble exactly as it
-  is sent to the agent, nothing parsed or reformatted. Content comes from §19
+- **Framework instructions** — read-only card showing `framework-instructions.md` **rendered
+  as markdown** (the shared result-view Markdown component: headings, fenced code blocks,
+  tables, lists; max-height 420 px with inner scroll). The file content itself is untouched —
+  what is rendered is byte-for-byte what the agent receives. Content comes from §19
   `GET /instructions` (fetched once per app session and cached); the same response carries
   `default-build-instructions.md` as the fallback pre-fill for the Build instructions card.
   Collapsed hint and footer copy: built-in instructions the AI reads before writing anything,
