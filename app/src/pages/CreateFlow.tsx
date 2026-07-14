@@ -929,7 +929,7 @@ export default function CreateFlow() {
       {/* header */}
       <div style={{ flex: 'none', padding: `${isReview && isOnboard ? '38px' : '20px'} 0 0`, animation: 'adFadeUp .4s ease' }}>
         <div style={{
-          maxWidth: isReview ? 1400 : 620, margin: '0 auto',
+          maxWidth: isReview ? 1800 : 620, margin: '0 auto',
           padding: `0 30px 0 ${isReview ? '30px' : '32px'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
@@ -1114,7 +1114,7 @@ export default function CreateFlow() {
           </div>
         )}
         {phase === 'review' && rev && (
-          <div style={{ maxWidth: 1400, margin: '0 auto', padding: '14px 30px 60px', animation: 'adFadeUp .4s ease' }}>
+          <div style={{ maxWidth: 1800, margin: '0 auto', padding: '14px 30px 60px', animation: 'adFadeUp .4s ease' }}>
             {/* title row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 13, margin: '0 0 6px' }}>
               <h1 style={{

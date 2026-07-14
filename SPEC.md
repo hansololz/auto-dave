@@ -886,7 +886,7 @@ blocked:
   action is **"Back to the request"**, returning to Ask with the description preserved for a
   rephrase (the fix text is the agent's advice on what to change).
 
-**Review.** 1400 px max-width page. Title row: name (single line, shrinks with ellipsis so a long name never pushes the
+**Review.** 1800 px max-width page. Title row: name (single line, shrinks with ellipsis so a long name never pushes the
 buttons out of the window), version dropdown (edit mode), agent picker, Start over ghost
 (edit: "Discard draft"), primary Create/Save. Lede: "Read what your AI wrote. Change anything —
 nothing runs until you create it." When a run is live during an edit, a cyan pulsing banner
@@ -1057,7 +1057,7 @@ closes.
   and `ConfirmModal`) animate both ways — enter .18 s fade-up, exit .12 s fade-down — and every
   dismissal path (backdrop click, Escape, Cancel, save/confirm) plays the exit before unmount;
   confirm actions fire after the exit finishes.
-- Layout: page gutter 30–32 px, max width 1200 px (Review page 1400 px, forms 620–720 px,
+- Layout: page gutter 30–32 px, max width 1200 px (Review page 1800 px, forms 620–720 px,
   settings 640 px).
 - Scroll chrome (`tokens.css`): 10 px WebKit scrollbars, white 10 % thumb (18 % hover),
   transparent track and corner; textarea resize grip (`::-webkit-resizer`) is an inline-SVG
