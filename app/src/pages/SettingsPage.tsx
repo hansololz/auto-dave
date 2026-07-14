@@ -1,5 +1,5 @@
-// Settings page (§4.9, §12): general toggles, notifications, run history
-// retention, and the on-this-Mac data section.
+// Settings page (§4.9, §12): general toggles, notifications, execution
+// history retention, and the on-this-Mac data section.
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
@@ -48,14 +48,14 @@ export default function SettingsPage() {
     if (n !== settings.days) patch({ days: n })
   }
 
-  // Native folder picker; the chosen directory simply becomes the run-data
-  // location — nothing is moved (§4.9).
+  // Native folder picker; the chosen directory simply becomes the
+  // execution-data location — nothing is moved (§4.9).
   const changeDataPath = async () => {
     const p = await window.autodave?.pickFolder(settings.dataPath)
     if (!p) return
     try {
       await api.setDataPath(p)
-      showToast('Run data location changed.')
+      showToast('Execution data location changed.')
     } catch (e) { showToast((e as Error).message) }
   }
 
@@ -91,7 +91,7 @@ export default function SettingsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 11 }}>
               {([
                 { v: 'attention' as const, label: 'Only when something needs attention' },
-                { v: 'all' as const, label: 'After every run' },
+                { v: 'all' as const, label: 'After every execution' },
               ]).map((o) => {
                 const on = settings.notif === o.v
                 return (
@@ -114,13 +114,13 @@ export default function SettingsPage() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-        <div style={sectionLabel}>RUN HISTORY</div>
+        <div style={sectionLabel}>EXECUTION HISTORY</div>
         <div style={card}>
           {!settings.keepForever && (
             <div style={{ padding: '15px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', alignItems: 'center', gap: 20 }}>
               <div style={{ flex: 1 }}>
-                <div style={rowTitle}>Keep runs for</div>
-                <div style={rowSub}>Older runs and logs are removed automatically.</div>
+                <div style={rowTitle}>Keep executions for</div>
+                <div style={rowSub}>Older executions and logs are removed automatically.</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }}>
                 <input
@@ -140,11 +140,11 @@ export default function SettingsPage() {
           )}
           <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20 }}>
             <div style={{ flex: 1 }}>
-              <div style={rowTitle}>Keep run history forever</div>
+              <div style={rowTitle}>Keep execution history forever</div>
               <div style={rowSub}>
                 {settings.keepForever
-                  ? 'Nothing is ever removed — run data grows until you clear it yourself.'
-                  : 'Turn on to never remove old runs and logs.'}
+                  ? 'Nothing is ever removed — execution data grows until you clear it yourself.'
+                  : 'Turn on to never remove old executions and logs.'}
               </div>
             </div>
             <Toggle on={settings.keepForever} onChange={(v) => patch({ keepForever: v })} />
@@ -165,7 +165,7 @@ export default function SettingsPage() {
                 onClick={() => { void window.autodave?.revealPath(settings.appPath ?? '~/Library/Application Support/Auto Dave') }}
                 style={{ ...smallBtn, flex: 'none' }}
               >
-                Reveal in Finder
+                Show in Finder
               </button>
             </div>
             <div style={pathBox}>{settings.appPath ?? '~/Library/Application Support/Auto Dave'}</div>
@@ -174,10 +174,10 @@ export default function SettingsPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={rowTitle}>
-                  Run data
+                  Execution data
                   <span style={{ font: `500 11px var(--mono)`, color: 'var(--text-faint)', marginLeft: 6 }}>{settings.dataSize}</span>
                 </div>
-                <div style={rowSub}>Logs and results from every run. This is the part that grows.</div>
+                <div style={rowSub}>Logs and results from every execution. This is the part that grows.</div>
               </div>
               <div style={{ display: 'flex', gap: 8, flex: 'none' }}>
                 <button onClick={() => { void changeDataPath() }} style={smallBtn}>Change</button>
@@ -185,7 +185,7 @@ export default function SettingsPage() {
                   onClick={() => { void window.autodave?.revealPath(settings.dataPath) }}
                   style={smallBtn}
                 >
-                  Reveal in Finder
+                  Show in Finder
                 </button>
               </div>
             </div>

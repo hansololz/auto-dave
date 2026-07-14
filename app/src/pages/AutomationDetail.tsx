@@ -414,7 +414,7 @@ export default function AutomationDetail() {
   const revealMemory = () => {
     const p = auto.memory?.path
     if (p) void window.autodave?.revealPath(p)
-    showToast(`Revealed in Finder — Auto Dave › Memory › ${auto.name}`)
+    showToast(`Shown in Finder — Auto Dave › Memory › ${auto.name}`)
   }
 
   const doClearMemory = () => {
@@ -815,7 +815,7 @@ export default function AutomationDetail() {
                   }}
                   hoverStyle={{ color: 'var(--text)' }}
                 >
-                  Reveal in Finder
+                  Show in Finder
                 </HoverBtn>
                 <HoverBtn
                   onClick={() => setConfirmClear(true)}

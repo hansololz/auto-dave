@@ -134,7 +134,10 @@ ipcMain.handle('reveal-path', (_e, p) => {
   const abs = p === '~' || p.startsWith('~/')
     ? path.join(os.homedir(), p.slice(1))
     : p
-  shell.showItemInFolder(abs)
+  let isDir = false
+  try { isDir = fs.statSync(abs).isDirectory() } catch { /* fall through */ }
+  if (isDir) void shell.openPath(abs)
+  else shell.showItemInFolder(abs)
 })
 ipcMain.handle('pick-folder', async (_e, defaultPath) => {
   const opts = { properties: ['openDirectory', 'createDirectory'] }

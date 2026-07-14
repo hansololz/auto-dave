@@ -280,20 +280,23 @@ working."
 ```
 login: bool        — "Launch at login" ("Auto Dave starts quietly in the menu bar.")
 mbIcon: bool       — "Show in the menu bar" ("The quickest way to run an automation.")
-notif: attention | all — "Only when something needs attention" / "After every run"
+notif: attention | all — "Only when something needs attention" / "After every execution"
 days: int ≥ 1 (default 90) — history retention; keepForever: bool disables cleanup
 devMode: bool (default false) — "Developer mode" ("Logs every backend request and every AI
   request — including the full prompt — to the backend log.") — gates request logging (§5)
 dataPath (default ~/Library/Application Support/Auto Dave/executions), dataSize
 ```
-Run-data section: Change then Reveal in Finder; Change opens the native macOS folder picker and the chosen
-directory simply becomes the run-data location — no move/cancel UI and no data migration: all
+Show in Finder (everywhere it appears) opens the target directory itself in Finder when the
+path is an existing directory (e.g. Execution data opens the executions dir, not its parent), and
+falls back to selecting the item in its parent folder otherwise.
+Execution-data section: Change then Show in Finder; Change opens the native macOS folder picker and the chosen
+directory simply becomes the execution-data location — no move/cancel UI and no data migration: all
 execution state lives inside the executions dir, so changing the path just points Auto Dave at
 the new location (the old dir stays where it was).
-The "Keep runs for" days row is hidden (not just disabled) while "Keep run history forever" is
+The "Keep executions for" days row is hidden (not just disabled) while "Keep execution history forever" is
 on. One **ON THIS MAC** card holds two rows: **"Automations & settings"** (the fixed path
-`~/Library/Application Support/Auto Dave` with its own Reveal in Finder button — this location
-is not changeable) above the **Run data** row. A **DEVELOPER** card sits last on the page with
+`~/Library/Application Support/Auto Dave` with its own Show in Finder button — this location
+is not changeable) above the **Execution data** row. A **DEVELOPER** card sits last on the page with
 the single **Developer mode** toggle row (devMode above).
 
 ## 5. Storage (decided)
@@ -805,7 +808,7 @@ Sections top to bottom:
   the next run — no new version, no AI involved."
 - **RECENT RUNS** — run history rows (status, trigger·version, time, duration, note text when
   present), linking to execution pages.
-- **MEMORY** card — mono size/updated info line, "Reveal in Finder" and "Clear memory" buttons;
+- **MEMORY** card — mono size/updated info line, "Show in Finder" and "Clear memory" buttons;
   Clear swaps to an inline confirm: "Next run starts fresh, like the first time." with red
   Clear / quiet Keep.
 - **SPEC panel** — the automation's spec blocks, footer: "The AI regenerates the steps from this
