@@ -565,8 +565,9 @@ through drafting.
   backend process survives simply resumes the run. `skipped`/`cancelled` executions may carry a
   note ("previous run still in progress").
 
-**Execution page:** back link, title row with status badge + metadata chips (incl. run id) and
-Cancel / Run-again actions. Body is a two-column layout: a **STEPS sidebar** (per-step status
+**Execution page:** back link, title row with status badge and
+Cancel / Run-again actions; below the title a mono metadata line: full run id (copyable) ·
+trigger · version · started · duration. Body is a two-column layout: a **STEPS sidebar** (per-step status
 dot, name, duration — compact, no inline log expansion) plus a parameters block ("Values as used
 by this run."), and a main pane with **Results / Logs tabs** (auto-select Logs when no result).
 The Logs tab is one unified color-coded log pane (kinds sys/out/wrn/err, live auto-scroll) with
@@ -589,8 +590,8 @@ No values and no files at all → the whole view stack (footer included) is repl
 placeholder card: "The latest execution didn't produce any result files."
 Deleted-automation handling: historical name, marked deleted.
 
-**Executions list:** all executions across automations; each row shows the automation name plus
-an 8-char run-id chip (mono), status badge, a trigger column combining trigger and version
+**Executions list:** all executions across automations; each row shows the automation name with
+the full run id (mono) on a second line beneath it, status badge, a trigger column combining trigger and version
 ("Manual · v3"), timestamps, durations; filter All / Succeeded / Failed. Rows carry no note
 text — skipped/cancelled notes appear on the detail page's RECENT RUNS rows and on the
 execution page.

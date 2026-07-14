@@ -176,12 +176,6 @@ export default function ExecutionPage() {
         {e.autoDeleted && (
           <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>(deleted)</span>
         )}
-        <span className="ad-copy" style={{
-          fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500, color: 'var(--text-muted)',
-          background: 'rgba(255,255,255,.06)', borderRadius: 6, padding: '3px 8px',
-        }}>
-          run {e.id.slice(0, 8)}
-        </span>
         <Badge
           status={e.status}
           style={running ? { animation: 'adPulse 1.4s ease-in-out infinite' } : undefined}
@@ -230,7 +224,8 @@ export default function ExecutionPage() {
         )}
       </div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--text-faint)', marginBottom: 18 }}>
-        {e.trigger}{e.ver ? ` · ${e.ver}` : ''} · started {e.started} · {e.dur}
+        <span className="ad-copy">{e.id}</span>
+        {` · ${e.trigger}`}{e.ver ? ` · ${e.ver}` : ''} · started {e.started} · {e.dur}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: 16, alignItems: 'start' }}>
