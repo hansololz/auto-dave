@@ -40,9 +40,9 @@ const DEFAULT_NOTE: Record<HarnessId, string> = {
 }
 
 const SUGGESTED = [
-  { id: 'qwen3:14b', note: 'Good local default', meta: '9.3 GB' },
-  { id: 'llama3.3:70b', note: 'Most capable local — needs 48 GB of memory', meta: '43 GB' },
-  { id: 'gemma3:12b', note: 'Light and quick', meta: '8.1 GB' },
+  { id: 'qwen3-coder:30b', note: 'Best local coding model', meta: '19 GB' },
+  { id: 'gemma4:e4b', note: 'Good local default', meta: '9.6 GB' },
+  { id: 'deepseek-coder:6.7b', note: 'Light and quick', meta: '3.8 GB' },
 ]
 
 const eyebrow: React.CSSProperties = {
@@ -168,7 +168,7 @@ export default function AgentNewPage() {
 
   const startPull = (raw: string) => {
     const nm = raw.trim()
-    if (!nm) { showToast('Type a model name, like qwen3:14b.'); return }
+    if (!nm) { showToast('Type a model name, like qwen3-coder:30b.'); return }
     if (pulling) { showToast(`One download at a time — ${pulling} is still downloading.`); return }
     if (models.includes(nm)) { showToast(`${nm} is already installed.`); return }
     setPulling(nm)
@@ -504,7 +504,7 @@ export default function AgentNewPage() {
                     value={pullText}
                     onChange={(e) => setPullText(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') startPull(pullText) }}
-                    placeholder="e.g. qwen3:14b"
+                    placeholder="e.g. qwen3-coder:30b"
                     style={{
                       flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border-input)',
                       borderRadius: 10, padding: '11px 14px', font: `500 13px var(--mono)`,
@@ -574,7 +574,7 @@ export default function AgentNewPage() {
               )}
 
               <a
-                href="https://huggingface.co/models?library=gguf&sort=trending"
+                href="https://ollama.com/library"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
@@ -583,7 +583,7 @@ export default function AgentNewPage() {
                   border: '1px solid var(--border-input)', borderRadius: 8, padding: '8px 13px', marginBottom: 22,
                 }}
               >
-                Browse more models on Hugging Face <span style={{ fontWeight: 400, fontSize: 11 }}>↗</span>
+                Browse more models on Ollama <span style={{ fontWeight: 400, fontSize: 11 }}>↗</span>
               </a>
             </>
           )}

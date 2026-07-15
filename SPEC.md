@@ -1027,9 +1027,11 @@ size metadata, empty state "No local models installed yet — download one below
 up here." Model pulls: one at a time — the backend streams raw `ollama pull` output over the
 `ollama.pull` WS event and the UI parses the percent out of it (right column shows "N%";
 determinate bar when a percent is present, indeterminate otherwise — see §20); suggested-model
-chips fill the pull input (they don't start the pull); suggested models qwen3:14b (9.3 GB, "Good
-local default"), llama3.3:70b (43 GB, "Most capable local — needs 48 GB of memory"), gemma3:12b
-(8.1 GB, "Light and quick"). Below the pull input: link "Browse more models on Hugging Face ↗".
+chips fill the pull input (they don't start the pull); suggested models qwen3-coder:30b (19 GB,
+"Best local coding model"), gemma4:e4b (9.6 GB, "Good local default"), deepseek-coder:6.7b
+(3.8 GB, "Light and quick"). A suggestion chip is hidden when that model is already installed or
+currently downloading; when no chips remain, the whole SUGGESTED section is hidden. Below the
+pull input: link "Browse more models on Ollama ↗" (opens https://ollama.com/library).
 
 **Secrets.** List with add/edit modal, masked values, delete confirm (§4.8). The name field is a
 single-line input (Enter saves, Escape closes); its placeholder is a hint, not a literal example
