@@ -9,8 +9,8 @@ import {
 } from '../ui'
 import { ResultSection } from '../result'
 
-const RUNNING_TOAST = 'Already running — one run at a time. A schedule firing now would be skipped.'
-const badgeAnim = (s: string) => (s === 'running' ? 'adPulse 1.4s ease-in-out infinite' : 'none')
+const EXECUTING_TOAST = 'Already executing — one execution at a time. A schedule firing now would be skipped.'
+const badgeAnim = (s: string) => (s === 'executing' ? 'adPulse 1.4s ease-in-out infinite' : 'none')
 
 // ---------- small hover helpers (local — pages may not edit ui.tsx) ----------
 
@@ -354,31 +354,31 @@ export default function AutomationDetail() {
 
   if (!auto) return null
 
-  const running = !!auto.live
+  const executing = !!auto.live
   const noSched = auto.hour == null
   const schedOff = !!auto.schedOff
   const countdown = noSched ? '' : nextIn(auto)
-  const schedChip = running ? `${auto.schedule} · running now`
+  const schedChip = executing ? `${auto.schedule} · executing now`
     : noSched ? 'No schedule'
     : schedOff ? `${auto.schedule} · schedule off`
     : `${auto.schedule} · next in ${countdown}`
-  const schedStatusText = running ? 'Running now… the schedule is unchanged.'
-    : noSched ? 'No schedule set — runs only when you Run now or use the menu bar.'
-    : schedOff ? 'Off — won’t run on its own. Run now and the menu bar still work.'
-    : `Next run in ${countdown} · runs even when the app is closed.`
-  const schedChipOn = running || (!schedOff && !noSched)
-  const runLabel = running ? 'Running…' : 'Run now'
-  const runIconCls = running ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play'
+  const schedStatusText = executing ? 'Executing now… the schedule is unchanged.'
+    : noSched ? 'No schedule set — executes only when you press Execute now or use the menu bar.'
+    : schedOff ? 'Off — won’t execute on its own. Execute now and the menu bar still work.'
+    : `Next execution in ${countdown} · executes even when the app is closed.`
+  const schedChipOn = executing || (!schedOff && !noSched)
+  const execLabel = executing ? 'Executing…' : 'Execute now'
+  const execIconCls = executing ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play'
 
-  const doRun = (ver?: string, toastMsg?: string) => {
-    if (auto.live) { showToast(RUNNING_TOAST); return }
+  const doExecute = (ver?: string, toastMsg?: string) => {
+    if (auto.live) { showToast(EXECUTING_TOAST); return }
     void (async () => {
       try {
-        await api.runNow(auto.id, ver)
+        await api.executeNow(auto.id, ver)
         if (toastMsg) showToast(toastMsg)
       } catch (err) {
         const er = err as Error & { status?: number }
-        showToast(er.status === 409 ? RUNNING_TOAST : er.message)
+        showToast(er.status === 409 ? EXECUTING_TOAST : er.message)
       }
     })()
   }
@@ -389,8 +389,8 @@ export default function AutomationDetail() {
       try {
         await api.patchAuto(auto.id, { schedOff: willOff })
         showToast(willOff
-          ? `Schedule turned off — ${auto.name} won’t run on its own. Run now still works.`
-          : `Schedule turned on — next run in ${nextIn(auto)}.`)
+          ? `Schedule turned off — ${auto.name} won’t execute on its own. Execute now still works.`
+          : `Schedule turned on — next execution in ${nextIn(auto)}.`)
         void loadAuto(auto.id)
       } catch (err) {
         showToast((err as Error).message)
@@ -423,7 +423,7 @@ export default function AutomationDetail() {
     void (async () => {
       try {
         await api.clearMemory(auto.id)
-        showToast('Memory cleared — the next run starts fresh.')
+        showToast('Memory cleared — the next execution starts fresh.')
         void loadAuto(auto.id)
       } catch (err) {
         showToast((err as Error).message)
@@ -448,7 +448,7 @@ export default function AutomationDetail() {
   const steps = auto.steps ?? []
   const spec = auto.spec ?? []
   const olderVersions = (auto.versions ?? []).filter((v) => v.v !== auto.version)
-  const runs = execs.filter((e) => e.autoId === auto.id).slice(0, 6)
+  const recentExecs = execs.filter((e) => e.autoId === auto.id).slice(0, 6)
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 30px 70px', animation: 'adFadeUp .4s ease' }}>
@@ -492,7 +492,7 @@ export default function AutomationDetail() {
                     v{auto.version} · current
                   </div>
                   <div style={{ fontSize: 11.5, lineHeight: 1.45, color: 'var(--text-muted)', marginTop: 1 }}>
-                    What the schedule and Run now always use.
+                    What the schedule and Execute now always use.
                   </div>
                 </div>
               </div>
@@ -510,7 +510,7 @@ export default function AutomationDetail() {
                   <HoverBtn
                     onClick={() => {
                       setVerOpen(false)
-                      doRun(`v${v.v}`, `Running v${v.v} once — the schedule and Run now stay on v${auto.version}.`)
+                      doExecute(`v${v.v}`, `Executing v${v.v} once — the schedule and Execute now stay on v${auto.version}.`)
                     }}
                     style={{
                       background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
@@ -519,7 +519,7 @@ export default function AutomationDetail() {
                     }}
                     hoverStyle={{ background: 'oklch(0.74 0.155 52 / .2)' }}
                   >
-                    <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Run once
+                    <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Execute once
                   </HoverBtn>
                 </div>
               ))}
@@ -527,8 +527,8 @@ export default function AutomationDetail() {
                 padding: '10px 14px', fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-faint)',
                 background: 'var(--bg-card)',
               }}>
-                Running an older version once doesn’t change anything — the schedule and{' '}
-                <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Run now always use the current version.
+                Executing an older version once doesn’t change anything — the schedule and{' '}
+                <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Execute now always use the current version.
                 To make an older version current, open Edit and restore it from the Version menu.
               </div>
             </div>
@@ -536,8 +536,8 @@ export default function AutomationDetail() {
         </div>
         <Badge status={auto.lastStatus} style={{ padding: '3px 8px', letterSpacing: '.05em', animation: badgeAnim(auto.lastStatus) }} />
         <div style={{ flex: 1 }} />
-        <BtnPrimary onClick={() => doRun()} style={{ flex: 'none' }}>
-          <i className={runIconCls} style={{ fontSize: 10 }} /> {runLabel}
+        <BtnPrimary onClick={() => doExecute()} style={{ flex: 'none' }}>
+          <i className={execIconCls} style={{ fontSize: 10 }} /> {execLabel}
         </BtnPrimary>
         <HoverBtn
           onClick={() => setSurface('create', 'edit')}
@@ -596,7 +596,7 @@ export default function AutomationDetail() {
           borderRadius: 6, padding: '3px 9px', transition: 'color .18s ease,background .18s ease',
         }}>
           <i
-            className={running ? 'fa-solid fa-spinner fa-spin' : (schedOff || noSched) ? 'fa-solid fa-pause' : 'fa-solid fa-clock'}
+            className={executing ? 'fa-solid fa-spinner fa-spin' : (schedOff || noSched) ? 'fa-solid fa-pause' : 'fa-solid fa-clock'}
             style={{ fontSize: 9 }}
           />
           {schedChip}
@@ -618,10 +618,10 @@ export default function AutomationDetail() {
             Draft
           </span>
           <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-2em)' }}>
-            Unsaved edit based on v{auto.version} — kept from your last edit session. Run it like any other version, or resume editing.
+            Unsaved edit based on v{auto.version} — kept from your last edit session. Execute it like any other version, or resume editing.
           </span>
           <HoverBtn
-            onClick={() => doRun('Draft')}
+            onClick={() => doExecute('Draft')}
             style={{
               background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
               borderRadius: 7, color: 'var(--accent)', fontFamily: 'var(--mono)', fontWeight: 500,
@@ -629,7 +629,7 @@ export default function AutomationDetail() {
             }}
             hoverStyle={{ background: 'oklch(0.74 0.155 52 / .2)' }}
           >
-            <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Run draft
+            <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Execute draft
           </HoverBtn>
           <HoverBtn
             onClick={() => setSurface('create', 'edit')}
@@ -661,14 +661,14 @@ export default function AutomationDetail() {
           marginBottom: 26, background: 'var(--bg-card)', border: '1px dashed rgba(255,255,255,.12)',
           borderRadius: 12, padding: 22, textAlign: 'center',
         }}>
-          <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>No runs yet</div>
-          <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Press Run now — the first result will appear right here.</div>
+          <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>No executions yet</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Press Execute now — the first result will appear right here.</div>
         </div>
       )}
 
-      {/* ways to run */}
+      {/* ways to execute */}
       <div style={{ marginBottom: 26 }}>
-        <Eyebrow style={{ color: 'var(--text-faint)', marginBottom: 10 }}>WAYS TO RUN</Eyebrow>
+        <Eyebrow style={{ color: 'var(--text-faint)', marginBottom: 10 }}>WAYS TO EXECUTE</Eyebrow>
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', gap: 15, alignItems: 'center' }}>
             <span style={{
@@ -708,7 +708,7 @@ export default function AutomationDetail() {
           </div>
           <div style={{ padding: '13px 18px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <HoverBtn
-              onClick={() => doRun()}
+              onClick={() => doExecute()}
               style={{
                 fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11.5, color: 'var(--accent)',
                 background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
@@ -716,10 +716,10 @@ export default function AutomationDetail() {
               }}
               hoverStyle={{ background: 'oklch(0.74 0.155 52 / .2)' }}
             >
-              <i className={runIconCls} style={{ fontSize: 9 }} /> {runLabel}
+              <i className={execIconCls} style={{ fontSize: 9 }} /> {execLabel}
             </HoverBtn>
             <span style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', minWidth: 0 }}>
-              Manual runs are always available — even when the schedule is off.
+              Manual executions are always available — even when the schedule is off.
             </span>
             <div style={{ flex: 1 }} />
             <span style={{
@@ -738,7 +738,7 @@ export default function AutomationDetail() {
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
             <Eyebrow style={{ color: 'var(--text-faint)' }}>PARAMETERS</Eyebrow>
             <span style={{ fontSize: 11.5, color: 'var(--text-faintest)' }}>
-              Changes apply on the next run — no new version, no AI involved.
+              Changes apply on the next execution — no new version, no AI involved.
             </span>
           </div>
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
@@ -749,11 +749,11 @@ export default function AutomationDetail() {
         </div>
       )}
 
-      {/* recent runs */}
-      {runs.length > 0 && (
+      {/* recent executions */}
+      {recentExecs.length > 0 && (
         <div style={{ marginBottom: 26 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-            <Eyebrow style={{ color: 'var(--text-faint)' }}>RECENT RUNS</Eyebrow>
+            <Eyebrow style={{ color: 'var(--text-faint)' }}>RECENT EXECUTIONS</Eyebrow>
             <HoverBtn
               onClick={() => go('executions')}
               style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontWeight: 500, fontSize: 11.5 }}
@@ -763,13 +763,13 @@ export default function AutomationDetail() {
             </HoverBtn>
           </div>
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
-            {runs.map((e, i) => (
+            {recentExecs.map((e, i) => (
               <HoverRow
                 key={e.id}
                 onClick={() => go('execution', { execId: e.id })}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 14, padding: '10px 18px',
-                  borderBottom: i === runs.length - 1 ? 'none' : '1px solid rgba(255,255,255,.04)',
+                  borderBottom: i === recentExecs.length - 1 ? 'none' : '1px solid rgba(255,255,255,.04)',
                   cursor: 'pointer',
                 }}
               >
@@ -833,7 +833,7 @@ export default function AutomationDetail() {
               </>
             ) : (
               <>
-                <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>Next run starts fresh, like the first time.</span>
+                <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>Next execution starts fresh, like the first time.</span>
                 <HoverBtn
                   onClick={doClearMemory}
                   style={{
@@ -938,7 +938,7 @@ export default function AutomationDetail() {
               <span style={{ fontWeight: 500, color: 'var(--text)' }}>{auto.name}</span>
               {' '}will be deleted — the schedule stops, and its versions and memory go with it. Past results stay in Executions.
               {auto.live && (
-                <p style={{ color: 'var(--amber)', margin: '8px 0 0' }}>A run is in progress — deleting cancels it.</p>
+                <p style={{ color: 'var(--amber)', margin: '8px 0 0' }}>An execution is in progress — deleting cancels it.</p>
               )}
             </>
           )}

@@ -1,4 +1,4 @@
-"""Human display labels for timestamps (§4.1 lastRunLabel, §4.5 started)."""
+"""Human display labels for timestamps (§4.1 lastExecLabel, §4.5 started)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -23,7 +23,7 @@ def started_label(dt: datetime, now: datetime | None = None) -> str:
     return f"{dt.strftime('%b')} {dt.day}, {clock(dt)}"
 
 
-def last_run_label(dt: datetime | None, now: datetime | None = None) -> str:
+def last_exec_label(dt: datetime | None, now: datetime | None = None) -> str:
     if dt is None:
         return ""
     now = now or datetime.now()

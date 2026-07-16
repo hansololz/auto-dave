@@ -25,11 +25,11 @@ prototype is listed in §20 — anything else that differs from the prototype is
 Auto Dave is a macOS desktop app for recurring personal automations. The user describes a job in
 plain words ("Check the manga I follow for new chapters every morning at 8"); a connected AI agent
 (Claude Code, Gemini CLI, Codex, OpenCode, or a local Ollama model) writes it as human-readable
-scripts; Auto Dave runs those scripts on a schedule, entirely on the user's Mac, and shows results.
+scripts; Auto Dave executes those scripts on a schedule, entirely on the user's Mac, and shows results.
 
 Core promises (exact UI copy, repeated in the onboarding footer):
-- "Everything runs on this Mac"
-- "Nothing runs until you review it"
+- "Everything executes on this Mac"
+- "Nothing executes until you review it"
 - "Passwords stay in your Keychain"
 
 ## 2. Architecture
@@ -39,12 +39,12 @@ Four components (per top-level README):
 - **Electron desktop app** — the UI. Recreates the design prototype pixel-faithfully (dark theme
   only). One window plus a menu-bar (tray) surface. Talks to the backend over a local API.
 - **Python backend** — long-lived local service: owns the data store (automations, versions,
-  executions, agents, settings), the scheduler (runs jobs even when the app window is closed),
+  executions, agents, settings), the scheduler (executes schedules even when the app window is closed),
   Keychain access for secrets, and orchestration of AI agents that draft/edit automation specs
   and step scripts.
 - **Python engine** — executes an automation's steps as scripts, streams per-step status and logs,
-  enforces the framework policies (§6), injects secrets at runtime, persists run results.
-- **CLI** — command-line access to the same backend: list/run automations, tail executions, manage
+  enforces the framework policies (§6), injects secrets at runtime, persists execution results.
+- **CLI** — command-line access to the same backend: list/execute automations, tail executions, manage
   secrets and agents. Headless operation is a supported mode (§3), not just a debug aid.
 
 **Stack (decided):** the Electron renderer is React 18 + TypeScript + Vite (state: one zustand
@@ -72,8 +72,8 @@ the packaged app does not yet register its bundled backend itself.
   required.
 - **Bundled Python (decided):** the app ships its own relocatable CPython (python-build-standalone
   builds) inside the bundle (`Contents/Resources/python/`). The backend, the engine, and every
-  step script run on this one interpreter. The system/user Python is never used, never required,
-  and never installed — users install nothing, and every Mac runs the identical interpreter
+  step script execute on this one interpreter. The system/user Python is never used, never required,
+  and never installed — users install nothing, and every Mac gets the identical interpreter
   version. The launchd plist points at the bundled interpreter with `PYTHONHOME` set by the
   launcher (no absolute paths baked in). Packaging must codesign every Mach-O in the Python tree
   (binary + all `.so`/`.dylib`) with hardened runtime for notarization.
@@ -86,11 +86,11 @@ the packaged app does not yet register its bundled backend itself.
   `~/Library/Application Support/Auto Dave/backend.json` (0600); UI and CLI read it to connect.
 - Updates: on launch, the app compares its bundled backend version with the running service and,
   on mismatch, re-registers and restarts the service (never mid-execution — it waits for live
-  runs to finish or marks them `interrupted`).
+  executions to finish or marks them `interrupted`).
 - Sleep: launchd does not prevent sleep. The backend holds a power assertion for the duration of
-  an active execution, implemented as a `caffeinate -i` subprocess (prevents idle sleep mid-run;
-  forced sleep — lid close, low battery — can still suspend a run); outside runs, normal macOS energy settings
-  apply and missed occurrences follow the §6 missed-run policy. For the always-on use case, the
+  an active execution, implemented as a `caffeinate -i` subprocess (prevents idle sleep mid-execution;
+  forced sleep — lid close, low battery — can still suspend an execution); outside executions, normal macOS energy settings
+  apply and missed occurrences follow the §6 missed-execution policy. For the always-on use case, the
   Mac's energy settings (or a "Prevent sleep" note in Settings docs) keep the machine awake —
   Auto Dave does not hold a permanent assertion.
 
@@ -135,19 +135,19 @@ version: int (current)
 schedule: display string ("Daily at 8:00", "Mondays at 9:00"); "No schedule" when hour absent
 scheduleShort: chip string ("Daily 8:00", "Mon 9:00"); "No schedule" when hour absent
 hour: 0–23 or absent (no schedule — manual/menu bar only); min: 0–59 (default 0); dow: 0–6 (Sun=0), absent = daily
-schedOff: bool — schedule disabled (Run now + menu bar still work)
+schedOff: bool — schedule disabled (Execute now + menu bar still work)
 instr: optional multiline free-text user instructions to the agent
-lastStatus: succeeded | running | failed | cancelled | interrupted | none
-live: run id while a run is in progress, else null
+lastStatus: succeeded | executing | failed | cancelled | interrupted | none
+live: execution id while an execution is in progress, else null
 resultChip: short summary chip ("2 new chapters") | null — the chip is optional: null when the
-  last successful run never called result.chip(); failed automations synthesize "Needs attention"
+  last successful execution never called result.chip(); failed automations synthesize "Needs attention"
 resultStatus: changes | ok | attention | null — tints resultChip with the §7 chip colors
   everywhere it appears (list rows included); null whenever resultChip is null; "attention" for
   failed automations
-lastRunLabel: "just now" | "Xm ago" | "Xh ago" | "yesterday" | "Jun 28" | "running…"
-latest: last run's result object + when-label, for the detail page
+lastExecLabel: "just now" | "Xm ago" | "Xh ago" | "yesterday" | "Jun 28" | "executing…"
+latest: last execution's result object + when-label, for the detail page
 params: parameter list (§4.2)
-memory: { size, updated } — per-automation memory directory between runs (any files/formats)
+memory: { size, updated } — per-automation memory directory between executions (any files/formats)
 steps: [{ name, desc, code, agent?, agentId?, why? }] — code is human-readable script; agent marks
   a step that makes a query-only runtime model call (§6) — the script itself still does any changes
 spec: block list [{ k: h1|h2|p|li, text }] — the human-readable spec
@@ -173,7 +173,7 @@ URL validity: `/^https?:\/\/\S+\.\S+/`.
 
 Every definition carries a default: `toggle` → off, `number` → its `min`, `text`/`list`/`kv` →
 empty. Definitions are versioned with the automation; values live in the top-level
-`automation.yaml` and are matched by name and kind at run/restore time (§5).
+`automation.yaml` and are matched by name and kind at execution/restore time (§5).
 
 ### 4.3 Schedule
 
@@ -182,12 +182,12 @@ daily); if the target already passed today/this week, roll forward one day/week.
 every 30 s.
 
 Detail-page schedule status line:
-- running → "`<schedule>` · running now" / "Running now… the schedule is unchanged." (spinner icon)
-- no schedule (hour absent) → "No schedule" / "No schedule set — runs only when you Run now or use
+- executing → "`<schedule>` · executing now" / "Executing now… the schedule is unchanged." (spinner icon)
+- no schedule (hour absent) → "No schedule" / "No schedule set — executes only when you press Execute now or use
   the menu bar." (pause icon)
-- schedOff → "`<schedule>` · schedule off" / "Off — won't run on its own. Run now and the menu bar
+- schedOff → "`<schedule>` · schedule off" / "Off — won't execute on its own. Execute now and the menu bar
   still work." (pause icon)
-- else → "`<schedule>` · next in `<countdown>`" / "Next run in `<countdown>` · runs even when the
+- else → "`<schedule>` · next in `<countdown>`" / "Next execution in `<countdown>` · executes even when the
   app is closed." (clock icon)
 
 ### 4.4 Versions and drafts
@@ -196,18 +196,18 @@ Detail-page schedule status line:
   `current_version` pointer flip, per §5), applies spec/steps/instr/stepAgents/allowedSecrets/
   agentId, sets `specMeta` to "vN · updated just now". Prior versions are untouched.
 - Leaving the editor with unsaved touched changes snapshots a **draft** onto the automation
-  (toast: "Draft kept — resume or run it from this automation anytime.").
+  (toast: "Draft kept — resume or execute it from this automation anytime.").
 - Editor version menu lists: Draft ("your working copy — unsaved"), current vN ("current · …"),
   each older vN (date · note). Loading an old version shows a banner: "Loaded vX from history.
   Saving restores it as vN+1 — your draft stays in the Version menu." with a bordered
   **Back to draft** button; Save label becomes "Restore vX as vN+1".
-- Detail page: old versions can **Run once** without changing the schedule (toast: "Running vX
-  once — the schedule and Run now stay on vN."). The detail-page version menu carries a footer
-  explainer: "Running an older version once doesn't change anything — the schedule and Run now
+- Detail page: old versions can **Execute once** without changing the schedule (toast: "Executing vX
+  once — the schedule and Execute now stay on vN."). The detail-page version menu carries a footer
+  explainer: "Executing an older version once doesn't change anything — the schedule and Execute now
   always use the current version. To make an older version current, open Edit and restore it from
-  the Version menu." Draft banner offers Run draft / Resume editing / Discard.
+  the Version menu." Draft banner offers Execute draft / Resume editing / Discard.
 
-### 4.5 Execution (the stored record of one run)
+### 4.5 Execution (the stored record of one occurrence of an automation)
 
 ```
 id: uuid, autoId: uuid, ver ("v3" or "Draft"), status, trigger: Manual | Schedule | Menu bar
@@ -216,12 +216,12 @@ steps: [{ name, status, dur }]
 logs: [{ t, k: sys|out|wrn|err, text }]
 result: result object | null
 redact: secret names redacted in logs (joined string) | null
-note: optional note ("previous run still in progress", "Mac went to sleep") | null
+note: optional note ("previous execution still in progress", "Mac went to sleep") | null
 ```
 
 Result object:
 ```
-{ chip?, chipStatus?: changes|ok|attention — both only when the run set a chip, chips[],
+{ chip?, chipStatus?: changes|ok|attention — both only when the execution set a chip, chips[],
   values: [{ name, value }] — value is a string (paragraph, multiline OK) or a list of strings
         (bulleted); rendered as label/value rows in the Summary view (§7),
   files: [{ name, size }] — every file in the result dir (result.yaml included), plus the dir
@@ -230,12 +230,12 @@ Result object:
 
 The chip is optional — an automation may choose not to use one. It is stored on the execution
 record itself (`chip` + `chip_status` columns in `executions.db`, §5): the engine copies
-`result.chip(...)`'s text and the run's `result.status(...)` (default `ok`) onto the record at
-run end, with no synthesized fallback text — a run that never calls `result.chip()` shows no
+`result.chip(...)`'s text and the execution's `result.status(...)` (default `ok`) onto the record at
+execution end, with no synthesized fallback text — an execution that never calls `result.chip()` shows no
 chip anywhere.
 
 On disk the rest of the result is a directory: the engine writes `result/result.yaml` (chips,
-values — only when either is non-empty) at run end; the run writes any other output files
+values — only when either is non-empty) at execution end; the execution writes any other output files
 directly into `result/` (result.md, result.html, images, CSVs, …). There is no manifest — the
 file list is the directory listing. Renderable files get their own result views (§7): `.md`
 rendered as markdown, `.html` in a sandboxed iframe (no scripts, no remote loads — preserves
@@ -248,8 +248,8 @@ list rendering (loaded only when the execution is opened).
 
 ### 4.6 Statuses (single badge vocabulary, executions and steps)
 
-queued (gray) · running (cyan) · succeeded (green) · failed (red) · cancelled (gray) ·
-skipped (gray) · reused (gray) · interrupted (magenta) · none → "Not run yet" (gray).
+queued (gray) · executing (cyan) · succeeded (green) · failed (red) · cancelled (gray) ·
+skipped (gray) · reused (gray) · interrupted (magenta) · none → "Not executed yet" (gray).
 
 ### 4.7 Agent
 
@@ -281,7 +281,7 @@ working."
 
 ```
 login: bool        — "Launch at login" ("Auto Dave starts quietly in the menu bar.")
-mbIcon: bool       — "Show in the menu bar" ("The quickest way to run an automation.")
+mbIcon: bool       — "Show in the menu bar" ("The quickest way to execute an automation.")
 notif: attention | all — "Only when something needs attention" / "After every execution"
 days: int ≥ 1 (default 90) — history retention; keepForever: bool disables cleanup
 devMode: bool (default false) — "Developer mode" ("Logs every backend request and every AI
@@ -323,7 +323,7 @@ automations/<slug>/
                                # schedule, agent_id, enabled_agents, allowed_secrets,
                                # param_values {name: value} (user data, never pruned),
                                # created_at, updated_at
-  memory/                      # run-to-run memory directory (engine contract, §6) — scripts
+  memory/                      # memory directory carried between executions (engine contract, §6) — scripts
                                # store whatever files and formats they need; shared across
                                # versions
   draft/                       # unsaved edit working copy, same shape as a version folder
@@ -341,7 +341,7 @@ automations/<slug>/
 **Logs live outside the data dir**, at `~/Library/Logs/Auto Dave/` (macOS convention;
 Console.app picks them up): `app.log` (backend application log), `backend.out.log` /
 `backend.err.log` (launchd stdout/stderr), and dev.sh's `vite.log`. With `AUTODAVE_HOME` set
-(§15) logs go to `<home>/logs/` instead, keeping dev/test runs fully isolated.
+(§15) logs go to `<home>/logs/` instead, keeping dev/test sessions fully isolated.
 
 **Request logging (behind the §4.9 `devMode` setting):** while Developer mode is on, the
 backend logs to its console every HTTP request it serves (uvicorn access log at `info` level —
@@ -359,10 +359,10 @@ definitions, desc); the top-level `automation.yaml` holds **what the user owns a
 (identity, schedule, param values, agent choice, permission grants). Two consequences:
 
 - **Permissions are never versioned.** `enabled_agents` and `allowed_secrets` are grants; they
-  live only in the top-level file. Restoring or running an old version must never silently
+  live only in the top-level file. Restoring or executing an old version must never silently
   re-grant a revoked secret or agent — a vX step needing a now-disabled agent/secret fails with
   the existing warnings (§11).
-- **Params split into definitions (versioned) and values (top-level).** At run/restore time
+- **Params split into definitions (versioned) and values (top-level).** At execution/restore time
   they're matched by name and kind: match → current value; param since removed → last stored
   value (values are never pruned), else the definition's default; kind mismatch → default plus
   a `wrn` log line, never silent coercion. Every definition carries a default (§4.2).
@@ -383,23 +383,23 @@ executions/
                                #   executions: id (uuid PK), automation_id, automation_name
                                #     (snapshot at execution time — display fallback only),
                                #     version ("v3"/"Draft"), status, trigger, started_at /
-                               #     finished_at (epoch ms; finished_at NULL while running),
+                               #     finished_at (epoch ms; finished_at NULL while executing),
                                #     dur_ms, note, chip / chip_status (§4.5 — NULL when the
-                               #     run set no chip), redacted_secrets (JSON), params (JSON)
+                               #     execution set no chip), redacted_secrets (JSON), params (JSON)
                                #   execution_steps: execution_id, idx, name, status, dur_ms
                                #   indexes: (started_at DESC, id), (automation_id, started_at),
                                #     (status, started_at)
   <execution-uuid>/
     logs.ndjson                # append-only {ts, t, step, k: sys|out|wrn|err, text} —
-                               # step = owning step name, null for run-level lines
-    workspace/                 # cwd for every step of this execution — disposable per-run
+                               # step = owning step name, null for execution-level lines
+    workspace/                 # cwd for every step of this execution — disposable per-execution
                                # scratch space, shared across steps (step 1 writes a file,
                                # step 2 reads it); deleted with the execution by retention
     result/
       result.yaml              # engine-written from builder calls: chips[],
                                # values[{name, value}] — only when either is non-empty
                                # (the chip itself lives on the execution record)
-      <files>                  # any files the run writes via result.path (result.md,
+      <files>                  # any files the execution writes via result.path (result.md,
                                # result.html, images, CSVs, …) — no manifest, the dir
                                # listing is the file list
 ```
@@ -411,10 +411,10 @@ detail, scheduler, menu bar) from memory. There is no automations table: the YAM
 startup walk are the whole story. The id → path map, `has_draft`, and `next_run_at` are derived
 in memory during/after the walk; execution-derived display state (`last_status`,
 `last_execution_at`, `live_execution_id`) is filled by one startup query for the latest execution
-per `automation_id` and kept current as runs complete; `resultChip`/`resultStatus` read straight
+per `automation_id` and kept current as executions complete; `resultChip`/`resultStatus` read straight
 off that latest execution's header (§4.5) — never from `result/`. `skipped` records never count as the
 "latest" execution for this display state — they never ran, and §4.1's `lastStatus` vocabulary
-excludes them (a mid-run schedule skip must not shadow the live run's final status/chip).
+excludes them (a mid-execution schedule skip must not shadow the live execution's final status/chip).
 
 Executions load **headers-eagerly, bodies-lazily**: startup reads every record from
 `executions.db` into an in-memory `executions` table — one record per execution with
@@ -440,9 +440,11 @@ Rules:
   tail/grep them directly.
 - Secret values never appear in any file — Keychain only, referenced by name.
 
-**Terminology:** an **execution** is the stored record of one run of an automation — the entity
-name used in files, code, and APIs. **Run** is the verb/action, and stays in UI copy as the
-design specifies ("Run now", "Running", "Run draft", "Run once").
+**Terminology:** **execution** is the one and only term for a single occurrence of an
+automation — in files, code, APIs, and UI copy alike. The verb form is **execute** ("Execute
+now", "Executing", "Execute draft", "Execute once"). The word "run" is never used for this
+concept anywhere; "running" survives only in its ordinary process sense (a daemon or the
+backend being up).
 
 **Directory naming:** automation directories use a human-readable slug of the name (not a UUID) —
 browsability by users and agents is the point of file-first storage. The `id` inside
@@ -462,39 +464,39 @@ never used for lookups.
 
 ## 6. Engine contract & framework policies (shown as reference in Review)
 
-- **Scheduling & triggers** — one run at a time (the API answers 409; the toast copy is client
-  UI); a schedule firing mid-run is skipped, not queued; a failed scheduled run is retried once
+- **Scheduling & triggers** — one execution at a time (the API answers 409; the toast copy is client
+  UI); a schedule firing mid-execution is skipped, not queued; a failed scheduled execution is retried once
   after 5 minutes — once per failure streak, keyed on the automation: a retry that also fails is
   not retried again until a scheduled success resets it. The retry resumes from the failed step
-  (§7 rerun semantics: earlier steps `reused`, workspace copied), not from scratch.
-- **Missed runs** — run when possible: if the scheduled time passes while the Mac is asleep (backend
-  alive but suspended), the run fires on wake. If the backend itself wasn't running when the time
+  (§7 re-execute semantics: earlier steps `reused`, workspace copied), not from scratch.
+- **Missed executions** — execute when possible: if the scheduled time passes while the Mac is asleep (backend
+  alive but suspended), the execution fires on wake. If the backend itself wasn't running when the time
   passed, that occurrence is skipped entirely — no catch-up queue at startup; the next scheduled
-  occurrence proceeds normally. At most one catch-up run fires per wake regardless of how many
+  occurrence proceeds normally. At most one catch-up execution fires per wake regardless of how many
   occurrences were slept through.
 - **Reading web pages** — 10 s timeout; ≥ 2 s between requests to the same site; retry twice;
   respect robots.txt; user agent "AutoDave/1.0".
-- **Workspace per run** — every step runs with its cwd set to the execution's `workspace/`
+- **Workspace per execution** — every step executes with its cwd set to the execution's `workspace/`
   directory; scripts are executed in place from their version folder (or `draft/`), never
   copied. All steps of an execution share the one workspace; it is disposable scratch space,
   not guaranteed to exist after the retention window.
-- **Memory between runs** — one private `memory/` directory per automation, reachable from
+- **Memory between executions** — one private `memory/` directory per automation, reachable from
   scripts via an injected path; scripts may store any files in any format there. Persists
-  across runs and versions. Durable writes go to `memory/` (deliberate) or `result/`
+  across executions and versions. Durable writes go to `memory/` (deliberate) or `result/`
   (output files via `result.path`) — the workspace is for everything else.
-- **Notifications & results** — exactly one result per run; at most one notification, at the end;
+- **Notifications & results** — exactly one result per execution; at most one notification, at the end;
   notify only on changes (per the notifications setting). **Sender (decided):** the backend posts
   macOS notifications itself via `osascript -e 'display notification …'` — works headless with no
   UI process; the Electron app never posts.
 - **Secrets & Keychain** — scripts reference secrets by name; values injected at runtime — each
   step receives only the secrets its own code references — and redacted from logs; a missing
-  secret stops the run before any step.
+  secret stops the execution before any step.
 - **Agent steps are query-only.** A step's runtime agent call is a pure question → text-answer
   function; only step scripts make changes. The engine invokes the harness one-shot and
   non-interactive with the strongest tool-disabling flags each harness supports: Claude Code
   `claude -p --tools "" --strict-mcp-config --no-session-persistence`, Codex
   `codex exec --sandbox read-only --skip-git-repo-check`, Ollama via its local HTTP API (no
-  tools by nature); Gemini CLI and OpenCode expose no tool-disable flag for one-shot runs and are
+  tools by nature); Gemini CLI and OpenCode expose no tool-disable flag for one-shot invocations and are
   invoked bare (documented limitation). Secret values never enter a prompt: the engine
   redaction-scans the assembled prompt and fails the step (before sending) if any secret value
   appears. The reply is returned to the script as untrusted text/JSON — never executed or
@@ -505,92 +507,92 @@ never used for lookups.
 
 ### 6.1 The `autodave` step SDK (decided)
 
-Each step runs in its own subprocess (the bundled interpreter, cwd = the execution `workspace/`).
-The engine's runner injects these globals — scripts may also `import autodave` for the same names:
+Each step executes in its own subprocess (the bundled interpreter, cwd = the execution `workspace/`).
+The engine's executor injects these globals — scripts may also `import autodave` for the same names:
 
 - `params` — dict-like, values by param name (definitions merged with §5 value-resolution rules).
 - `secrets` — attribute access by name (`secrets.SMTP_PASSWORD`); reading a missing/un-allowed
-  secret raises and fails the run (the missing-secret pre-check in §6 catches known references
+  secret raises and fails the execution (the missing-secret pre-check in §6 catches known references
   before step 1). Values never repr/print unredacted — the engine scans all log lines.
 - `memory` — `pathlib.Path` of the automation's memory dir, plus `memory.load(name, default)` /
   `memory.save(name, obj)` YAML helpers.
-- `run` — read-only run metadata: `run.automation_id`, `run.automation_name`, `run.execution_id`,
-  `run.step_index` (1-based), `run.step_name`, `run.trigger` (the execution's trigger label,
+- `execution` — read-only execution metadata: `execution.automation_id`, `execution.automation_name`,
+  `execution.id`, `execution.step_index` (1-based), `execution.step_name`, `execution.trigger` (the execution's trigger label,
   e.g. `Manual` / `Schedule`). Assigning to any field raises.
 - `log` — `log(text)` / `log.warn(text)` / `log.error(text)` → `out`/`wrn`/`err` NDJSON lines
   (`log.info` is an alias of `log`).
 - `result` — builder used by the last step (any step may add): `result.chip(text)` (optional —
   an automation may not use a chip at all), `result.chips([...])`, `result.value(name, value)`
-  (value: string or list of strings), `result.status('changes'|'ok'|'attention')` — at run end
+  (value: string or list of strings), `result.status('changes'|'ok'|'attention')` — at execution end
   the engine stores chip + status on the execution record (§4.5) and writes chips/values to
-  `result/result.yaml`. `result.path` — `pathlib.Path` of the run's result dir for direct file
+  `result/result.yaml`. `result.path` — `pathlib.Path` of the execution's result dir for direct file
   output (result.md, result.html, images, CSVs, …); any file dropped there is part of the
   result (§4.5), so there is no attach call, and tables are markdown tables in result.md.
-- `notify(text)` — requests the end-of-run notification (engine still applies the §4.9 setting
+- `notify(text)` — requests the end-of-execution notification (engine still applies the §4.9 setting
   and the one-notification rule). The notification title is the automation name, overridable by a
   param literally named `notification_title`.
 - `agent.ask(prompt, data=None) -> str` — the §6 query-only runtime call, only in steps marked
-  `agent: true`; runner invokes the step's harness one-shot, redaction-scans the prompt first.
+  `agent: true`; executor invokes the step's harness one-shot, redaction-scans the prompt first.
   Convenience aliases `agent.read(data, prompt)` / `agent.write(data, prompt)` wrap it. Agent-step
   calls time out at 120 s (drafting calls use the §8 5-minute cap).
 - `fetch_page(url) -> str` — HTTP GET honoring the §6 web policies (timeout, per-site spacing,
   retries, robots.txt, UA).
 
-Runner↔engine protocol: stdout/stderr are captured line-by-line as `out`/`err`; structured calls
+Executor↔engine protocol: stdout/stderr are captured line-by-line as `out`/`err`; structured calls
 (log/result/notify) emit `@@AD@@{json}` control lines on stdout. Context (param values, secret
-values, paths, agent config, run metadata) arrives as JSON on stdin — never argv, never the
-environment. The runner does export the non-secret pieces back out as env vars so child
+values, paths, agent config, execution metadata) arrives as JSON on stdin — never argv, never the
+environment. The executor does export the non-secret pieces back out as env vars so child
 processes a step spawns can self-identify: `AUTODAVE_AUTOMATION_ID`, `AUTODAVE_AUTOMATION_NAME`,
 `AUTODAVE_EXECUTION_ID`, `AUTODAVE_STEP_INDEX`, `AUTODAVE_STEP_NAME`, `AUTODAVE_TRIGGER`,
 `AUTODAVE_WORKSPACE`, `AUTODAVE_MEMORY_DIR`, `AUTODAVE_RESULT_DIR`. Param values, secret values,
-and agent config never enter the environment; the runner never reads env as input.
+and agent config never enter the environment; the executor never reads env as input.
 
 ### 6.2 Curated packages (decided)
 
 Step scripts may import: Python stdlib, `autodave`, and: `requests`, `httpx`,
 `beautifulsoup4` (`bs4`), `lxml`, `feedparser`, `python-dateutil` (`dateutil`), `PyYAML` (`yaml`).
 The list ships with the app (installed in the bundled interpreter) and is included verbatim in the
-§8 contract preamble; §8 validation rejects any other import. The runner re-validates the step's
+§8 contract preamble; §8 validation rejects any other import. The executor re-validates the step's
 top-level imports at execution time with the same rule (shared module `imports_check.py`) and
 fails the step on violation — the allowlist holds even for hand-edited step files that never went
 through drafting.
 
 ## 7. Execution lifecycle
 
-- One execution at a time per automation. Starting while live: toast "Already running — one run
+- One execution at a time per automation. Starting while live: toast "Already executing — one execution
   at a time. A schedule firing now would be skipped."
 - Start: execution record created with all steps queued; automation gets live id, lastStatus
-  running, lastRunLabel "running…"; the execution appears at top of Executions; sidebar counts
+  executing, lastExecLabel "executing…"; the execution appears at top of Executions; sidebar counts
   and menu-bar rows update live.
-- Streaming: each step queued → running (sys log "▸ Step N — `<name>`", then step logs) →
+- Streaming: each step queued → executing (sys log "▸ Step N — `<name>`", then step logs) →
   terminal status with duration. Then the execution gets its final status, duration, result
-  object; automation gets latest/resultChip/lastRunLabel "just now"; toast summarizes.
-- Cancel: kills timers/processes; execution cancelled, all running/queued steps cancelled, sys
-  log "run cancelled by you — nothing else will happen".
-- **Run again** has two variants on the execution page. Failed executions get a primary accent
-  "Run again" (tooltip "Runs the automation again. Steps that already succeeded are reused
+  object; automation gets latest/resultChip/lastExecLabel "just now"; toast summarizes.
+- Cancel: kills timers/processes; execution cancelled, all executing/queued steps cancelled, sys
+  log "execution cancelled by you — nothing else will happen".
+- **Execute again** has two variants on the execution page. Failed executions get a primary accent
+  "Execute again" (tooltip "Executes the automation again. Steps that already succeeded are reused
   automatically.") starting from the failed step: earlier steps get status `reused`, only the
-  failed step onward re-executes; the rerun copies the source execution's workspace so reused
-  steps' outputs remain available. Other terminal executions get a quiet bordered "Run again"
-  (tooltip "Runs the automation again from the start") — a plain fresh run.
+  failed step onward re-executes; the re-execution copies the source execution's workspace so reused
+  steps' outputs remain available. Other terminal executions get a quiet bordered "Execute again"
+  (tooltip "Executes the automation again from the start") — a plain fresh execution.
 - Triggers: Manual, Schedule, Menu bar. `interrupted` covers e.g. "Mac went to sleep" — applied
-  by startup recovery when a restarted backend finds stale `running` executions; a sleep the
-  backend process survives simply resumes the run. `skipped`/`cancelled` executions may carry a
-  note ("previous run still in progress").
+  by startup recovery when a restarted backend finds stale `executing` executions; a sleep the
+  backend process survives simply resumes the execution. `skipped`/`cancelled` executions may carry a
+  note ("previous execution still in progress").
 
 **Execution page:** back link, title row with status badge and
-Cancel / Run-again actions; below the title a mono metadata line: full run id (copyable) ·
+Cancel / Execute-again actions; below the title a mono metadata line: full execution id (copyable) ·
 trigger · version · started · duration. Body is a two-column layout: a **STEPS sidebar** (per-step status
 dot, name, duration — compact, no inline log expansion) plus a parameters block ("Values as used
-by this run."), and a main pane with **Results / Logs tabs** (auto-select Logs when no result).
+by this execution."), and a main pane with **Results / Logs tabs** (auto-select Logs when no result).
 The Logs tab is one unified color-coded log pane (kinds sys/out/wrn/err, live auto-scroll) with
-a redaction note ("secrets redacted: `<name>`") and empty state "No logs — this run never
+a redaction note ("secrets redacted: `<name>`") and empty state "No logs — this execution never
 started." The Results tab is a collapsible **Results section** holding a stack of individually
 collapsible **result views**, each with a chevron + title header and right-aligned mono meta
 ("4 values", "4.1 KB") — everything expanded by default, collapse state per-session only
-(never persisted). The section header row carries the result chip when the run set one — tinted
-by its chip status (changes = accent, ok = green, attention = orange); a run that set no chip
-gets no chip here — plus metadata chips; the run's
+(never persisted). The section header row carries the result chip when the execution set one — tinted
+by its chip status (changes = accent, ok = green, attention = orange); an execution that set no chip
+gets no chip here — plus metadata chips; the execution's
 own status badge stays in the page title row, never here. View order: first the **Summary
 view** (result.yaml `values` rendered as a two-column grid — label column left, wrapping for
 long names; value right: paragraph for a string, bullets for a list; 620 px measure — the
@@ -604,7 +606,7 @@ placeholder card: "The latest execution didn't produce any result files."
 Deleted-automation handling: historical name, marked deleted.
 
 **Executions list:** all executions across automations; each row shows the automation name with
-the full run id (mono) on a second line beneath it, status badge, a trigger column combining trigger and version
+the full execution id (mono) on a second line beneath it, status badge, a trigger column combining trigger and version
 ("Manual · v3"), timestamps, durations; filter All / Succeeded / Failed. Rows carry no note
 text — skipped/cancelled notes appear on the detail page's RECENT RUNS rows and on the
 execution page.
@@ -613,8 +615,8 @@ execution page.
 
 Drafting is a **two-call pipeline**: the backend first asks the agent to write the **spec**,
 then — in a second, independent call — to build the **steps, parameters, and schedule** from
-that spec. Each mode runs the calls it needs (see Modes below); `edit` stops after the spec
-call and `sync` runs only the steps call. Both calls carry the same two
+that spec. Each mode makes the calls it needs (see Modes below); `edit` stops after the spec
+call and `sync` makes only the steps call. Both calls carry the same two
 instruction files, invoke the chosen agent harness headless through a per-harness adapter
 (`claude -p`, `gemini -p`, `codex exec`, `opencode run`, Ollama via its local HTTP API), and
 parse one text response each. Everything below is harness-independent; adapters only translate
@@ -633,7 +635,7 @@ also served to the create/edit page via §19 `GET /instructions`):
   Framework-instructions card renders this file as markdown.
 - `backend/autodave/instructions/default-build-instructions.md` — the default best-practice
   build instructions (never delete files, write only to memory/workspace, small single-purpose
-  steps, fail loudly, quiet runs stay quiet, track seen items in memory). In `create` mode, when
+  steps, fail loudly, quiet executions stay quiet, track seen items in memory). In `create` mode, when
   the user gave none, the backend seeds `instr` from this file; the validated create draft
   carries `instr` back so the Review card arrives pre-filled — the user edits or deletes the
   rules freely, and they version like any instructions.
@@ -710,7 +712,7 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    from the automation's enabled agents. `why` is required when `agent` is true.
 7. `schedule` is optional and, when present, validated (hour 0–23, min 0–59, dow 0–6); the agent
    picks the time from the spec's words, and when the spec names no time it omits the key (no
-   schedule — the automation runs only via Run now / menu bar). It is applied only when creating
+   schedule — the automation executes only via Execute now / menu bar). It is applied only when creating
    (v1's schedule, pre-filled on Review); on sync the saved schedule is user-owned (§5) and never
    changed by a draft.
 
@@ -746,12 +748,12 @@ start at the second, edit jobs end after the first). Every invocation's full pro
 response are logged to the app log
 (never to execution logs) for debugging.
 
-**Issue-analysis call (§11 Test run).** When a test run's step fails, the backend makes one
+**Issue-analysis call (§11 Test).** When a test's step fails, the backend makes one
 more call with the same drafting agent: `framework-instructions.md` + the spec + the failing
 step's code + its error and log tail + earlier steps' log tails (the cause is often upstream)
 → TASK: analyze the failure and return a **blocker envelope** — the same `===BLOCKED===`
 format, `reason` holding what happened. One envelope shape means one parser, one validation
-rule, and one §11 panel for build-time refusals and run-time failures alike. Validation and
+rule, and one §11 panel for build-time refusals and execution-time failures alike. Validation and
 the one-repair-round policy apply as above; if the second response is still invalid the
 analysis is dropped and the §11 Issue panel opens with the step's raw error instead. Same
 5-minute cap, same app-log logging. Secret values never travel: the log tail is the
@@ -771,12 +773,12 @@ shell: if the create/edit surface is active, it exits back to `surface: app` —
 while editing an automation. Popovers close on outside mousedown. Toasts:
 bottom-center, ~2.8 s default (some 2.6–5.8 s). One toast at a time — a new message replaces the
 current one and replays the fade-up entrance. Centering must not use `transform` (the fade-up
-animation animates `transform` and would knock the toast off-center while it runs); it uses
+animation animates `transform` and would knock the toast off-center while it plays); it uses
 `left/right: 0` + auto margins + fit-content width.
 
 Text selection is an allowlist: chrome (nav, titles, badges, chips, buttons, clickable rows)
 is unselectable via a global `user-select: none`; content surfaces opt in with the `.ad-copy`
-class — log pane, run-id chip, parameter values, result Summary values, markdown/file views,
+class — log pane, execution-id chip, parameter values, result Summary values, markdown/file views,
 FILES footer (paths + names), file-load error lines, step script `pre`s (detail + draft
 editor), the SPEC panel (detail page, plus the edit page's SPEC and BUILD INSTRUCTIONS
 read-mode views), and the memory info line. Inputs/textareas are always selectable; the
@@ -793,44 +795,44 @@ attempt has failed; boot retries every 1.2 s). Fast boots therefore show no spla
 
 1200 px page, "Automations" title + New button. One card per automation: name, description,
 status badge, schedule chip (plus an OFF tag when the schedule is off), result-summary chip when
-the last run set one (tinted by `resultStatus` with the §7 chip colors — same tint as the detail
-and run pages), and
-an **inline run button** per card (disabled while that automation is running, tooltip explains
-why). The card carries no last-run label — `lastRunLabel` appears on the detail page and in the
+the last execution set one (tinted by `resultStatus` with the §7 chip colors — same tint as the detail
+and execution pages), and
+an **inline execute button** per card (disabled while that automation is executing, tooltip explains
+why). The card carries no last-execution label — `lastExecLabel` appears on the detail page and in the
 menu bar. Empty state (dashed card):
 "No automations yet. Describe a job in plain words — your AI writes it as scripts you can read,
-and Auto Dave runs them on your schedule." with accent CTA "Create your first automation".
+and Auto Dave executes them on your schedule." with accent CTA "Create your first automation".
 
 ### 9.2 Automation detail
 
-Back link ("‹ Automations"), title row: name, version chip dropdown (§4.4 Run once + footer
-explainer), status badge, Run now (accent), Edit, ellipsis menu (Delete automation… in red).
+Back link ("‹ Automations"), title row: name, version chip dropdown (§4.4 Execute once + footer
+explainer), status badge, Execute now (accent), Edit, ellipsis menu (Delete automation… in red).
 Sections top to bottom:
 
-- Optional **Draft banner** (§4.4), then **LATEST RESULT** card — the run's chip (if it set one)
-  + metadata chips, then the full §7 result view stack for the latest run (Summary view at 640 px
-  measure, file views, FILES footer — same collapsible behavior and chip rules). No-runs empty
+- Optional **Draft banner** (§4.4), then **LATEST RESULT** card — the execution's chip (if it set one)
+  + metadata chips, then the full §7 result view stack for the latest execution (Summary view at 640 px
+  measure, file views, FILES footer — same collapsible behavior and chip rules). No-executions empty
   state (dashed
-  card): "No runs yet / Press Run now — the first result will appear right here."
+  card): "No executions yet / Press Execute now — the first result will appear right here."
 - **WAYS TO RUN** card — schedule row (schedule chip + §4.3 status line) with an on/off toggle
-  switch (drives `schedOff`), and a second row: bordered mono Run-now button, copy "Manual runs
+  switch (drives `schedOff`), and a second row: bordered mono Execute-now button, copy "Manual executions
   are always available — even when the schedule is off.", plus a disabled dashed chip "Message
   triggers (Discord, iMessage) — coming soon".
 - **PARAMETERS** — directly editable here per the §4.2 edit behaviors; caption "Changes apply on
-  the next run — no new version, no AI involved."
-- **RECENT RUNS** — run history rows (status, trigger·version, time, duration, note text when
+  the next execution — no new version, no AI involved."
+- **RECENT EXECUTIONS** — execution history rows (status, trigger·version, time, duration, note text when
   present), linking to execution pages.
 - **MEMORY** card — mono size/updated info line, "Show in Finder" and "Clear memory" buttons;
-  Clear swaps to an inline confirm: "Next run starts fresh, like the first time." with red
+  Clear swaps to an inline confirm: "Next execution starts fresh, like the first time." with red
   Clear / quiet Keep.
 - **SPEC panel** — the automation's spec blocks, footer: "The AI regenerates the steps from this
   document when you edit it. Every change mints a new version — older ones live in the Version
   menu on the edit page."
 
 **Delete confirm modal** — "Delete this automation?" / "`<name>` will be deleted — the schedule
-stops, and its versions and memory go with it. Past results stay in Executions." When a run is
-live an amber line is added: "A run is in progress — deleting cancels it." (confirming cancels
-the run, then deletes). Buttons Cancel / red "Delete automation".
+stops, and its versions and memory go with it. Past results stay in Executions." When an execution is
+live an amber line is added: "An execution is in progress — deleting cancels it." (confirming cancels
+the execution, then deletes). Buttons Cancel / red "Delete automation".
 
 ## 10. Onboarding (3 steps, step label top-right in mono)
 
@@ -839,7 +841,7 @@ bypass it: step 1 always renders. When prior data exists (any agent or any autom
 Continue goes straight to the app shell instead of step 2.
 
 **Step 1 — Welcome.** Logo, headline "Recurring jobs, done exactly the same way every time.",
-then a live self-check card "Getting Auto Dave ready" running three steps (Checking settings,
+then a live self-check card "Getting Auto Dave ready" with three steps (Checking settings,
 Preparing folders, Loading data) with pulsing dots and durations, ending in a "READY / All set"
 well with chips (Settings created, Folders in place, plus "Agent found" if an agent is already
 configured and "Automations found" if automations already exist). Continue appears only when
@@ -887,7 +889,7 @@ editing automations needs an AI."
 border/background on hover, 1 px press-down on :active): Track manga chapters (fa-book-open) /
 Back up a folder every night (fa-box-archive) / Email me a weekly report (fa-envelope) / Watch a
 product's price (fa-tag) / Tidy my screenshots folder (fa-broom). "Written by `<agent>`" dropdown
-(footer: "Auto Dave still runs everything"), CTA "Draft the automation". Empty text blocks with
+(footer: "Auto Dave still executes everything"), CTA "Draft the automation". Empty text blocks with
 "Describe the job first — one sentence is enough."
 
 **Building.** Spinner + staged checklist ("Writing the spec" → "Generating the steps") driven by
@@ -903,7 +905,7 @@ blocked:
 - **Steps call** (create): primary **"Apply to the spec & rebuild the steps"** — each card is
   written into the draft spec under a `## Constraints & resolutions` section (created on first
   use, extended after), one bullet per blocker — "`reason` — `fix`", using the edited text —
-  then a new steps call runs against the amended spec and the checklist re-enters "Generating
+  then a new steps call is made against the amended spec and the checklist re-enters "Generating
   the steps". The resolutions live in the spec document itself, so they survive later edits and
   syncs and version like any spec text. If the rebuild blocks again the panel returns with the
   new blockers plus a muted "Previously resolved" list of this session's earlier resolutions,
@@ -916,21 +918,21 @@ blocked:
 **Review.** 1800 px max-width page. Title row: name (single line, shrinks with ellipsis so a long name never pushes the
 buttons out of the window), version dropdown (edit mode), agent picker, Start over ghost
 (edit: "Discard draft"), primary Create/Save. Lede: "Read what your AI wrote. Change anything —
-nothing runs until you create it." When a run is live during an edit, a cyan pulsing banner
-shows: "A run is happening right now on vN. Saving won't interrupt it — that run finishes on vN.
-vN+1 takes over from the next run (`<schedule>`)." Sections (left column: spec, agents,
-secrets, instructions, framework; right column: steps, schedule, parameters, test run):
+nothing executes until you create it." When an execution is live during an edit, a cyan pulsing banner
+shows: "An execution is happening right now on vN. Saving won't interrupt it — that execution finishes on vN.
+vN+1 takes over from the next execution (`<schedule>`)." Sections (left column: spec, agents,
+secrets, instructions, framework; right column: steps, schedule, parameters, test):
 - **Spec** — collapsible card (caret + `SPEC` header toggle; defaults open on the edit page,
   collapsed on create; force-open while the spec is being edited, and the Edit/Cancel/Save
   buttons + body + ask box hide when collapsed). Editable as markdown-ish text (`#`, `##`, `-`,
   plain ↔ h1/h2/li/p blocks). Also an
-  "ask the agent" box ("Edit with agent") that runs one §8 `edit` job (spec call only) with the
+  "ask the agent" box ("Edit with agent") that starts one §8 `edit` job (spec call only) with the
   selected drafting agent (the automation's agent, falling back to the default agent): the agent
   receives the in-editor draft (spec + steps + build instructions) and the in-editor grants
   (enabled agent names, allowed secret names) and returns the rewritten spec. The steps are not
   touched: on success the spec is replaced and marked out of sync exactly like a manual spec
   edit (toast "Spec updated — the workflow is out of sync. Sync the steps before saving."), and
-  the sync banner's "Sync now" rebuilds the steps later. While the job runs the ask box shows a
+  the sync banner's "Sync now" rebuilds the steps later. While the job is in flight the ask box shows a
   spinner and the Save hint reads "Rewriting the spec…"; on failure the backend's §8 error shows
   as a toast and the draft is untouched. A `blocked` outcome (§8) instead shows a persistent
   amber notice under the ask box — "Your AI hit a blocker: `<reason>` — `<fix>`" (one line per
@@ -943,24 +945,24 @@ secrets, instructions, framework; right column: steps, schedule, parameters, tes
   edit or delete them freely before saving.
 - **Dirty gating** — any spec/instruction/agent-ask/agent-enablement/secret-allowance change
   marks the workflow out of sync and **blocks saving** until the sync banner's "Sync now" button
-  runs one §8 `sync` call regenerating the steps ("Steps synced with the spec — review them,
+  makes one §8 `sync` call regenerating the steps ("Steps synced with the spec — review them,
   then save."). A `blocked` sync opens the §11 Blocker panel as a modal over Review: its
   primary button amends the in-editor spec (same `## Constraints & resolutions` rule as the
-  Building panel) and re-runs the sync; closing the modal leaves the workflow out of sync with
+  Building panel) and repeats the sync; closing the modal leaves the workflow out of sync with
   the sync banner still up. Disabled Save shows an amber hint ("Sync and review the steps before saving." /
   "Finish editing the spec first…" / "Syncing steps…" / "Rewriting the spec…"); saving is also
-  blocked while any §8 job runs, and the sync banner hides while one runs. Picking a different agent for a single
+  blocked while any §8 job is in flight, and the sync banner hides while one is. Picking a different agent for a single
   step does **not** dirty the workflow — it only marks the draft touched (toast "Step N now
   calls `<agent>` · `<model>`."); disabling an enabled agent that steps still call does dirty it
   (toast "Steps X, Y are out of sync — `<agent>` is no longer available here. Sync the steps
   before saving.").
-- **SCHEDULE** card — schedule chip + "Runs even when the app is closed."
+- **SCHEDULE** card — schedule chip + "Executes even when the app is closed."
 - **PARAMETERS · YOUR AI ASKED FOR THESE** card — in create mode the definitions are editable
   inline (per-line URL rows with "NOT A VALID LINK" chips, toggle rows, "+ Add line"); in edit
   mode (when the automation has params) the card is read-only with a "READ-ONLY HERE" tag,
   one-line value summaries, and footer "Values aren't part of a version — change them on the
-  automation page; they apply on the next run." (create-mode footer: "After creation these move
-  to the automation page — changes there apply on the next run, no new version."). Empty state:
+  automation page; they apply on the next execution." (create-mode footer: "After creation these move
+  to the automation page — changes there apply on the next execution, no new version."). Empty state:
   "No settings needed — your AI didn't ask for any."
 - **Steps** — readable scripts with per-step agent menus (menu empty state: "No agents enabled —
   turn one on under 'Agents · available to steps'."). An expanded step ("view script") renders its
@@ -968,7 +970,7 @@ secrets, instructions, framework; right column: steps, schedule, parameters, tes
   dependency) coloring keywords, constants, strings, numbers, comments, decorators, builtins,
   `def`/`class` names, and call names over the base mono `.ad-copy` `pre`. Language is always
   Python (§15); the same `PyCode` renders the detail page and the draft/create step editor. Agent steps without any enabled agent
-  show a red warning ("Step N needs an agent, but none is enabled — the run would fail there.
+  show a red warning ("Step N needs an agent, but none is enabled — the execution would fail there.
   Enable one below."). Per-automation agent enablement list with "X of Y enabled"; enabled
   agents called by steps show a "called by step N" note.
 - **Secrets** — step code is scanned for `secrets.NAME`; secrets in Keychain but not allowed, and
@@ -981,29 +983,29 @@ secrets, instructions, framework; right column: steps, schedule, parameters, tes
   `default-build-instructions.md` as the fallback pre-fill for the Build instructions card.
   Collapsed hint and footer copy: built-in instructions the AI reads before writing anything,
   word for word — they update with the app, nothing for the user to maintain.
-- **Test run** — executes the draft's **real steps** through the same engine path as a real
-  run (there is no dry-run): in-editor param values and grants, a throwaway workspace, and
+- **Test** — executes the draft's **real steps** through the same engine path as a real
+  execution (there is no simulation mode): in-editor param values and grants, a throwaway workspace, and
   **scratch memory** — edit mode copies the automation's memory dir, create mode starts empty —
-  all discarded when the run ends, so a test can never poison the memory the deployed version
+  all discarded when the test ends, so a test can never poison the memory the deployed version
   reads (§4.1). Side effects outside memory are real (emails send, files move, notifications
   post per settings) and the card says so plainly. Step statuses (§4.6 vocabulary) and log
   lines (secret values redacted, §6) stream into the card live over the §19 `test.*` WS
-  events; the run stops at the first failed step and is cancellable from the card. A test run
-  writes **no execution record** — it exists to iterate on the draft; the detail page's "Run
-  draft" (§4.4) remains the stored, `ver: Draft` path. A succeeded run shows green plus the
-  run's result summary (chip + values) in the card, with no agent call. On failure the card
-  shows "Analyzing the failure…" (agent label) while the backend runs the §8 issue-analysis
+  events; the test stops at the first failed step and is cancellable from the card. A test
+  writes **no execution record** — it exists to iterate on the draft; the detail page's "Execute
+  draft" (§4.4) remains the stored, `ver: Draft` path. A succeeded test shows green plus its
+  result summary (chip + values) in the card, with no agent call. On failure the card
+  shows "Analyzing the failure…" (agent label) while the backend makes the §8 issue-analysis
   call, then opens the **Issue panel** — the same cards, fields, and editing as the Blocker
-  panel, headline "The test run hit an issue"; its primary button **"Apply to the spec & sync
-  the steps"** amends the in-editor spec (same `## Constraints & resolutions` rule) and runs a
-  §8 sync, and "Previously resolved" carries across rounds — build-time blockers and run-time
+  panel, headline "The test hit an issue"; its primary button **"Apply to the spec & sync
+  the steps"** amends the in-editor spec (same `## Constraints & resolutions` rule) and starts a
+  §8 sync, and "Previously resolved" carries across rounds — build-time blockers and execution-time
   issues are one convergent repair loop with two entry points. If the analysis call itself
   fails, the panel still opens with the failing step's raw error as the reason and an empty
-  fix for the user to fill in. Advisory like the dry-run was: a failed test never blocks
+  fix for the user to fill in. Advisory: a failed test never blocks
   saving.
 
 Create (new) → version 1, `lastStatus: none`, navigate to detail, toast "Created — nothing has
-run yet. Press Run now when you're ready." Save (edit) → §4.4.
+executed yet. Press Execute now when you're ready." Save (edit) → §4.4.
 
 ## 12. Agents & Secrets pages
 
@@ -1014,7 +1016,7 @@ Ready agents get inline "Check connection" (toasts "`<name>` answered in 0.4 s �
 inline "Edit" button, and, when not default, an inline borderless "Make default" text button;
 Needs-setup rows use an accent-primary "Edit" button instead. The row overflow menu holds only
 "Remove agent…" (red, confirm modal). Default status is indicated by the absent "Make default"
-button — no chip. Empty state (dashed card): "No agents yet. Existing automations still run on
+button — no chip. Empty state (dashed card): "No agents yet. Existing automations still execute on
 schedule — but you need an agent to create or edit them." + CTA "Add your first agent".
 
 **New / Edit agent** form (720 px, one form — title and submit label switch to "Edit agent" /
@@ -1028,7 +1030,7 @@ a harness and a model first." Success toasts: "`<name>` added — ready to write
 "Changes saved — `<name>` is ready." When editing a signed-out agent, the form shows a reconnect
 banner: "This agent is signed out — reconnect it to create or edit automations." + Reconnect
 button. Ollama-dependent options gated on Ollama being installed and ready — this includes
-the OpenCode harness ("OpenCode runs its models through Ollama, which isn't installed on this Mac
+the OpenCode harness ("OpenCode serves its models through Ollama, which isn't installed on this Mac
 yet."). Inline install flow: button "Install Ollama · 1.1 GB", installing label "Installing
 Ollama… X.X GB of 1.1 GB". **LOCAL MODEL** picker: radio list of installed Ollama models with
 size metadata, empty state "No local models installed yet — download one below and it will show
@@ -1060,10 +1062,10 @@ non-template icon variant (`trayAlert.png`, mid-gray glyph + red dot, generated 
 `scripts/gen_tray_icon.py`); the normal state uses the black template image. Panel: 334 px translucent
 (blur), header row with "AUTO DAVE" eyebrow left and aggregate status right (mono 11 px; "All good
 · N automation(s)" — pluralized by count — or "N need(s) attention" in red), one row per automation (7 px status dot —
-pulsing while running, name, mono sub-line colored by state: cyan "Running now…" / red when failed
-/ accent for a result chip / faint otherwise, bordered run button at 35 % opacity that goes fully
-opaque on hover (accent hover border), relative time right-aligned in a 56 px column). Row click opens the app on that automation; run
-button triggers a "Menu bar" run. Footer: accent "Open Auto Dave" link + version. Click-outside
+pulsing while executing, name, mono sub-line colored by state: cyan "Executing now…" / red when failed
+/ accent for a result chip / faint otherwise, bordered execute button at 35 % opacity that goes fully
+opaque on hover (accent hover border), relative time right-aligned in a 56 px column). Row click opens the app on that automation; execute
+button triggers a "Menu bar" execution. Footer: accent "Open Auto Dave" link + version. Click-outside
 closes.
 
 ## 14. Design tokens (digest — `design/README.md` is authoritative)
@@ -1088,7 +1090,7 @@ closes.
 - Icons: Font Awesome 6.5.2. App mark: accent rounded square with a hammer glyph (`fa-solid fa-hammer`).
   The same mark is the macOS dock icon (`app/electron/appIcon.png`, 1024 px, mark at ~80% of canvas,
   generated by `scripts/gen_app_icon.cjs`; set at startup via `app.dock.setIcon` in
-  `app/electron/main.cjs` so dev runs don't show the default Electron icon).
+  `app/electron/main.cjs` so dev sessions don't show the default Electron icon).
 - Motion: fade-up entrances (.3–.5 s), spinners .8–.9 s, amber "waiting on you" pulse 1.2 s.
   Modals (shared `Modal` shell in `ui.tsx`: backdrop + card, used by the secret add/edit modal
   and `ConfirmModal`) animate both ways — enter .18 s fade-up, exit .12 s fade-down — and every
@@ -1096,7 +1098,7 @@ closes.
   confirm actions fire after the exit finishes.
 - Layout: page gutter 30–32 px, max width 1200 px (Review page 1800 px, forms 620–720 px,
   settings 640 px).
-- Scroll chaining: inner scroll panels embedded in the page flow (spec viewer, test-run log
+- Scroll chaining: inner scroll panels embedded in the page flow (spec viewer, test log
   pane, etc.) chain to the page — reaching their bottom continues scrolling the page (browser
   default; no `overscroll-behavior: contain`). Only floating surfaces (popovers, dropdowns,
   modals) may contain overscroll.
@@ -1107,17 +1109,17 @@ closes.
 
 ## 15. Dev/test knobs
 
-**Dev/release parity rule:** dev and release run the SAME code paths — there are no mock modes,
+**Dev/release parity rule:** dev and release share the SAME code paths — there are no mock modes,
 no alternate backends, no dev-only branches in app code. The only knobs that exist are pure
 configuration (they relocate or re-tune the same behavior, never select different behavior).
 Every knob defaults to the release value and is developer opt-in; the single knob dev.sh sets
 itself is `AUTODAVE_RENDERER_URL` (below — same renderer source, served with HMR instead of
-pre-bundled). Dev runs use the real app-support dir, real Keychain, real agent CLIs, random
+pre-bundled). Dev sessions use the real app-support dir, real Keychain, real agent CLIs, random
 port, request logging via the §4.9 devMode setting (§5), and the real launchd service (§18
 dev.sh).
 
 Frontend state (localStorage/URL — production mechanisms, not dev branches): `ad-onboarded`
-(persisted onboarding completion; clearing it re-runs onboarding), `#menubar` URL hash (selects
+(persisted onboarding completion; clearing it replays onboarding), `#menubar` URL hash (selects
 the menu-bar surface — how the tray panel window loads). The renderer discovers the backend only
 via `backend.json` through the Electron preload bridge; there is no browser-dev URL-param
 fallback.
@@ -1140,7 +1142,7 @@ Electron env knob (configuration only):
   release never sets it.
 
 Test doubles live in `tests/` only: a fake `claude` CLI at `tests/bin/claude` (conftest prepends
-`tests/bin` to `PATH`, so the real detect/invoke/subprocess path runs against it) and conftest
+`tests/bin` to `PATH`, so the real detect/invoke/subprocess path is exercised against it) and conftest
 fixtures that monkeypatch `keychain` (in-memory dict) and `notify.post` (no-op). Removed knobs —
 do not reintroduce: `AUTODAVE_MOCK_AGENT`, `AUTODAVE_KEYRING`, `AUTODAVE_NO_NOTIFY`,
 `ad-sudo-denied`, `?port=&token=` (the renderer dev server returned as `AUTODAVE_RENDERER_URL`,
@@ -1150,7 +1152,7 @@ above — `VITE_DEV`/`npm run dev:app` themselves stay gone).
 
 The shipped app has NO seed path: a fresh install always starts empty (onboarding), and there is
 no CLI or API to populate demo data. The seed fixture lives in `tests/seed_data.py` and is
-applied only by tests calling `seed(store)` (it refuses to run when any automations exist).
+applied only by tests calling `seed(store)` (it refuses to seed when any automations exist).
 
 The prototype ships four demo automations useful for tests: "Track manga
 chapters" (daily 8:00, list/toggle/number/text/kv params, result.md markdown table with a READ
@@ -1158,13 +1160,13 @@ column),
 "Nightly folder backup" (daily 2:00), "Weekly report email" (Mondays 9:00, failed, uses
 `SMTP_PASSWORD`, retry-from-step), "Clean screenshots folder" (Sundays 21:00). Demo secrets:
 `SMTP_PASSWORD`, `VAULT_DRIVE_KEY`. Twelve seed executions cover every terminal status including
-skipped, reused, cancelled ("previous run still in progress") and interrupted ("Mac went to
-sleep"); `running` is inherently live and is not seeded.
+skipped, reused, cancelled ("previous execution still in progress") and interrupted ("Mac went to
+sleep"); `executing` is inherently live and is not seeded.
 
 ## 17. Repository structure
 
 - `design/` — high-fidelity HTML prototype + design handoff README (authoritative tokens).
-- `backend/` — Python package `autodave`: storage, engine (+`runner.py` step SDK,
+- `backend/` — Python package `autodave`: storage, engine (+`executor.py` step SDK,
   `imports_check.py` shared §6.2 import allowlist), scheduler, drafting, harness adapters,
   FastAPI API (`api.py`), launchd service (`service.py`), CLI (`cli.py`).
   `autodave/instructions/` holds the §8 prompt texts as markdown (packaged via
@@ -1178,7 +1180,7 @@ sleep"); `running` is inherently live and is not seeded.
 - `scripts/` — project scripts (`dev.sh`, `build.sh`, `prod.sh`, `logs.sh` — §18;
   `gen_tray_icon.py` renders the tray template PNGs;
   `gen_app_icon.cjs` renders the dock icon `app/electron/appIcon.png` via Electron —
-  run from `app/` as `./node_modules/.bin/electron ../scripts/gen_app_icon.cjs`;
+  invoked from `app/` as `./node_modules/.bin/electron ../scripts/gen_app_icon.cjs`;
   `commit` stages all uncommitted changes, generates a commit message via
   `claude --model claude-opus-4-8 -p` from the staged diff, and commits).
 - `tests/` — pytest suite for the backend (storage, drafting, engine, schedule, API), plus the
@@ -1192,30 +1194,30 @@ Dev workflow:
   missing, re-installs deps when `backend/pyproject.toml` (stamp file `.venv/.backend-stamp`)
   or `app/package.json` changed, then typechecks + builds the renderer (`npm run build` →
   `app/dist`, the bundle Electron loads in release). Touches no processes and no data dir;
-  safe to run anytime. **`--deps`** stops after the dependency step (no renderer bundle) —
-  what dev.sh runs.
+  safe to invoke anytime. **`--deps`** stops after the dependency step (no renderer bundle) —
+  what dev.sh uses.
 - **`./scripts/prod.sh`** — the production distribution (§3), under `build/` (gitignored).
-  Runs `build.sh` (full), then: downloads the pinned relocatable CPython
+  Invokes `build.sh` (full), then: downloads the pinned relocatable CPython
   (python-build-standalone `20250612` / CPython `3.12.11`, arch from `uname -m`, tarball
   cached in `build/cache/`, URL overridable via `AUTODAVE_PBS_URL`), pip-installs the backend
-  + curated packages into it (inside the bundle the backend/CLI run as
+  + curated packages into it (inside the bundle the backend/CLI execute as
   `python3 -m autodave.main` / `-m autodave.cli` — pip's `bin/` entry scripts carry absolute
   staging-path shebangs), renders `appIcon.icns` from `app/electron/appIcon.png`
   (sips + iconutil), packages `Auto Dave.app` with `@electron/packager` (bundle id
   `com.autodave.app`; ships only `electron/`, `dist/`, and `package.json` — the renderer is
   fully bundled and main/preload use Electron builtins only, so no `node_modules`), copies
   the interpreter to `Contents/Resources/python/`, codesigns (Developer ID + hardened runtime
-  on every Mach-O when `CODESIGN_IDENTITY` is set — notarization itself not run; ad-hoc
+  on every Mach-O when `CODESIGN_IDENTITY` is set — notarization itself not performed; ad-hoc
   otherwise, local use only), smoke-checks that the bundled interpreter imports `autodave` +
   every curated package from inside the bundle, and produces
   `build/Auto Dave-<version>-<arch>.dmg` (hdiutil UDZO).
-- **`./scripts/dev.sh`** — fastest dev loop, with hot reloading: runs `build.sh --deps` only
-  (no renderer bundle); shuts down lingering processes from previous runs — backend by
+- **`./scripts/dev.sh`** — fastest dev loop, with hot reloading: invokes `build.sh --deps` only
+  (no renderer bundle); shuts down lingering processes from previous sessions — backend by
   command-line pattern (`[Pp]ython -m autodave` — ps shows the venv python's resolved binary,
   never the `.venv/bin/python` path; SIGTERM, 5 s grace, then SIGKILL — backends can hang in
   graceful shutdown while uvicorn waits on open WebSockets), stale Electron, and stale Vite;
   then (re)installs the real launchd LaunchAgent (`autodave service uninstall` +
-  `service install`, `com.autodave.backend`, §3) so the backend runs exactly as in release:
+  `service install`, `com.autodave.backend`, §3) so the backend behaves exactly as in release:
   launchd-managed, RunAtLoad/KeepAlive, cwd `/`, minimal launchd PATH, random free port,
   macOS Keychain, devMode-gated request logging (§5) to `backend.out.log`/`backend.err.log`
   under the logs
@@ -1225,7 +1227,7 @@ Dev workflow:
   (rewritten with new pid/token
   each start) plus `/health` and for Vite to answer, then launches Electron in the foreground
   with `AUTODAVE_RENDERER_URL=http://127.0.0.1:<vite port>` (§15) — renderer edits under
-  `app/src` hot-reload live; backend edits need a dev.sh rerun. Quitting Electron normally
+  `app/src` hot-reload live; backend edits need a dev.sh restart. Quitting Electron normally
   (Cmd+Q) leaves the backend running (release semantics — automations keep firing; stop it with
   `.venv/bin/autodave service uninstall`). Ctrl+C in the dev.sh terminal instead shuts the
   whole app down: Electron dies with the terminal's SIGINT, the exit trap kills Vite, and an
@@ -1245,9 +1247,9 @@ Dev workflow:
   `AUTODAVE_HOME` is set, §5); creates missing backend logs so `tail` starts clean.
   **`--clear`** truncates the logs in place first (`: >` — writers keep their open
   append-mode handles), then follows.
-- Backend: `python3.12 -m venv .venv && .venv/bin/pip install -e "backend[dev]"`; run tests with
+- Backend: `python3.12 -m venv .venv && .venv/bin/pip install -e "backend[dev]"`; test with
   `.venv/bin/python -m pytest tests/`; dev.sh launches the backend via `python -m autodave.main`
-  (equivalent to the `autodave-backend` entry point); run an isolated backend (real agent CLIs,
+  (equivalent to the `autodave-backend` entry point); start an isolated backend (real agent CLIs,
   real Keychain, empty home) with `AUTODAVE_HOME=<dir> AUTODAVE_PORT=8799 .venv/bin/autodave-backend`.
 - App: `cd app && npm install`; typecheck+bundle with `npm run build`; `npm run app` launches
   Electron against the built bundle (release delivery; dev.sh instead serves the same source
@@ -1260,7 +1262,7 @@ Dev workflow:
 Claude Code commands:
 
 - `/commit` (`.claude/commands/commit.md`) — stage all changes and make one concise commit. Always
-  delegated to a subagent via the Agent tool, always run with `model: opus` (Opus 4.8). Never adds
+  delegated to a subagent via the Agent tool, always launched with `model: opus` (Opus 4.8). Never adds
   `Claude` as co-author. Does not push.
 
 ## 19. Backend API (decided)
@@ -1277,7 +1279,7 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `GET /automations` · `GET /automations/{id}` · `DELETE /automations/{id}`
 - `PATCH /automations/{id}` — user-owned fields only: name, schedule (hour/min/dow/schedOff),
   param values, agentId, stepAgents, allowedSecrets
-- `POST /automations/{id}/run` `{ version?: "vN" | "draft" (case-insensitive), trigger? }` →
+- `POST /automations/{id}/execute` `{ version?: "vN" | "draft" (case-insensitive), trigger? }` →
   `{ execId }` (409 while live)
 - `POST /automations` `{ draft }` — create v1 from a validated draft
 - `POST /automations/{id}/versions` `{ draft }` — save edit as vN+1
@@ -1285,13 +1287,18 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `POST /automations/{id}/restore` `{ v }` — copy vX to vN+1 (§5)
 - `POST /automations/{id}/memory/clear` — empty the §4.1 memory directory (backs §9.2 "Clear
   memory")
-- `POST /testruns` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets? }` → `{ runId }`
-  — the §11 Test run: executes the sent draft's steps ephemerally (scratch memory copied from
+- `POST /tests` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets? }` → `{ testId }`
+  — the §11 Test: executes the sent draft's steps ephemerally (scratch memory copied from
   `autoId`'s memory dir when given, else empty; no execution record); grant arrays as in
-  `/drafts`; progress via the `test.*` WS events; on failure the backend runs the §8
+  `/drafts`; progress via the `test.*` WS events; on failure the backend makes the §8
   issue-analysis call with `agentId` (default-agent fallback) and emits its blockers in
-  `test.issue`. `DELETE /testruns/{runId}` cancels (kills the running step subprocess or the
+  `test.issue`. `DELETE /tests/{testId}` cancels (kills the live step subprocess or the
   analysis harness process)
+- `POST /automations/{id}/checks` `{ draft?, allowedSecrets?, enabledAgents? }` ·
+  `POST /checks` `{ draft, allowedSecrets?, enabledAgents? }` — the §11 review checks
+  (param sanity, URL reachability, secret allow/Keychain state, agent availability, memory
+  and notification plan), streamed as advisory lines over the `checks.*` WS events; the
+  in-editor grant arrays, when present, override the saved ones
 - `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
   the stored automation's for the §8 grants context; progress via
@@ -1303,7 +1310,7 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `GET /executions?auto=&status=` (headers) · `GET /executions/{id}` (steps + logs + result) ·
   `GET /executions/{id}/result/{name}` (raw result-dir file for the §7 file views; plain
   filenames only — no path traversal) · `POST /executions/{id}/cancel` ·
-  `POST /executions/{id}/rerun` (§7 retry from failed step — earlier steps `reused`)
+  `POST /executions/{id}/reexecute` (§7 retry from failed step — earlier steps `reused`)
 - `GET/POST /agents` · `PATCH/DELETE /agents/{id}` · `POST /agents/{id}/check` (health/badge) —
   one shared readiness check (`harness.check_ready`) decides ready vs. needs-setup everywhere:
   the harness binary must resolve (rule below), Ollama's server must answer, and Claude Code
@@ -1313,20 +1320,21 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   resolve the binary via PATH plus the usual macOS install locations (`~/.local/bin`,
   `/opt/homebrew/bin`, `/usr/local/bin`; Ollama additionally `Ollama.app`), because a
   GUI-launched backend gets a minimal PATH — e.g. `claude` installs to `~/.local/bin` by
-  default. Invocation runs the resolved absolute path. If Ollama is installed but its server isn't
+  default. Invocation uses the resolved absolute path. If Ollama is installed but its server isn't
   answering (and `AUTODAVE_OLLAMA_URL` is local), `/ollama/status` starts `ollama serve`
   once per backend process and waits briefly for it to come up — so an installed Ollama
   reads as found/ready instead of prompting a fresh download.
 - `GET /secrets` (names + usedBy only) · `PUT /secrets/{name}` `{ value }` · `DELETE
   /secrets/{name}` — values go straight to the Keychain, never into responses or files
 - `GET /settings` · `PATCH /settings` · `POST /settings/data-path` `{ path }` (sets the
-  run-data location; creates the dir, reloads from it, moves nothing)
+  execution-data location; creates the dir, reloads from it, moves nothing)
 - `WS /ws?token=` — events, each `{ ev, ... }`: `exec.started`, `exec.step` (status change),
   `exec.log` (one NDJSON line), `exec.finished`, `auto.changed`, `agents.changed`,
-  `secrets.changed`, `settings.changed`, `draft.progress`, `test.step` (§11 test-run step
+  `secrets.changed`, `settings.changed`, `draft.progress`, `test.step` (§11 test step
   status change), `test.log` (one redacted NDJSON line), `test.done` (`{ status, result? }` —
   result summary on success), `test.issue` (the §8 issue-analysis blockers, after a failed
-  run's analysis finishes), `ollama.pull` (model-pull progress). Clients re-`GET /state` on
+  test's analysis finishes), `checks.line` / `checks.done` (§11 review checks stream),
+  `ollama.pull` (model-pull progress). Clients re-`GET /state` on
   reconnect.
 
 ## 20. Deliberate divergences from the design prototype
@@ -1344,9 +1352,9 @@ didn't have to face. Do not "fix" the app to match the prototype on these points
 - **Detection covers all five providers.** The prototype's onboarding knobs can only simulate
   finding Claude Code / Ollama / Codex; the real detector (§19 `GET /agents/detect`) also finds
   Gemini CLI and OpenCode.
-- **Seed executions.** The prototype seeds 11 executions including a permanently-`running` one
+- **Seed executions.** The prototype seeds 11 executions including a permanently-`executing` one
   and covers `skipped`/`reused` only as step statuses. §16 seeds twelve, covers every terminal
-  execution status, and never seeds `running` (it is inherently live).
+  execution status, and never seeds `executing` (it is inherently live).
 - **Framework-knowledge panel copy follows §6/§6.1.** The prototype panel says memory is "one
   JSON file" and shows `secret("smtp-password")`; the real panel must describe the memory
   directory and `secrets.NAME` references.
@@ -1354,11 +1362,16 @@ didn't have to face. Do not "fix" the app to match the prototype on these points
   `agent.do(...)`, `result.summary(...)` — none exist in §6.1; real seeds use
   `memory.load/save`, `agent.ask/read/write`, and the §6.1 result builder.
 - **Deleted-automation executions keep the historical name.** The prototype falls back to "—";
-  §5 snapshots `automation_name` so old runs render the real name, marked deleted.
-- **Run-page parameters are the values used by that run.** The prototype renders the
+  §5 snapshots `automation_name` so old executions render the real name, marked deleted.
+- **Execution-page parameters are the values used by that execution.** The prototype renders the
   automation's current live params; the execution record snapshots the resolved values
-  ("Values as used by this run.").
+  ("Values as used by this execution.").
 - **Ollama pull bar has an indeterminate fallback.** The prototype always has a percent because
   it simulates the pull; real `ollama pull` output may not yield one.
-- **`lastRunLabel` is always derived.** The prototype's seeds mostly omit it and the menu bar
+- **`lastExecLabel` is always derived.** The prototype's seeds mostly omit it and the menu bar
   patches in hardcoded times; the real field is computed per §4.1 for every automation.
+- **"Execution", never "run".** The prototype's copy and code say "Run now", "Running",
+  "runs", `lastRunLabel`. The app uses a single term for one occurrence of an automation —
+  see the §6 terminology rule ("Execute now", "Executing", `executing` status,
+  `lastExecLabel`). `design/README.md` describes the prototype and keeps its original
+  wording.

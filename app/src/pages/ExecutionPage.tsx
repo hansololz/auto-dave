@@ -1,5 +1,5 @@
-// Execution (run) page (§7): compact STEPS sidebar, Results/Logs tabs,
-// live log streaming with auto-scroll, Cancel / Run again.
+// Execution page (§7): compact STEPS sidebar, Results/Logs tabs,
+// live log streaming with auto-scroll, Cancel / Execute again.
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
@@ -40,13 +40,13 @@ function BackLink({ onClick }: { onClick: () => void }) {
 
 /** Compact step row (§7): status dot + name + duration — no inline log expansion. */
 function StepRow({ step }: { step: Exec['steps'][number] }) {
-  const running = step.status === 'running'
+  const executing = step.status === 'executing'
   const dot = step.status === 'queued' ? '#3a414c' : badgeOf(step.status).c
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px' }}>
       <span style={{
         width: 8, height: 8, borderRadius: '50%', background: dot, flex: 'none',
-        animation: running ? 'adPulse 1.2s ease-in-out infinite' : 'none',
+        animation: executing ? 'adPulse 1.2s ease-in-out infinite' : 'none',
       }} />
       <span style={{
         flex: 1, fontSize: 12.5, lineHeight: 1.4, minWidth: 0,
@@ -90,13 +90,13 @@ export default function ExecutionPage() {
   }, [full])
 
   const logs = full?.logs ?? []
-  const running = e?.status === 'running'
+  const executing = e?.status === 'executing'
 
-  // Live auto-scroll — only while running and only if the user hasn't scrolled up.
+  // Live auto-scroll — only while executing and only if the user hasn't scrolled up.
   useEffect(() => {
     const el = logRef.current
-    if (el && running && stickRef.current) el.scrollTop = el.scrollHeight
-  }, [logs.length, running, tab])
+    if (el && executing && stickRef.current) el.scrollTop = el.scrollHeight
+  }, [logs.length, executing, tab])
 
   if (!execId) return null
 
@@ -114,13 +114,13 @@ export default function ExecutionPage() {
     )
   }
 
-  const cancelRun = () => {
+  const cancelExecution = () => {
     void api.cancelExec(e.id).catch((err: Error) => showToast(err.message))
   }
   const runAgain = () => {
     void (async () => {
       try {
-        const r = e.status === 'failed' ? await api.rerunExec(e.id) : await api.runNow(e.autoId)
+        const r = e.status === 'failed' ? await api.reexecuteExec(e.id) : await api.executeNow(e.autoId)
         go('execution', { execId: r.execId })
       } catch (err) {
         showToast((err as Error).message)
@@ -131,20 +131,20 @@ export default function ExecutionPage() {
   const canOpenAuto = !e.autoDeleted && !!auto
   const runAgainPrimary = e.status === 'failed' && !e.autoDeleted
   const runAgainQuiet = ['succeeded', 'cancelled', 'interrupted', 'skipped'].includes(e.status) && !e.autoDeleted
-  // §7: values as used by this run — snapshotted on the execution; older records fall back
+  // §7: values as used by this execution — snapshotted on the record; older records fall back
   // to the automation's current params.
   const params = (full?.params?.length ? full.params : auto?.params) ?? []
   const result = full?.result ?? null
 
-  const noResultWhy = e.status === 'running'
-    ? 'The run is still going — the result appears when it finishes.'
+  const noResultWhy = e.status === 'executing'
+    ? 'The execution is still going — the result appears when it finishes.'
     : e.status === 'failed'
-      ? 'The run failed before a result was built. The logs show what happened.'
+      ? 'The execution failed before a result was built. The logs show what happened.'
       : e.status === 'cancelled'
         ? (e.steps.length === 0 && e.note
-          ? `The run was cancelled before it started — ${e.note}.`
-          : 'The run was cancelled before a result was built.')
-        : 'This run didn’t produce a result.'
+          ? `The execution was cancelled before it started — ${e.note}.`
+          : 'The execution was cancelled before a result was built.')
+        : 'This execution didn’t produce a result.'
 
   const redactNote = (
     <span style={{
@@ -178,12 +178,12 @@ export default function ExecutionPage() {
         )}
         <Badge
           status={e.status}
-          style={running ? { animation: 'adPulse 1.4s ease-in-out infinite' } : undefined}
+          style={executing ? { animation: 'adPulse 1.4s ease-in-out infinite' } : undefined}
         />
         <div style={{ flex: 1 }} />
-        {running && (
+        {executing && (
           <button
-            onClick={cancelRun}
+            onClick={cancelExecution}
             style={{
               background: 'oklch(0.7 0.19 25 / .14)', border: '1px solid oklch(0.7 0.19 25 / .4)',
               borderRadius: 8, color: 'oklch(0.78 0.15 25)', fontWeight: 600, fontSize: 12.5,
@@ -198,13 +198,13 @@ export default function ExecutionPage() {
             onClick={runAgain}
             onMouseEnter={() => setHovAgain(true)}
             onMouseLeave={() => setHovAgain(false)}
-            title="Runs the automation again. Steps that already succeeded are reused automatically."
+            title="Executes the automation again. Steps that already succeeded are reused automatically."
             style={{
               background: hovAgain ? 'var(--accent-hover)' : 'var(--accent)', color: 'var(--on-accent)',
               borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer',
             }}
           >
-            Run again
+            Execute again
           </button>
         )}
         {runAgainQuiet && (
@@ -212,14 +212,14 @@ export default function ExecutionPage() {
             onClick={runAgain}
             onMouseEnter={() => setHovAgain(true)}
             onMouseLeave={() => setHovAgain(false)}
-            title="Runs the automation again from the start"
+            title="Executes the automation again from the start"
             style={{
               background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
               border: `1px solid ${hovAgain ? 'var(--border-hover)' : 'var(--border-btn)'}`,
               borderRadius: 8, padding: '8px 14px', fontWeight: 500, fontSize: 12.5, cursor: 'pointer',
             }}
           >
-            Run again
+            Execute again
           </button>
         )}
       </div>
@@ -252,7 +252,7 @@ export default function ExecutionPage() {
                 </div>
               ))}
               <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-faintest)', paddingTop: 8, borderTop: '1px solid rgba(255,255,255,.05)' }}>
-                Values as used by this run.
+                Values as used by this execution.
               </div>
             </div>
           )}
@@ -303,7 +303,7 @@ export default function ExecutionPage() {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,.05)',
               }}>
-                <span style={eyebrow}>{running ? 'LIVE LOG' : 'LOG'}</span>
+                <span style={eyebrow}>{executing ? 'LIVE LOG' : 'LOG'}</span>
                 {e.redact && redactNote}
               </div>
               <div
@@ -331,9 +331,9 @@ export default function ExecutionPage() {
                       </div>
                     ))}
                     {logs.length === 0 && (
-                      <div style={{ color: 'var(--text-faintest)' }}>No logs — this run never started.</div>
+                      <div style={{ color: 'var(--text-faintest)' }}>No logs — this execution never started.</div>
                     )}
-                    {running && (
+                    {executing && (
                       <span style={{
                         display: 'inline-block', width: 7, height: 13, background: 'var(--cyan)',
                         animation: 'adBlink 1s step-end infinite', verticalAlign: 'middle', marginLeft: 2,

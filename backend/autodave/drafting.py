@@ -4,7 +4,7 @@ Call 1 (create/edit): available agents + available secrets + build instructions 
 framework instructions + the original spec (edit only) + the user's request → spec.md;
 step code never travels here. Call 2 (create/sync; sync starts here): framework
 instructions + build instructions + the spec → manifest.yaml (params, schedule) + step files.
-`edit` runs call 1 only — the rewritten spec lands out of sync and a later `sync`
+`edit` makes call 1 only — the rewritten spec lands out of sync and a later `sync`
 job rebuilds the steps. Each call is followed by deterministic validation with
 one automatic repair round; a valid ===BLOCKED=== envelope instead ends the job
 in the terminal `blocked` state with the agent's blocker list (§8).
@@ -341,7 +341,7 @@ class DraftJobs:
 
     def _pipeline(self, job: dict, mode: str, agent: dict, user_text: str | None,
                   current: dict | None, grants: dict) -> bool:
-        """Runs the mode's calls; sets job status. Returns True when cancelled mid-flight."""
+        """Makes the mode's calls; sets job status. Returns True when cancelled mid-flight."""
         spec_blocks = None
         if mode in ("create", "edit"):
             # ---- call 1: the spec ----

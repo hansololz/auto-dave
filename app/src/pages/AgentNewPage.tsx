@@ -20,7 +20,7 @@ const HARNESSES: { id: HarnessId; name: string; desc: string }[] = [
   { id: 'gemini', name: 'Gemini CLI', desc: 'Uses your Google account. Generous free tier.' },
   { id: 'codex', name: 'Codex', desc: 'Uses your ChatGPT account.' },
   { id: 'opencode', name: 'OpenCode', desc: 'Open-source — works with any provider you’ve already set up.' },
-  { id: 'ollama', name: 'Ollama', desc: 'Runs models entirely on this Mac — private, works offline.' },
+  { id: 'ollama', name: 'Ollama', desc: 'Serves models entirely on this Mac — private, works offline.' },
 ]
 
 const HARNESS_NAME: Record<HarnessId, string> = {
@@ -83,7 +83,7 @@ export default function AgentNewPage() {
   pullingRef.current = pulling
 
   // Inline Ollama install (§12, "inline install flow, ~1.1 GB") — the same
-  // simulated state machine Onboarding's "Use a free local AI" card runs.
+  // simulated state machine Onboarding's "Use a free local AI" card drives.
   const instTimers = useRef<number[]>([])
   useEffect(() => () => { instTimers.current.forEach((id) => { clearTimeout(id); clearInterval(id) }) }, [])
 
@@ -140,7 +140,7 @@ export default function AgentNewPage() {
   }, [])
 
   // Pull progress arrives as WS 'ollama.pull' events the store doesn't capture —
-  // poll status every 2s while a pull is running instead.
+  // poll status every 2s while a pull is in progress instead.
   useEffect(() => {
     if (!pulling) return
     const id = setInterval(() => {
@@ -159,7 +159,7 @@ export default function AgentNewPage() {
 
   const ready = st?.ready ?? false
   const models = st?.models ?? []
-  // OpenCode runs its models through Ollama, so it's gated like the Ollama harness and local mode.
+  // OpenCode serves its models through Ollama, so it's gated like the Ollama harness and local mode.
   const needsOllama = harness === 'ollama' || harness === 'opencode' || mode === 'ollama'
   const canAdd = !!harness && !!mode
     && (!needsOllama || ready)
@@ -176,7 +176,7 @@ export default function AgentNewPage() {
     api.ollamaPull(nm).catch((e: Error) => { setPulling(null); showToast(e.message) })
   }
 
-  // §12 reconnect flow, run from the form banner when editing a signed-out agent.
+  // §12 reconnect flow, started from the form banner when editing a signed-out agent.
   const reconnect = () => {
     if (!editAgent) return
     setFix('busy')
@@ -225,9 +225,9 @@ export default function AgentNewPage() {
   }
 
   const olMissingMsg = harness === 'ollama'
-    ? 'This agent runs through Ollama, which isn’t installed on this Mac yet.'
+    ? 'This agent works through Ollama, which isn’t installed on this Mac yet.'
     : harness === 'opencode'
-      ? 'OpenCode runs its models through Ollama, which isn’t installed on this Mac yet.'
+      ? 'OpenCode serves its models through Ollama, which isn’t installed on this Mac yet.'
       : 'Local models need Ollama, which isn’t installed on this Mac yet.'
 
   const sugRows = SUGGESTED.filter((sg) => !models.includes(sg.id) && pulling !== sg.id)
@@ -256,7 +256,7 @@ export default function AgentNewPage() {
         {editAgent ? 'Edit agent' : 'Add an agent'}
       </h1>
       <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', margin: '0 0 22px' }}>
-        Pick the harness that writes your automations, then choose which model it uses. The agent never runs anything — Auto Dave does.
+        Pick the harness that writes your automations, then choose which model it uses. The agent never executes anything — Auto Dave does.
       </p>
 
       {fix === 'needs' && (
@@ -367,7 +367,7 @@ export default function AgentNewPage() {
           }}>
             {([
               { id: 'default' as const, name: 'Default configured model', note: DEFAULT_NOTE[harness] },
-              { id: 'ollama' as const, name: 'A local model', note: 'Pick a model that runs on this Mac through Ollama' },
+              { id: 'ollama' as const, name: 'A local model', note: 'Pick a model served on this Mac through Ollama' },
             ]).map((md) => {
               const on = mode === md.id
               return (
@@ -457,7 +457,7 @@ export default function AgentNewPage() {
           {needsOllama && ready && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
               <i className="fa-solid fa-check" style={{ color: P.green, fontSize: 13 }} />
-              <span style={{ fontWeight: 500, fontSize: 12.5, color: P.green }}>Ollama is installed and running.</span>
+              <span style={{ fontWeight: 500, fontSize: 12.5, color: P.green }}>Ollama is installed and active.</span>
             </div>
           )}
 

@@ -51,7 +51,7 @@ def resolve_bin(binname: str) -> str | None:
 
 def invoke(agent: dict, prompt: str, timeout: int = 300,
            proc_holder: dict | None = None) -> str:
-    """Run the harness once with `prompt`, return its text reply.
+    """Invoke the harness once with `prompt`, return its text reply.
 
     proc_holder, when given, receives {'proc': Popen} so a caller can cancel.
     """
@@ -73,7 +73,7 @@ def invoke(agent: dict, prompt: str, timeout: int = 300,
         # for a one-shot -p call (only sandbox/approval modes) — left bare.
         "Gemini CLI": ["gemini", "-p", prompt],
         # Codex: read-only sandbox blocks writes/shell side effects;
-        # --skip-git-repo-check lets exec run outside a git repo (workspace).
+        # --skip-git-repo-check lets exec work outside a git repo (workspace).
         "Codex": ["codex", "exec", "--sandbox", "read-only",
                   "--skip-git-repo-check", prompt],
         # OpenCode has no documented flag that disables tool use for
@@ -145,7 +145,7 @@ def ollama_status() -> dict:
     binpath = ollama_bin()
     local = "localhost" in OLLAMA_URL or "127.0.0.1" in OLLAMA_URL
     if models is None and binpath and local and not _serve_spawned:
-        # Installed but not running — start the server once and wait for it.
+        # Installed but the server isn't up — start it once and wait for it.
         _serve_spawned = True
         try:
             subprocess.Popen([binpath, "serve"], stdout=subprocess.DEVNULL,
@@ -208,7 +208,7 @@ def detect() -> list[dict]:
     st = ollama_status()
     if st["ready"] or st.get("installed"):
         found.append({"id": "ollama", "name": "Ollama",
-                      "detail": "running locally on this Mac" if st["ready"] else "installed · not running"})
+                      "detail": "serving locally on this Mac" if st["ready"] else "installed · not serving"})
     codex = resolve_bin("codex")
     if codex:
         v = version_of(codex)

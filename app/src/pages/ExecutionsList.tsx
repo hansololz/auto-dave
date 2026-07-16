@@ -1,4 +1,4 @@
-// Executions list (§7): every run across all automations, filter All / Succeeded / Failed.
+// Executions list (§7): every execution across all automations, filter All / Succeeded / Failed.
 import React, { useState } from 'react'
 import { useStore } from '../store'
 import { Badge, PageTitle } from '../ui'
@@ -46,7 +46,7 @@ function Row({ e, onOpen }: { e: Exec; onOpen: () => void }) {
       <div>
         <Badge
           status={e.status}
-          style={e.status === 'running' ? { animation: 'adPulse 1.4s ease-in-out infinite' } : undefined}
+          style={e.status === 'executing' ? { animation: 'adPulse 1.4s ease-in-out infinite' } : undefined}
         />
       </div>
       <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{e.trigger + (e.ver ? ' · ' + e.ver : '')}</span>
@@ -93,12 +93,12 @@ export default function ExecutionsList() {
           borderRadius: 12, padding: 26, textAlign: 'center',
         }}>
           <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>
-            {filt === 'All' ? 'No runs yet' : `No ${filt.toLowerCase()} runs`}
+            {filt === 'All' ? 'No executions yet' : `No ${filt.toLowerCase()} executions`}
           </div>
           <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
             {filt === 'All'
-              ? 'Run an automation — every run will appear right here.'
-              : 'Runs matching this filter will appear here.'}
+              ? 'Execute an automation — every execution will appear right here.'
+              : 'Executions matching this filter will appear here.'}
           </div>
         </div>
       ) : (

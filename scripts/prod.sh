@@ -3,7 +3,7 @@
 # relocatable CPython (python-build-standalone) + the autodave backend and
 # curated packages in Contents/Resources/python/, plus a DMG — both under
 # build/. Signing: Developer ID with hardened runtime when CODESIGN_IDENTITY
-# is set (notarization itself is not run), ad-hoc otherwise (local use only).
+# is set (notarization itself is not performed), ad-hoc otherwise (local use only).
 #
 #   ./scripts/prod.sh
 set -euo pipefail
@@ -43,7 +43,7 @@ tar -xzf "$TARBALL" -C "$PYSTAGE" --strip-components 1   # tarball root is pytho
 
 # Backend + curated packages (§6.2) install into the bundled interpreter.
 # pip's bin/ entry-point scripts get absolute staging-path shebangs, so inside
-# the bundle the backend/CLI run as `python3 -m autodave.main` / `-m autodave.cli`.
+# the bundle the backend/CLI execute as `python3 -m autodave.main` / `-m autodave.cli`.
 echo "· installing backend into bundled Python"
 "$PYSTAGE/bin/python3" -m pip -q install "$ROOT/backend"
 
@@ -98,7 +98,7 @@ else
 fi
 codesign --verify --deep --strict "$APP"
 
-# ---- smoke check: bundled interpreter runs from inside the bundle ----
+# ---- smoke check: bundled interpreter works from inside the bundle ----
 "$APP/Contents/Resources/python/bin/python3" -c \
   'import autodave, fastapi, uvicorn, websockets, yaml, keyring, requests, httpx, bs4, lxml, feedparser, dateutil' \
   || { echo "bundled Python smoke check failed"; exit 1; }

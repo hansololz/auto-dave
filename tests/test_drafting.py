@@ -78,7 +78,7 @@ def test_parse_and_validate_steps_good():
 
 
 def test_no_schedule_key_means_no_schedule():
-    # GOOD_STEPS carries no `schedule:` — the automation runs manual / menu bar only.
+    # GOOD_STEPS carries no `schedule:` — the automation is manual / menu bar only.
     draft, errors = validate_steps(parse_envelope(GOOD_STEPS))
     assert errors == []
     assert draft["schedule"] is None

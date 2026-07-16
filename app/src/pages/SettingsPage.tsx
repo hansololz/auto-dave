@@ -82,7 +82,7 @@ export default function SettingsPage() {
           <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid rgba(255,255,255,.05)' }}>
             <div style={{ flex: 1 }}>
               <div style={rowTitle}>Show in the menu bar</div>
-              <div style={rowSub}>The quickest way to run an automation.</div>
+              <div style={rowSub}>The quickest way to execute an automation.</div>
             </div>
             <Toggle on={settings.mbIcon} onChange={(v) => patch({ mbIcon: v })} />
           </div>

@@ -46,10 +46,10 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 export const api = {
   state: () => req<StateSnapshot>('GET', '/state'),
   instructions: () => req<{ framework: string; defaultBuild: string }>('GET', '/instructions'),
-  runNow: (autoId: string, version?: string, trigger = 'Manual') =>
-    req<{ execId: string }>('POST', `/automations/${autoId}/run`, { version, trigger }),
+  executeNow: (autoId: string, version?: string, trigger = 'Manual') =>
+    req<{ execId: string }>('POST', `/automations/${autoId}/execute`, { version, trigger }),
   cancelExec: (execId: string) => req('POST', `/executions/${execId}/cancel`),
-  rerunExec: (execId: string) => req<{ execId: string }>('POST', `/executions/${execId}/rerun`),
+  reexecuteExec: (execId: string) => req<{ execId: string }>('POST', `/executions/${execId}/reexecute`),
   getExec: (execId: string) => req<import('./types').Exec>('GET', `/executions/${execId}`),
   getAuto: (autoId: string) => req<import('./types').Auto>('GET', `/automations/${autoId}`),
   patchAuto: (autoId: string, patch: Record<string, unknown>) =>
@@ -62,9 +62,9 @@ export const api = {
   putDraft: (autoId: string, draft: unknown) => req('PUT', `/automations/${autoId}/draft`, { draft }),
   deleteDraft: (autoId: string) => req('DELETE', `/automations/${autoId}/draft`),
   restore: (autoId: string, v: number) => req<{ version: number }>('POST', `/automations/${autoId}/restore`, { v }),
-  // §19 test run: executes the sent draft's steps ephemerally; progress via test.* WS events
-  postTestRun: (body: Record<string, unknown>) => req<{ runId: string }>('POST', '/testruns', body),
-  cancelTestRun: (runId: string) => req('DELETE', `/testruns/${runId}`),
+  // §19 test: executes the sent draft's steps ephemerally; progress via test.* WS events
+  postTest: (body: Record<string, unknown>) => req<{ testId: string }>('POST', '/tests', body),
+  cancelTest: (testId: string) => req('DELETE', `/tests/${testId}`),
   postDraftJob: (body: Record<string, unknown>) => req<{ jobId: string }>('POST', '/drafts', body),
   getDraftJob: (jobId: string) => req<DraftJob>('GET', `/drafts/${jobId}`),
   cancelDraftJob: (jobId: string) => req('DELETE', `/drafts/${jobId}`),

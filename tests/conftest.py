@@ -7,8 +7,8 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
-# tests/bin holds a fake `claude` CLI so agent calls run the real subprocess
-# path (backend → runner → Popen) without a real agent installed. Prepended at
+# tests/bin holds a fake `claude` CLI so agent calls exercise the real subprocess
+# path (backend → executor → Popen) without a real agent installed. Prepended at
 # import time so engine subprocesses inherit it.
 os.environ["PATH"] = f"{REPO / 'tests' / 'bin'}{os.pathsep}{os.environ['PATH']}"
 

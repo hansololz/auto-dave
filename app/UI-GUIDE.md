@@ -18,11 +18,12 @@ token exists; keep exact oklch/rgba values where no token fits.
     `loadExec(id)` to (re)fetch; live `exec.log` / `exec.step` WS events are merged in
     automatically while the record is in `execFull`.
   - `loadAuto(id)` refetches one automation into `autos`.
-  - `dryrun: {lines, done} | null` + `clearDryrun()` — dry-run stream (WS `dryrun.*`).
-- `api` from `src/api.ts` — typed §19 client (`api.runNow`, `api.patchAuto`, `api.putSecret`, …).
+  - `test: {testId, steps, lines, status, result, analyzing, issue} | null` +
+    `beginTest(testId)` / `clearTest()` — §11 test stream (WS `test.*`).
+- `api` from `src/api.ts` — typed §19 client (`api.executeNow`, `api.patchAuto`, `api.putSecret`, …).
   All mutations trigger WS `*.changed` events which refresh the store — after calling a mutation
   you usually only `showToast(...)`.
-- Types in `src/types.ts` (`Auto`, `Exec`, `Step`, `ParamDef`, `SpecBlock`, `RunResult`, …).
+- Types in `src/types.ts` (`Auto`, `Exec`, `Step`, `ParamDef`, `SpecBlock`, `ExecResult`, …).
 
 ## Shared primitives (`src/ui.tsx`) — use these, don't reinvent
 
@@ -49,6 +50,6 @@ token exists; keep exact oklch/rgba values where no token fits.
 ## Working style
 
 Write ONLY your assigned file(s) under `app/src/pages/`. Default-export the page component.
-After writing, run `cd app && npx tsc --noEmit` and fix errors in YOUR files (ignore errors in
+After writing, check with `cd app && npx tsc --noEmit` and fix errors in YOUR files (ignore errors in
 other pages — someone else owns them). Do not edit store.ts/ui.tsx/api.ts/App.tsx; if you're
 blocked by a missing store field, work around it locally inside your component.

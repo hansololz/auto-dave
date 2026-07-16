@@ -21,7 +21,7 @@ function dispModel(ag: Agent): string {
 }
 
 function detailOf(ag: Agent, ready: boolean): string {
-  const local = `Runs ${ag.model} on this Mac through Ollama. Private, works offline.`
+  const local = `Serves ${ag.model} on this Mac through Ollama. Private, works offline.`
   if (ag.harness === 'OpenCode') {
     return ag.model === 'Configured default' ? 'Uses whatever OpenCode is already configured with.' : local
   }
@@ -37,7 +37,7 @@ function detailOf(ag: Agent, ready: boolean): string {
       : local
   }
   // Claude Code
-  if (!ready) return 'Signed out. Reconnect to create or edit automations — existing ones still run on schedule.'
+  if (!ready) return 'Signed out. Reconnect to create or edit automations — existing ones still execute on schedule.'
   return ['Claude Sonnet 4.5', 'Claude Opus 4.5', 'Claude Haiku 4.5'].includes(ag.model)
     ? 'Signed in with your Claude account. Uses your existing subscription — nothing extra to pay here.'
     : local
@@ -216,7 +216,7 @@ export default function AgentsPage() {
     setDelAgent(null)
     try {
       await api.deleteAgent(ag.id)
-      showToast('Agent removed — automations it wrote still run on schedule.')
+      showToast('Agent removed — automations it wrote still execute on schedule.')
     } catch (e) { showToast((e as Error).message) }
   }
 
@@ -229,7 +229,7 @@ export default function AgentsPage() {
         <button onClick={() => go('agentNew')} style={ghostBtn}>Add agent</button>
       </div>
       <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', margin: '0 0 20px' }}>
-        The AI that writes your automations. It never runs anything — Auto Dave does that. New automations use your default agent.
+        The AI that writes your automations. It never executes anything — Auto Dave does that. New automations use your default agent.
       </p>
       {agents.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -244,7 +244,7 @@ export default function AgentsPage() {
           gap: 12, textAlign: 'center',
         }}>
           <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', maxWidth: 400 }}>
-            No agents yet. Existing automations still run on schedule — but you need an agent to create or edit them.
+            No agents yet. Existing automations still execute on schedule — but you need an agent to create or edit them.
           </p>
           <button
             onClick={() => go('agentNew')}
@@ -267,8 +267,8 @@ export default function AgentsPage() {
               {delUses.length > 0 && (
                 <p style={{ color: P.amber, margin: '8px 0 0' }}>
                   {delUses.length === 1
-                    ? `“${delUses[0]}” uses this agent. It still runs on schedule — you’ll just need another agent to edit it.`
-                    : `${delUses.length} automations use this agent — they still run on schedule, but you’ll need another agent to edit them.`}
+                    ? `“${delUses[0]}” uses this agent. It still executes on schedule — you’ll just need another agent to edit it.`
+                    : `${delUses.length} automations use this agent — they still execute on schedule, but you’ll need another agent to edit them.`}
                 </p>
               )}
             </>

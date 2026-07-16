@@ -18,14 +18,14 @@ export const P = {
 export function badgeOf(status: Status | string): { label: string; c: string; bg: string } {
   const map: Record<string, [string, string, string]> = {
     queued: ['Queued', P.gray, P.grayBg],
-    running: ['Running', P.cyan, P.cyanBg],
+    executing: ['Executing', P.cyan, P.cyanBg],
     succeeded: ['Succeeded', P.green, P.greenBg],
     failed: ['Failed', P.red, P.redBg],
     cancelled: ['Cancelled', P.gray, P.grayBg],
     skipped: ['Skipped', P.gray, P.grayBg],
     reused: ['Reused', P.gray, P.grayBg],
     interrupted: ['Interrupted', P.magenta, P.magentaBg],
-    none: ['Not run yet', P.gray, P.grayBg],
+    none: ['Not executed yet', P.gray, P.grayBg],
   }
   const b = map[status] ?? map.none
   return { label: b[0], c: b[1], bg: b[2] }
@@ -225,7 +225,7 @@ export function Toast({ msg }: { msg: string | null }) {
   if (!msg) return null
   return (
     // Centered with left/right+margin, not translateX — adFadeUp animates
-    // `transform`, which would override the centering while it runs.
+    // `transform`, which would override the centering while it plays.
     <div key={msg} style={{
       position: 'fixed', bottom: 26, left: 0, right: 0, margin: '0 auto', width: 'fit-content', zIndex: 100,
       background: 'var(--bg-toast)', border: '1px solid rgba(255,255,255,.12)',

@@ -1,6 +1,6 @@
 """Seed / demo data (§16) — the prototype's four automations, two secrets, and
 twelve executions covering every status. Test fixture data only; step code is
-illustrative (drafted-by-an-agent style), not guaranteed runnable.
+illustrative (drafted-by-an-agent style), not guaranteed executable.
 
 Lives in tests/ — the shipped app has no seed path and starts empty.
 """
@@ -77,7 +77,7 @@ def seed(store: Store) -> None:
                  'last_seen = memory.load("last_seen", {})\nfor f in found:\n'
                  '    last = last_seen.get(f["url"])\n'
                  '    f["is_new"] = last is not None and f["latest"] != last\n'
-                 '    last_seen[f["url"]] = f["latest"]  # remembered for next run\n'
+                 '    last_seen[f["url"]] = f["latest"]  # remembered for next execution\n'
                  'memory.save("last_seen", last_seen)\n'
                  'json.dump(found, open("found.json", "w"))\n'},
         {"file": "04-notify-and-build-the-result.py", "name": "Notify and build the result",
@@ -109,7 +109,7 @@ def seed(store: Store) -> None:
         {"k": "p", "text": "Added display names so long titles stay readable in the table."},
     ]
     manga_instr = ("Prefer Python for scripts.\nNever delete anything — move files to the Trash instead.\n"
-                   "Never pass a secret as the input for an agent.\nKeep it to one notification per run.")
+                   "Never pass a secret as the input for an agent.\nKeep it to one notification per execution.")
     manga = store.create_automation(
         _mk_ver("Checks the manga you follow every morning and tells you when new chapters are out.",
                 manga_params, manga_steps, manga_spec, instr=manga_instr, note="Created"),
@@ -146,7 +146,7 @@ def seed(store: Store) -> None:
     # ---------- Nightly folder backup ----------
     backup_steps = [
         {"file": "01-find-files-changed-since-last-night.py", "name": "Find files changed since last night",
-         "desc": "Compares file dates against the last run.",
+         "desc": "Compares file dates against the last execution.",
          "code": 'import json, os\nlast = memory.load("last_run_at", 0)\nchanged = []\n'
                  'for root, _, files in os.walk(os.path.expanduser(params["folder_to_back_up"])):\n'
                  '    if params["skip_node_modules_folders"] and "node_modules" in root: continue\n'
@@ -322,14 +322,14 @@ def seed(store: Store) -> None:
         ("out", "4 manga unchanged"),
         ("sys", "▸ Step 4 — Notify and build the result"),
         ("out", "notification sent — “2 new chapters”"),
-        ("out", "result saved · run finished in 24.8s"),
+        ("out", "result saved · execution finished in 24.8s"),
     ]
 
     def put_exec(auto, ver, status, trigger, started, dur_ms, steps, logs, result=None,
                  note=None, redacted=None, files=None):
         h = store.create_execution(auto, ver, trigger,
                                    [{"name": n, "status": st, "dur_ms": d} for n, st, d in steps],
-                                   note=note, status="running")
+                                   note=note, status="executing")
         h["started_at"] = started.isoformat(timespec="seconds")
         h["status"] = status
         h["dur_ms"] = dur_ms
@@ -338,7 +338,7 @@ def seed(store: Store) -> None:
             h["finished_at"] = (started + timedelta(milliseconds=dur_ms or 0)).isoformat(timespec="seconds")
         # Log lines carry the step they belong to ({ts, t, step, k, text}); a
         # "▸ Step N — name" sys marker belongs to that step, later lines inherit
-        # it, and lines before any marker are run-level (step: null).
+        # it, and lines before any marker are execution-level (step: null).
         step_names = [n for n, _, _ in steps]
         step_mark = re.compile(r"^▸ Step (\d+)")
         cur_step = None
@@ -402,11 +402,11 @@ def seed(store: Store) -> None:
               ("out", "connecting to smtp.fastmail.com…"),
               ("err", "sign-in failed — the server rejected the password (535)"),
               ("err", "the SMTP_PASSWORD secret may be out of date"),
-              ("sys", "run failed at step 3 — nothing was sent")],
+              ("sys", "execution failed at step 3 — nothing was sent")],
              {"status": "attention", "chip": "Needs attention", "chips": [],
-              "values": [{"name": "What happened", "value": "Monday’s run couldn’t sign in to the mail server, so no email went out."},
+              "values": [{"name": "What happened", "value": "Monday’s execution couldn’t sign in to the mail server, so no email went out."},
                          {"name": "Next steps", "value": ["Update the SMTP_PASSWORD secret — the server rejected the current one.",
-                                                          "Run it again — the email goes out as soon as a run succeeds."]}]},
+                                                          "Execute it again — the email goes out as soon as an execution succeeds."]}]},
              redacted=["SMTP_PASSWORD"])
     put_exec(manga, "v3", "succeeded", "Menu bar", today8 - timedelta(days=1, minutes=-13), 26100,
              manga_steps_ok, manga_logs,
@@ -414,7 +414,7 @@ def seed(store: Store) -> None:
               "values": [{"name": "New chapters", "value": ["One Piece — Ch. 1144"]},
                          {"name": "Unchanged", "value": "5"}]})
     put_exec(backup, "v2", "cancelled", "Schedule", today2 - timedelta(days=1), None, [], [],
-             note="previous run still in progress")
+             note="previous execution still in progress")
     put_exec(manga, "v2", "succeeded", "Schedule", today8 - timedelta(days=5), 22900,
              [("Read your manga list", "succeeded", 400),
               ("Check each site for new chapters", "skipped", 20100),
@@ -426,20 +426,20 @@ def seed(store: Store) -> None:
              {"status": "attention", "chip": "5 of 6 checked",
               "chips": ["5 of 6 manga checked", "No new chapters"],
               "values": [{"name": "Summary", "value": "No new chapters among the 5 manga that were checked."},
-                         {"name": "Skipped", "value": ["mangadex.org didn’t respond after 3 tries — skipped this run"]}]})
+                         {"name": "Skipped", "value": ["mangadex.org didn’t respond after 3 tries — skipped this execution"]}]})
     put_exec(manga, "v2", "cancelled", "Schedule", today8 - timedelta(days=6), None, [], [],
-             note="previous run still in progress")
+             note="previous execution still in progress")
     put_exec(manga, "v2", "cancelled", "Manual", now.replace(hour=15, minute=12) - timedelta(days=7), 8400,
              [("Read your manga list", "succeeded", 400),
               ("Check each site for new chapters", "cancelled", 7800),
               ("Compare with memory", "queued", None),
               ("Notify and build the result", "queued", None)],
              [("sys", "▸ Step 2 — Check each site for new chapters"),
-              ("out", "run cancelled by you — nothing else will happen")])
+              ("out", "execution cancelled by you — nothing else will happen")])
     put_exec(shots, "v1", "interrupted", "Schedule", now.replace(hour=21, minute=0) - timedelta(days=11), 3100,
              [("Find screenshots on the Desktop", "interrupted", 3100),
               ("File them into monthly folders", "queued", None)],
-             [("wrn", "the Mac went to sleep — the run will resume next Sunday")],
+             [("wrn", "the Mac went to sleep — the execution will resume next Sunday")],
              note="Mac went to sleep")
     put_exec(report, "v4", "succeeded", "Schedule", monday9 - timedelta(days=7), 18300,
              [("Gather the week’s numbers", "succeeded", 6000),
@@ -459,13 +459,13 @@ def seed(store: Store) -> None:
               ("out", "38 filed into 2026-06")],
              {"status": "ok", "chip": "All good", "chips": ["38 screenshots filed"],
               "values": [{"name": "Summary", "value": "The desktop is clean. Screenshots went into 2026-06."}]})
-    # one reused-status example: a rerun of the failed report where early steps were reused
+    # one reused-status example: a re-execution of the failed report where early steps were reused
     put_exec(report, "v5", "failed", "Manual", monday9 + timedelta(hours=2), 4200,
              [("Gather the week’s numbers", "reused", None),
               ("Write the summary", "reused", None),
               ("Send the email", "failed", 4200),
               ("Record the send", "queued", None)],
-             [("sys", "▸ Step 3 — Send the email (steps 1–2 reused from the earlier run)"),
+             [("sys", "▸ Step 3 — Send the email (steps 1–2 reused from the earlier execution)"),
               ("err", "sign-in failed — the server rejected the password (535)")],
              redacted=["SMTP_PASSWORD"])
     store._refresh_exec_derived()

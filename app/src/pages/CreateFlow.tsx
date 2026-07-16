@@ -1,6 +1,6 @@
 // Create / edit flow (§11): Ask → Building → Review. Drafting/editing/syncing are §8
 // backend jobs (POST /drafts + polling); this page renders the three phases and the
-// Review dirty-gating, version menu, per-step agent menus, secrets and dry-run panels.
+// Review dirty-gating, version menu, per-step agent menus, secrets and checks panels.
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
@@ -73,7 +73,7 @@ const stepList = (idx: number[]) => idx.map((i) => i + 1).join(', ')
 let fwCache: string | null = null
 let defaultBuildCache = ''
 
-// §4.5 log-line kinds streamed by the §11 test run
+// §4.5 log-line kinds streamed by the §11 test
 function logColor(kind: string): string {
   if (kind === 'err') return 'var(--red)'
   if (kind === 'wrn') return 'var(--amber)'
@@ -197,7 +197,7 @@ function AgentPick({ agents, selected, onPick }: {
             )
           })}
           <div style={{ padding: '9px 14px', font: "400 11px/1.5 var(--sans)", color: 'var(--text-faintest)' }}>
-            Writes the spec and generates the steps for this automation. Auto Dave still runs everything.
+            Writes the spec and generates the steps for this automation. Auto Dave still executes everything.
           </div>
         </div>
       )}
@@ -231,7 +231,7 @@ interface Rev {
   syncBusy: boolean
   askBusy: boolean
   // §11: one repair modal, two entry points — a blocked `sync` and a failed
-  // test run's issue analysis both land here; `resolved` is the session's
+  // test's issue analysis both land here; `resolved` is the session's
   // applied resolutions ("Previously resolved"). A blocked `edit` (ask box)
   // shows an amber notice under the ask box instead.
   repair: { source: 'sync' | 'test'; blockers: Blocker[] } | null
@@ -347,7 +347,7 @@ function StepRow({ step, i, open, onToggle, availAgents, onPickAgent }: {
                 <button
                   onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
                   title={asg
-                    ? `This step calls ${agName(asg)} · ${dispModel(asg)} mid-run — click to switch`
+                    ? `This step calls ${agName(asg)} · ${dispModel(asg)} mid-execution — click to switch`
                     : 'No agent is enabled for steps — this step would fail'}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -391,7 +391,7 @@ function StepRow({ step, i, open, onToggle, availAgents, onPickAgent }: {
                       </div>
                     )}
                     <div style={{ padding: '8px 12px 6px', font: "400 10.5px/1.5 var(--sans)", color: 'var(--text-faintest)', borderTop: '1px solid rgba(255,255,255,.05)' }}>
-                      The agent this step calls mid-run. Only agents enabled below are offered.
+                      The agent this step calls mid-execution. Only agents enabled below are offered.
                     </div>
                   </div>
                 )}
@@ -491,7 +491,7 @@ function MissingSecretRow({ name, sub, onAdded }: { name: string; sub: string; o
 
 export default function CreateFlow() {
   const store = useStore()
-  const { agents, secrets, autos, createFrom, autoId, go, setSurface, showToast, loadAuto, testrun, beginTestrun, clearTestrun, consumeTestIssue } = store
+  const { agents, secrets, autos, createFrom, autoId, go, setSurface, showToast, loadAuto, test, beginTest, clearTest, consumeTestIssue } = store
   const isEdit = createFrom === 'edit'
   const isOnboard = createFrom === 'onboard'
   const auto = isEdit ? autos.find((a) => a.id === autoId) ?? null : null
@@ -563,10 +563,10 @@ export default function CreateFlow() {
   }
   useEffect(() => () => {
     stopPoll()
-    // Leaving the editor abandons any live test run — it's ephemeral (§11).
-    const t = useStore.getState().testrun
-    if (t?.status === 'running') void api.cancelTestRun(t.runId).catch(() => { /* already gone */ })
-    useStore.getState().clearTestrun()
+    // Leaving the editor abandons any live test — it's ephemeral (§11).
+    const t = useStore.getState().test
+    if (t?.status === 'executing') void api.cancelTest(t.testId).catch(() => { /* already gone */ })
+    useStore.getState().clearTest()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- guards + edit-mode seeding ----
@@ -686,7 +686,7 @@ export default function CreateFlow() {
   // ---- review: agent-ask + sync jobs ----
   const currentSerialized = () => (rev ? serializeDraft(rev) : null)
 
-  // §11: the ask box runs one §8 `edit` job (spec call only) — the drafting
+  // §11: the ask box starts one §8 `edit` job (spec call only) — the drafting
   // agent gets the in-editor draft (spec + steps + build instructions) and
   // grants context and returns the rewritten spec. The steps stay untouched:
   // the new spec lands out of sync and the sync banner rebuilds them later.
@@ -729,7 +729,7 @@ export default function CreateFlow() {
   }
 
   // §11: a blocked sync opens the repair modal; applying amends the in-editor
-  // spec (specOverride) and re-runs the sync with it.
+  // spec (specOverride) and repeats the sync with it.
   const runSync = async (specOverride?: SpecBlock[]) => {
     if (!rev || rev.syncBusy || rev.askBusy) return
     up({
@@ -784,12 +784,12 @@ export default function CreateFlow() {
     void runSync(amendSpec(rev.spec, blockers))
   }
 
-  // §11: a failed test run's issue analysis lands in the same repair modal.
+  // §11: a failed test's issue analysis lands in the same repair modal.
   useEffect(() => {
-    if (!testrun?.issue || !rev) return
-    up({ repair: { source: 'test', blockers: testrun.issue } })
+    if (!test?.issue || !rev) return
+    up({ repair: { source: 'test', blockers: test.issue } })
     consumeTestIssue()
-  }, [testrun?.issue]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [test?.issue]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- version menu (edit mode) ----
   const [verOpen, setVerOpen, verRef] = usePopover()
@@ -819,7 +819,7 @@ export default function CreateFlow() {
     if (isEdit && auto) {
       if (rev && rev.viewing === 'draft' && (rev.touched || auto.draft)) {
         try { await api.putDraft(auto.id, serializeDraft(rev)) } catch { /* backend restarting */ }
-        showToast('Draft kept — resume or run it from this automation anytime.', 3400)
+        showToast('Draft kept — resume or execute it from this automation anytime.', 3400)
       }
       setSurface('app')
       go('automation')
@@ -864,7 +864,7 @@ export default function CreateFlow() {
           setSurface('app')
           go('automation')
           showToast(auto.live
-            ? `Version ${version} saved. The run in progress finishes on v${version - 1} — v${version} applies from the next run.`
+            ? `Version ${version} saved. The execution in progress finishes on v${version - 1} — v${version} applies from the next execution.`
             : `Version ${version} saved — earlier versions are in the Version menu when you edit.`, 3200)
         }
       } else {
@@ -878,7 +878,7 @@ export default function CreateFlow() {
         if (isOnboard) localStorage.setItem('ad-onboarded', '1')
         setSurface('app')
         go('automation', { autoId: created.id })
-        showToast('Created — nothing has run yet. Press Run now when you’re ready.', 3600)
+        showToast('Created — nothing has executed yet. Press Execute now when you’re ready.', 3600)
       }
     } catch (e) {
       showToast((e as Error).message)
@@ -891,24 +891,24 @@ export default function CreateFlow() {
     go('automations')
   }
 
-  // ---- test run (§11: create and edit mode) — runs the draft's REAL steps ----
+  // ---- test (§11: create and edit mode) — executes the draft's REAL steps ----
   const runTest = async () => {
-    if (!rev || testrun?.status === 'running') return
-    clearTestrun()
+    if (!rev || test?.status === 'executing') return
+    clearTest()
     try {
-      const { runId } = await api.postTestRun({
+      const { testId } = await api.postTest({
         draft: serializeDraft(rev),
         ...(isEdit && auto ? { autoId: auto.id } : {}), // edit: scratch memory copies the automation's
-        agentId, // the drafting agent also runs the §8 issue analysis on failure
+        agentId, // the drafting agent also handles the §8 issue analysis on failure
         enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
-      beginTestrun(runId)
+      beginTest(testId)
     } catch (e) {
       showToast((e as Error).message)
     }
   }
   const cancelTest = () => {
-    if (testrun?.status === 'running') void api.cancelTestRun(testrun.runId).catch(() => { /* already done */ })
+    if (test?.status === 'executing') void api.cancelTest(test.testId).catch(() => { /* already done */ })
   }
 
   // Create-mode param editing (§4.2 behaviors): edits write both the merged display
@@ -949,7 +949,7 @@ export default function CreateFlow() {
               What should Auto Dave do for you?
             </h1>
             <p style={{ font: "400 14.5px/1.6 var(--sans)", color: 'var(--text-2)', margin: '0 0 22px' }}>
-              Describe the job in plain words. Your AI writes it as scripts — you review everything before it runs.
+              Describe the job in plain words. Your AI writes it as scripts — you review everything before it executes.
             </p>
             <textarea
               value={text} rows={4} autoFocus
@@ -1203,7 +1203,7 @@ export default function CreateFlow() {
               </div>
             </div>
             <p style={{ font: "400 13.5px/1.6 var(--sans)", color: 'var(--text-2)', margin: '0 0 20px' }}>
-              Read what your AI wrote. Change anything — nothing runs until you create it.
+              Read what your AI wrote. Change anything — nothing executes until you create it.
             </p>
 
             {/* old-version banner */}
@@ -1223,7 +1223,7 @@ export default function CreateFlow() {
               </div>
             )}
 
-            {/* live-run note */}
+            {/* live-execution note */}
             {isEdit && auto?.live && (
               <div style={{
                 background: 'oklch(0.78 0.12 210 / .07)', border: '1px solid oklch(0.78 0.12 210 / .3)',
@@ -1232,7 +1232,7 @@ export default function CreateFlow() {
               }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--cyan)', animation: 'adPulse 1.4s ease-in-out infinite', flex: 'none' }} />
                 <span style={{ flex: 1, font: "400 12.5px/1.5 var(--sans)", color: 'var(--text)' }}>
-                  {`A run is happening right now on v${auto.version}. Saving won’t interrupt it — that run finishes on v${auto.version}. v${auto.version + 1} takes over from the next run (${auto.schedule.toLowerCase()}).`}
+                  {`An execution is happening right now on v${auto.version}. Saving won’t interrupt it — that execution finishes on v${auto.version}. v${auto.version + 1} takes over from the next execution (${auto.schedule.toLowerCase()}).`}
                 </span>
               </div>
             )}
@@ -1387,13 +1387,13 @@ export default function CreateFlow() {
                   </div>
                   {!agSecOpenEff && (
                     <div onClick={() => up({ agSecOpen: true })} style={{ padding: '0 20px 13px 43px', font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-faintest)', cursor: 'pointer', userSelect: 'none' }}>
-                      Which agents steps may call mid-run. Fewer enabled means more predictable runs.
+                      Which agents steps may call mid-execution. Fewer enabled means more predictable executions.
                     </div>
                   )}
                   {agSecOpenEff && (
                     <div style={{ borderTop: '1px solid var(--hairline)' }}>
                       {agWarn && (
-                        <WarnBanner text={`Step${agentStepIdx.length > 1 ? 's' : ''} ${stepList(agentStepIdx)} need${agentStepIdx.length > 1 ? '' : 's'} an agent, but none is enabled — the run would fail there. Enable one below.`} />
+                        <WarnBanner text={`Step${agentStepIdx.length > 1 ? 's' : ''} ${stepList(agentStepIdx)} need${agentStepIdx.length > 1 ? '' : 's'} an agent, but none is enabled — the execution would fail there. Enable one below.`} />
                       )}
                       {agents.map((g) => {
                         const on = rev.enabledAgents.includes(g.id)
@@ -1425,7 +1425,7 @@ export default function CreateFlow() {
                         )
                       })}
                       <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
-                        Steps marked <i className="fa-solid fa-robot" style={{ fontSize: 9, color: 'oklch(0.78 0.13 52)' }} /> call one of these mid-run — for the parts plain code can’t do, like reading a messy page or writing prose. Fewer enabled means more predictable runs.
+                        Steps marked <i className="fa-solid fa-robot" style={{ fontSize: 9, color: 'oklch(0.78 0.13 52)' }} /> call one of these mid-execution — for the parts plain code can’t do, like reading a messy page or writing prose. Fewer enabled means more predictable executions.
                       </div>
                     </div>
                   )}
@@ -1447,15 +1447,15 @@ export default function CreateFlow() {
                   </div>
                   {!secSecOpenEff && (
                     <div onClick={() => up({ secSecOpen: true })} style={{ padding: '0 20px 13px 43px', font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-faintest)', cursor: 'pointer', userSelect: 'none' }}>
-                      Only checked secrets are handed to this automation at run time. Values come from your Keychain.
+                      Only checked secrets are handed to this automation at execution time. Values come from your Keychain.
                     </div>
                   )}
                   {secSecOpenEff && (
                     <div style={{ borderTop: '1px solid var(--hairline)' }}>
                       {secWarn && (
                         <WarnBanner text={[
-                          ...secNotAllowed.map((r) => `Step${r.steps.length > 1 ? 's' : ''} ${stepList(r.steps)} use${r.steps.length > 1 ? '' : 's'} ${r.name}, but it isn’t allowed here — the run would fail there. Allow it below.`),
-                          ...secMissing.map((r) => `${r.name} isn’t in your Keychain — the run would fail at step${r.steps.length > 1 ? 's' : ''} ${stepList(r.steps)}. Click it below to add the value.`),
+                          ...secNotAllowed.map((r) => `Step${r.steps.length > 1 ? 's' : ''} ${stepList(r.steps)} use${r.steps.length > 1 ? '' : 's'} ${r.name}, but it isn’t allowed here — the execution would fail there. Allow it below.`),
+                          ...secMissing.map((r) => `${r.name} isn’t in your Keychain — the execution would fail at step${r.steps.length > 1 ? 's' : ''} ${stepList(r.steps)}. Click it below to add the value.`),
                         ].join(' ')} />
                       )}
                       {secrets.map((s) => {
@@ -1467,7 +1467,7 @@ export default function CreateFlow() {
                             onClick={() => {
                               if (on) {
                                 up({ allowedSecrets: rev.allowedSecrets.filter((z) => z !== s.name), dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })
-                                if (ref) showToast(`Step${ref.steps.length > 1 ? 's' : ''} ${stepList(ref.steps)} use${ref.steps.length > 1 ? '' : 's'} ${s.name} — the run would fail there until it’s allowed again.`, 4500)
+                                if (ref) showToast(`Step${ref.steps.length > 1 ? 's' : ''} ${stepList(ref.steps)} use${ref.steps.length > 1 ? '' : 's'} ${s.name} — the execution would fail there until it’s allowed again.`, 4500)
                               } else {
                                 up({ allowedSecrets: [...rev.allowedSecrets, s.name], dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })
                               }
@@ -1500,7 +1500,7 @@ export default function CreateFlow() {
                         </div>
                       )}
                       <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
-                        Only checked secrets are handed to this automation at run time — a step that asks for anything else fails. Values come from your Keychain and never appear in scripts or logs.
+                        Only checked secrets are handed to this automation at execution time — a step that asks for anything else fails. Values come from your Keychain and never appear in scripts or logs.
                       </div>
                     </div>
                   )}
@@ -1707,7 +1707,7 @@ export default function CreateFlow() {
                       {rev.schedLabel}
                     </span>
                     <span style={{ font: "400 11.5px var(--sans)", color: 'var(--text-faint)' }}>
-                      {rev.sched ? 'Runs even when the app is closed.' : 'No time set — runs only when you Run now or use the menu bar.'}
+                      {rev.sched ? 'Executes even when the app is closed.' : 'No time set — executes only when you press Execute now or use the menu bar.'}
                     </span>
                   </div>
                 </div>
@@ -1742,7 +1742,7 @@ export default function CreateFlow() {
                             </div>
                           ))}
                           <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
-                            Values aren’t part of a version — change them on the automation page; they apply on the next run.
+                            Values aren’t part of a version — change them on the automation page; they apply on the next execution.
                           </div>
                         </>
                       )
@@ -1882,32 +1882,32 @@ export default function CreateFlow() {
                           )
                         })}
                         <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
-                          After creation these move to the automation page — changes there apply on the next run, no new version.
+                          After creation these move to the automation page — changes there apply on the next execution, no new version.
                         </div>
                       </>
                     )
                   })()}
                 </div>
 
-                {/* TEST RUN — §11: runs the draft's real steps, scratch memory */}
+                {/* TEST — §11: executes the draft's real steps, scratch memory */}
                 <div style={cardStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
-                      <span style={eyebrowStyle}>TEST RUN</span>
-                      {testrun?.status === 'running' ? (
+                      <span style={eyebrowStyle}>TEST</span>
+                      {test?.status === 'executing' ? (
                         <button className="ad-btn-soft" onClick={cancelTest} style={{ padding: '4px 10px' }}>
                           Cancel
                         </button>
                       ) : (
                         <button className="ad-btn-soft" onClick={() => void runTest()} style={{ padding: '4px 10px' }}>
-                          {testrun ? 'Run again' : 'Run the draft'}
+                          {test ? 'Execute again' : 'Execute the draft'}
                         </button>
                       )}
                     </div>
-                    {testrun ? (
+                    {test ? (
                       <>
-                        {testrun.steps.length > 0 && (
+                        {test.steps.length > 0 && (
                           <div style={{ padding: '10px 20px 4px' }}>
-                            {testrun.steps.map((s, i) => (
+                            {test.steps.map((s, i) => (
                               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '3px 0' }}>
                                 <span style={{ font: "500 11px var(--mono)", color: 'var(--text-faint)', width: 14, flex: 'none' }}>{i + 1}</span>
                                 <span style={{ flex: 1, minWidth: 0, font: "400 12px var(--sans)", color: '#c6cdd6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</span>
@@ -1917,28 +1917,28 @@ export default function CreateFlow() {
                           </div>
                         )}
                         <div style={{ padding: '10px 20px 12px', font: "400 11.5px/1.8 var(--mono)", background: '#07090d', maxHeight: 260, overflowY: 'auto' }}>
-                          {testrun.lines.map((l, i) => (
+                          {test.lines.map((l, i) => (
                             <div key={i} style={{ color: logColor(l.k), whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}>{l.text}</div>
                           ))}
-                          {testrun.status === 'running' && (
+                          {test.status === 'executing' && (
                             <div style={{ color: 'var(--text-faint)', marginTop: 6 }}>
                               <span style={{
                                 display: 'inline-block', width: 11, height: 11, border: '2px solid rgba(255,255,255,.15)',
                                 borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'adSpin .8s linear infinite',
                                 marginRight: 7, verticalAlign: -1,
                               }} />
-                              running the draft…
+                              executing the draft…
                             </div>
                           )}
-                          {testrun.status === 'succeeded' && (
+                          {test.status === 'succeeded' && (
                             <div style={{ marginTop: 6 }}>
                               <div style={{ color: 'var(--green)' }}>
-                                <i className="fa-solid fa-check" style={{ fontSize: 11 }} /> Test run finished — the memory copy was discarded.
+                                <i className="fa-solid fa-check" style={{ fontSize: 11 }} /> Test finished — the memory copy was discarded.
                               </div>
-                              {testrun.result?.chip && (
-                                <Chip {...resultChipColors(testrun.result.chipStatus)} style={{ marginTop: 7 }}>{testrun.result.chip}</Chip>
+                              {test.result?.chip && (
+                                <Chip {...resultChipColors(test.result.chipStatus)} style={{ marginTop: 7 }}>{test.result.chip}</Chip>
                               )}
-                              {(testrun.result?.values ?? []).map((v) => (
+                              {(test.result?.values ?? []).map((v) => (
                                 <div key={v.name} style={{ color: '#9fb3c8', marginTop: 4 }}>
                                   <span style={{ color: 'var(--text-faint)' }}>{v.name}: </span>
                                   {Array.isArray(v.value) ? v.value.join(' · ') : v.value}
@@ -1946,7 +1946,7 @@ export default function CreateFlow() {
                               ))}
                             </div>
                           )}
-                          {testrun.status === 'failed' && testrun.analyzing && (
+                          {test.status === 'failed' && test.analyzing && (
                             <div style={{ color: 'var(--amber)', marginTop: 6 }}>
                               <span style={{
                                 display: 'inline-block', width: 11, height: 11, border: '2px solid rgba(255,255,255,.15)',
@@ -1956,21 +1956,21 @@ export default function CreateFlow() {
                               Analyzing the failure… {selAgent ? `(${agName(selAgent)})` : ''}
                             </div>
                           )}
-                          {testrun.status === 'failed' && !testrun.analyzing && (
+                          {test.status === 'failed' && !test.analyzing && (
                             <div style={{ color: 'var(--amber)', marginTop: 6 }}>
-                              <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} /> Test run failed.
+                              <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} /> Test failed.
                             </div>
                           )}
-                          {testrun.status === 'cancelled' && (
+                          {test.status === 'cancelled' && (
                             <div style={{ color: 'var(--text-faint)', marginTop: 6 }}>
-                              Test run cancelled.
+                              Test cancelled.
                             </div>
                           )}
                         </div>
                       </>
                     ) : (
                       <div style={{ padding: '12px 20px', font: "400 11.5px/1.6 var(--mono)", color: '#4a515c' }}>
-                        Runs the draft's real steps on this Mac — emails send, files move. Memory is a scratch copy; real runs aren't affected.
+                        Executes the draft's real steps on this Mac — emails send, files move. Memory is a scratch copy; real executions aren't affected.
                       </div>
                     )}
                   </div>
@@ -1983,7 +1983,7 @@ export default function CreateFlow() {
       {/* onboarding trust footer */}
       {isOnboard && (
         <div style={{ flex: 'none', borderTop: '1px solid var(--hairline)', padding: '13px 28px', display: 'flex', justifyContent: 'center', gap: 26, flexWrap: 'wrap' }}>
-          {['Everything runs on this Mac', 'Nothing runs until you review it', 'Passwords stay in your Keychain'].map((t) => (
+          {['Everything executes on this Mac', 'Nothing executes until you review it', 'Passwords stay in your Keychain'].map((t) => (
             <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--green)' }} />
               <span style={{ font: "400 12px var(--sans)", color: 'var(--text-muted)' }}>{t}</span>
@@ -2004,8 +2004,8 @@ export default function CreateFlow() {
       )}
 
       {/* §11: the repair modal — one convergent loop, two entry points: a
-          blocked sync ('sync') and a failed test run's issue analysis ('test').
-          Applying amends the in-editor spec and re-runs the sync; closing a
+          blocked sync ('sync') and a failed test's issue analysis ('test').
+          Applying amends the in-editor spec and repeats the sync; closing a
           'sync' repair leaves the workflow out of sync with the banner up. */}
       {rev?.repair && (
         <Modal
@@ -2016,7 +2016,7 @@ export default function CreateFlow() {
             <>
               <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
                 {rev.repair!.source === 'test'
-                  ? (rev.repair!.blockers.length > 1 ? `The test run hit ${rev.repair!.blockers.length} issues` : 'The test run hit an issue')
+                  ? (rev.repair!.blockers.length > 1 ? `The test hit ${rev.repair!.blockers.length} issues` : 'The test hit an issue')
                   : (rev.repair!.blockers.length > 1 ? `Your AI hit ${rev.repair!.blockers.length} blockers` : 'Your AI hit a blocker')}
               </div>
               <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)', marginBottom: 14 }}>

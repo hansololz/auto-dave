@@ -5,24 +5,24 @@ import { useStore } from '../store'
 import type { Auto } from '../types'
 import { Badge, BtnPrimary, resultChipColors } from '../ui'
 
-const RUNNING_TOAST = 'Already running — one run at a time. A schedule firing now would be skipped.'
+const EXECUTING_TOAST = 'Already executing — one execution at a time. A schedule firing now would be skipped.'
 
 function AutoCard({ a }: { a: Auto }) {
   const go = useStore((s) => s.go)
   const showToast = useStore((s) => s.showToast)
   const [hov, setHov] = useState(false)
   const [runHov, setRunHov] = useState(false)
-  const running = !!a.live
+  const executing = !!a.live
 
-  const run = (e: React.MouseEvent) => {
+  const execute = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (running) return
+    if (executing) return
     void (async () => {
       try {
-        await api.runNow(a.id)
+        await api.executeNow(a.id)
       } catch (err) {
         const er = err as Error & { status?: number }
-        showToast(er.status === 409 ? RUNNING_TOAST : er.message)
+        showToast(er.status === 409 ? EXECUTING_TOAST : er.message)
       }
     })()
   }
@@ -42,21 +42,21 @@ function AutoCard({ a }: { a: Auto }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
         <div style={{ flex: 1, fontSize: 14, fontWeight: 600, minWidth: 0 }}>{a.name}</div>
         <button
-          onClick={run}
-          disabled={running}
-          title={running ? 'Running…' : 'Run now'}
+          onClick={execute}
+          disabled={executing}
+          title={executing ? 'Executing…' : 'Execute now'}
           onMouseEnter={() => setRunHov(true)}
           onMouseLeave={() => setRunHov(false)}
           style={{
             width: 28, height: 28, borderRadius: 7, border: 'none',
-            background: running
+            background: executing
               ? 'oklch(0.74 0.155 52 / .16)'
               : runHov ? 'var(--accent-hover)' : 'var(--accent)',
-            color: running ? 'oklch(0.74 0.155 52 / .55)' : 'var(--on-accent)',
-            cursor: running ? 'default' : 'pointer', fontSize: 10, fontWeight: 500, flex: 'none',
+            color: executing ? 'oklch(0.74 0.155 52 / .55)' : 'var(--on-accent)',
+            cursor: executing ? 'default' : 'pointer', fontSize: 10, fontWeight: 500, flex: 'none',
           }}
         >
-          <i className={running ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play'} style={{ fontSize: 9 }} />
+          <i className={executing ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play'} style={{ fontSize: 9 }} />
         </button>
       </div>
       <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-muted)', minHeight: 37 }}>{a.desc}</p>
@@ -81,7 +81,7 @@ function AutoCard({ a }: { a: Auto }) {
           status={a.lastStatus}
           style={{
             padding: '3px 8px', letterSpacing: '.05em',
-            animation: a.lastStatus === 'running' ? 'adPulse 1.4s ease-in-out infinite' : 'none',
+            animation: a.lastStatus === 'executing' ? 'adPulse 1.4s ease-in-out infinite' : 'none',
           }}
         />
         {a.resultChip && (
@@ -121,7 +121,7 @@ export default function AutomationsList() {
           gap: 12, textAlign: 'center',
         }}>
           <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', maxWidth: 420 }}>
-            No automations yet. Describe a job in plain words — your AI writes it as scripts you can read, and Auto Dave runs them on your schedule.
+            No automations yet. Describe a job in plain words — your AI writes it as scripts you can read, and Auto Dave executes them on your schedule.
           </p>
           <BtnPrimary onClick={() => setSurface('create', 'app')}>Create your first automation</BtnPrimary>
         </div>

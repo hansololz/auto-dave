@@ -208,8 +208,8 @@ def restore(auto_id: str, body: dict) -> dict:
     return {"version": n, "auto": store.auto_json(a)}
 
 
-@app.post("/automations/{auto_id}/run", dependencies=[Depends(auth)])
-def run_auto(auto_id: str, body: dict | None = None) -> dict:
+@app.post("/automations/{auto_id}/execute", dependencies=[Depends(auth)])
+def execute_auto(auto_id: str, body: dict | None = None) -> dict:
     a = _auto_or_404(auto_id)
     body = body or {}
     try:
@@ -219,9 +219,9 @@ def run_auto(auto_id: str, body: dict | None = None) -> dict:
     return {"execId": h["id"]}
 
 
-# ---------- dry run (§11 decided semantics) ----------
-@app.post("/automations/{auto_id}/dryrun", dependencies=[Depends(auth)])
-def dryrun(auto_id: str, body: dict | None = None) -> dict:
+# ---------- review checks (§11 decided semantics) ----------
+@app.post("/automations/{auto_id}/checks", dependencies=[Depends(auth)])
+def checks(auto_id: str, body: dict | None = None) -> dict:
     a = _auto_or_404(auto_id)
     body = body or {}
     d = body.get("draft")
@@ -229,37 +229,37 @@ def dryrun(auto_id: str, body: dict | None = None) -> dict:
     # In-editor grants override the saved ones when present (unsaved Review-screen state).
     allowed_secrets = body["allowedSecrets"] if "allowedSecrets" in body else a["allowed_secrets"]
     enabled_agents = body["enabledAgents"] if "enabledAgents" in body else a["enabled_agents"]
-    _start_dryrun(a, auto_id, ver, allowed_secrets, enabled_agents)
+    _start_checks(a, auto_id, ver, allowed_secrets, enabled_agents)
     return {"ok": True}
 
 
 @app.post("/automations/{auto_id}/memory/clear", dependencies=[Depends(auth)])
 def clear_memory(auto_id: str) -> dict:
-    # §9.2 MEMORY card: "Clear memory" — next run starts fresh.
+    # §9.2 MEMORY card: "Clear memory" — next execution starts fresh.
     a = _auto_or_404(auto_id)
     store.clear_memory(a)
     hub.publish("auto.changed", autoId=auto_id)
     return {"ok": True}
 
 
-@app.post("/dryrun", dependencies=[Depends(auth)])
-def dryrun_draft(body: dict) -> dict:
-    # §19 create-mode dry run: no saved automation yet — checks run against the sent draft.
+@app.post("/checks", dependencies=[Depends(auth)])
+def checks_draft(body: dict) -> dict:
+    # §19 create-mode checks: no saved automation yet — checks evaluate the sent draft.
     d = body.get("draft")
     if not d:
         raise HTTPException(422, "draft required")
     ver = {"params": d.get("params", []), "steps": d.get("steps", [])}
-    _start_dryrun(None, None, ver, body.get("allowedSecrets", []), body.get("enabledAgents", []))
+    _start_checks(None, None, ver, body.get("allowedSecrets", []), body.get("enabledAgents", []))
     return {"ok": True}
 
 
-def _start_dryrun(a: dict | None, auto_id: str | None, ver: dict,
+def _start_checks(a: dict | None, auto_id: str | None, ver: dict,
                   allowed_secrets: list, enabled_agents: list) -> None:
     def lines() -> None:
         import urllib.request
 
         def say(kind: str, text: str) -> None:
-            hub.publish("dryrun.line", autoId=auto_id, kind=kind, text=text)
+            hub.publish("checks.line", autoId=auto_id, kind=kind, text=text)
 
         def probe(u: str) -> tuple[str, bool]:
             try:
@@ -317,9 +317,9 @@ def _start_dryrun(a: dict | None, auto_id: str | None, ver: dict,
             say("ok", f"memory: {mem['size']} · {mem['updated']}")
         else:
             say("ok", "memory: empty — new automation")
-        say("ok", "notification plan: " + ("after every run" if store.settings.get("notif") == "all"
+        say("ok", "notification plan: " + ("after every execution" if store.settings.get("notif") == "all"
                                            else "only when something needs attention"))
-        hub.publish("dryrun.done", autoId=auto_id)
+        hub.publish("checks.done", autoId=auto_id)
 
     threading.Thread(target=lines, daemon=True).start()
 
@@ -417,14 +417,14 @@ def cancel_exec(exec_id: str) -> dict:
     return {"ok": engine.cancel(exec_id)}
 
 
-@app.post("/executions/{exec_id}/rerun", dependencies=[Depends(auth)])
-def rerun_exec(exec_id: str) -> dict:
+@app.post("/executions/{exec_id}/reexecute", dependencies=[Depends(auth)])
+def reexecute_exec(exec_id: str) -> dict:
     h = store.execs.get(exec_id)
     if not h:
         raise HTTPException(404, "execution not found")
     a = _auto_or_404(h["auto_id"])
     try:
-        h2 = engine.rerun_from_failed(a, h)
+        h2 = engine.reexecute_from_failed(a, h)
     except RuntimeError as e:
         raise HTTPException(409, str(e)) from e
     return {"execId": h2["id"]}
@@ -518,7 +518,7 @@ def ollama_pull(body: dict) -> dict:
     if not model:
         raise HTTPException(422, "model required")
 
-    def run() -> None:
+    def pull() -> None:
         try:
             proc = subprocess.Popen([harness.ollama_bin() or "ollama", "pull", model], stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True)
@@ -530,7 +530,7 @@ def ollama_pull(body: dict) -> dict:
             hub.publish("ollama.pull", model=model, line="ollama isn't installed", done=True, ok=False)
         hub.publish("agents.changed")
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=pull, daemon=True).start()
     return {"ok": True}
 
 
@@ -623,15 +623,15 @@ async def ws(sock: WebSocket, token: str = Query("")) -> None:
 @app.on_event("startup")
 async def _bind_loop() -> None:
     hub.bind_loop(asyncio.get_running_loop())
-    # §3: never resume as 'running' after a restart — mark stale records interrupted.
+    # §3: never resume as 'executing' after a restart — mark stale records interrupted.
     with store.lock:
         for h in store.execs.values():
-            if h["status"] == "running" and not engine.is_live(h["id"]):
+            if h["status"] == "executing" and not engine.is_live(h["id"]):
                 h["status"] = "interrupted"
-                h["note"] = h["note"] or "backend restarted mid-run"
+                h["note"] = h["note"] or "backend restarted mid-execution"
                 for s in h["steps"]:
-                    if s["status"] in ("running", "queued"):
-                        s["status"] = "interrupted" if s["status"] == "running" else "queued"
+                    if s["status"] in ("executing", "queued"):
+                        s["status"] = "interrupted" if s["status"] == "executing" else "queued"
                 store.update_execution(h)
         store._refresh_exec_derived()
     hub.publish("auto.changed")

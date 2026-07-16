@@ -75,15 +75,15 @@ export default function MenuBarPanel() {
                   {a.name}
                 </div>
                 <div style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: subColor, marginTop: 1 }}>
-                  {a.live ? 'Running now…' : a.resultChip ?? a.scheduleShort}
+                  {a.live ? 'Executing now…' : a.resultChip ?? a.scheduleShort}
                 </div>
               </div>
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (!a.live) void api.runNow(a.id, undefined, 'Menu bar').catch(() => undefined)
+                  if (!a.live) void api.executeNow(a.id, undefined, 'Menu bar').catch(() => undefined)
                 }}
-                title="Run now"
+                title="Execute now"
                 onMouseEnter={() => setHovBtn(a.id)}
                 onMouseLeave={() => setHovBtn(null)}
                 style={{
@@ -98,7 +98,7 @@ export default function MenuBarPanel() {
                 <i className="fa-solid fa-play" style={{ fontSize: 9 }} />
               </button>
               <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--text-faint)', width: 56, textAlign: 'right', flex: 'none' }}>
-                {a.live ? '' : a.lastRunLabel}
+                {a.live ? '' : a.lastExecLabel}
               </span>
             </div>
           )

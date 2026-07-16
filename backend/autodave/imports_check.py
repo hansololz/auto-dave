@@ -1,5 +1,5 @@
 """Curated-import allowlist (§6.2), shared by draft-time validation and the
-runtime runner. Step scripts may import the Python stdlib plus the curated
+runtime executor. Step scripts may import the Python stdlib plus the curated
 packages — nothing else."""
 from __future__ import annotations
 

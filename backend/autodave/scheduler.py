@@ -1,5 +1,6 @@
-"""Scheduler (§6): fires due schedules, skips mid-run firings, retries a failed
-scheduled run once after 5 minutes, applies the missed-run policy, runs retention."""
+"""Scheduler (§6): fires due schedules, skips mid-execution firings, retries a failed
+scheduled execution once after 5 minutes, applies the missed-execution policy, and
+handles retention."""
 from __future__ import annotations
 
 import threading
@@ -22,7 +23,7 @@ class Scheduler:
         self._baseline: dict[str, datetime] = {}
         self._retry_at: dict[str, datetime] = {}
         # §6 "retried once after 5 minutes": automation ids already retried for
-        # the current failure streak — cleared when a scheduled run succeeds.
+        # the current failure streak — cleared when a scheduled execution succeeds.
         self._retried: set[str] = set()
         self._stop = threading.Event()
         self._last_tick = datetime.now()
@@ -89,7 +90,7 @@ class Scheduler:
                     old = self.store._latest_exec(a["id"])
                     try:
                         if old and old["status"] == "failed":
-                            self.engine.rerun_from_failed(a, old, trigger="Schedule")
+                            self.engine.reexecute_from_failed(a, old, trigger="Schedule")
                         else:
                             self.engine.start(a, "Schedule")
                     except RuntimeError:
@@ -102,10 +103,10 @@ class Scheduler:
 
     def _fire(self, a: dict, woke: bool) -> None:
         if a.get("_live"):
-            # §6: a schedule firing mid-run is skipped, not queued.
+            # §6: a schedule firing mid-execution is skipped, not queued.
             h = self.store.create_execution(a, f"v{a['current_version']}", "Schedule",
                                             steps=[], status="skipped",
-                                            note="previous run still in progress")
+                                            note="previous execution still in progress")
             h["dur_ms"] = 0
             h["finished_at"] = h["started_at"]
             self.store.update_execution(h)

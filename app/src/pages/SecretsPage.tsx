@@ -61,7 +61,7 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
             <p style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)', margin: '0 0 18px' }}>
               {isAdd
                 ? 'A password or API key your automations use by name — the value itself never appears in a script or a log.'
-                : 'The new value is used from the next run onward.'}
+                : 'The new value is used from the next execution onward.'}
             </p>
             <label style={{ ...labelStyle, margin: '0 0 6px' }}>NAME</label>
             {isAdd ? (

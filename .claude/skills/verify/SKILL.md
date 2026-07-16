@@ -14,7 +14,7 @@ description: Build, launch, and drive Auto Dave (Electron + Python backend) to v
   running; stop with `.venv/bin/autodave service uninstall`. Ctrl+C on dev.sh shuts everything
   down (Electron, Vite, and the backend). Setting any `AUTODAVE_*` env
   switches it to a direct-spawned isolated backend; `--fresh` needs `AUTODAVE_HOME`. NEVER
-  point verification runs at the real data dir — always isolate with `AUTODAVE_HOME`.
+  point verification sessions at the real data dir — always isolate with `AUTODAVE_HOME`.
 - For scripted verification, start pieces yourself (all backgroundable):
   1. Backend: `AUTODAVE_HOME=<dir> AUTODAVE_PORT=<port> .venv/bin/python -m autodave.main`
      - Backend always starts EMPTY (fresh onboarding). There is no seed command — demo data is a

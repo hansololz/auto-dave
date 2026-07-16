@@ -9,4 +9,4 @@
 - The app is unreleased: do not worry about backward compatibility. When changing a feature, just make the code
   change — no legacy-code handlers, migration shims, or deprecated fallbacks.
 - Developer mode and production mode must behave the same: no mocked data in developer mode, and no separate
-  dev-only code paths. Both modes run the same real code.
+  dev-only code paths. Both modes execute the same real code.

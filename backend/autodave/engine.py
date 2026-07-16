@@ -1,4 +1,4 @@
-"""Execution engine (§6, §7): runs an automation's steps as subprocesses,
+"""Execution engine (§6, §7): executes an automation's steps as subprocesses,
 streams status/logs, enforces policies, persists everything file-first."""
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from typing import Any
 
 from . import keychain, notify
 from .events import hub
-from .runner import CTRL
+from .executor import CTRL
 from .storage import SECRET_REF_RE, Store, resolve_param_value
 
 STEP_TIMEOUT = 15 * 60  # per-step hard cap (seconds); override via AUTODAVE_STEP_TIMEOUT
@@ -37,9 +37,9 @@ class Engine:
     # ---------- public ----------
     def start(self, auto: dict, trigger: str, version_label: str | None = None,
               reuse_from: dict | None = None) -> dict:
-        """Create the execution record and run it on a worker thread (§7)."""
+        """Create the execution record and execute it on a worker thread (§7)."""
         if auto.get("_live"):
-            raise RuntimeError("already running")
+            raise RuntimeError("already executing")
         ver_label = version_label or f"v{auto['current_version']}"
         if ver_label.lower() == "draft":  # §19 accepts "draft"; canonical label is "Draft"
             ver_label = "Draft"
@@ -52,7 +52,7 @@ class Engine:
             start_idx = reuse_from["index"]
             for i in range(start_idx):
                 steps[i]["status"] = "reused"
-        # §7: snapshot the resolved param values — the execution page shows them as used by this run.
+        # §7: snapshot the resolved param values — the execution page shows them as used by this execution.
         h = self.store.create_execution(auto, ver_label, trigger, steps,
                                         params=self.store.merged_params(auto, ver))
         if reuse_from:
@@ -64,7 +64,7 @@ class Engine:
                 shutil.rmtree(dst_ws, ignore_errors=True)
                 shutil.copytree(src_ws, dst_ws)
         state = {"proc": None, "cancel": False}
-        t = threading.Thread(target=self._run, args=(auto, ver, h, start_idx, state), daemon=True)
+        t = threading.Thread(target=self._execute, args=(auto, ver, h, start_idx, state), daemon=True)
         state["thread"] = t
         with self._lock:
             self._live[h["id"]] = state
@@ -84,7 +84,7 @@ class Engine:
             proc.terminate()
         return True
 
-    def rerun_from_failed(self, auto: dict, old: dict, trigger: str = "Manual") -> dict:
+    def reexecute_from_failed(self, auto: dict, old: dict, trigger: str = "Manual") -> dict:
         """§7: earlier steps get `reused`, only the failed step onward re-executes."""
         idx = next((i for i, s in enumerate(old["steps"]) if s["status"] == "failed"), 0)
         return self.start(auto, trigger, version_label=old["ver"],
@@ -114,7 +114,7 @@ class Engine:
                 if name not in h["redacted"]:
                     h["redacted"].append(name)
         # On-disk shape (§5): {ts, t, step, k, text} — step is the current step
-        # name or null for run-level lines. API/UI shape stays {t, k, text}.
+        # name or null for execution-level lines. API/UI shape stays {t, k, text}.
         line = {"ts": datetime.now().isoformat(timespec="seconds"),
                 "t": datetime.now().strftime("%H:%M:%S"),
                 "step": h.get("_cur_step"), "k": k, "text": text}
@@ -131,7 +131,7 @@ class Engine:
                     step={"name": s["name"], "status": s["status"],
                           "dur": dur_label(s["dur_ms"]) if s.get("dur_ms") else ""})
 
-    def _run(self, auto: dict, ver: dict, h: dict, start_idx: int, state: dict) -> None:
+    def _execute(self, auto: dict, ver: dict, h: dict, start_idx: int, state: dict) -> None:
         result: dict[str, Any] = {"status": "ok", "chip": None, "chips": [], "values": []}
         result_touched = False
         notify_text: str | None = None
@@ -144,19 +144,19 @@ class Engine:
         redactions: dict[str, str] = {}
         failed = False
         try:
-            # §6: a missing secret stops the run before any step.
+            # §6: a missing secret stops the execution before any step.
             needed: set[str] = set()
             for s in ver["steps"]:
                 needed |= set(SECRET_REF_RE.findall(s.get("code", "")))
             secret_values: dict[str, str] = {}
             for name in sorted(needed):
                 if name not in auto["allowed_secrets"]:
-                    self._log(h, "err", f"secret {name} isn't allowed for this automation — the run can't start", {})
+                    self._log(h, "err", f"secret {name} isn't allowed for this automation — the execution can't start", {})
                     failed = True
                 else:
                     v = keychain.get_secret(name)
                     if v is None:
-                        self._log(h, "err", f"secret {name} isn't in your Keychain — the run can't start", {})
+                        self._log(h, "err", f"secret {name} isn't in your Keychain — the execution can't start", {})
                         failed = True
                     else:
                         secret_values[name] = v
@@ -185,7 +185,7 @@ class Engine:
                     h["steps"][i]["status"] = "cancelled" if state["cancel"] else "queued"
                     self._step_event(h, i)
                     continue
-                h["steps"][i]["status"] = "running"
+                h["steps"][i]["status"] = "executing"
                 h["_cur_step"] = s["name"]  # stamped onto every log line of this step
                 self._step_event(h, i)
                 self._log(h, "sys", f"▸ Step {i + 1} — {s['name']}", redactions)
@@ -194,13 +194,13 @@ class Engine:
                 if s.get("agent"):
                     agent_cfg = self._agent_for_step(auto, s)
                     if agent_cfg is None:
-                        self._log(h, "err", f"Step {i + 1} needs an agent, but none is enabled — the run fails here.", redactions)
+                        self._log(h, "err", f"Step {i + 1} needs an agent, but none is enabled — the execution fails here.", redactions)
                         h["steps"][i]["status"] = "failed"
                         h["steps"][i]["dur_ms"] = int((time.time() - t0) * 1000)
                         self._step_event(h, i)
                         failed = True
                         continue
-                rc = self._run_step(auto, ver, h, s, i + 1, vdir, params, secret_values, agent_cfg,
+                rc = self._execute_step(auto, ver, h, s, i + 1, vdir, params, secret_values, agent_cfg,
                                     state, redactions, result, notify_holder := {})
                 if notify_holder.get("text"):
                     notify_text = notify_holder["text"]
@@ -210,7 +210,7 @@ class Engine:
                 h["steps"][i]["dur_ms"] = dur
                 if state["cancel"]:
                     h["steps"][i]["status"] = "cancelled"
-                    self._log(h, "sys", "run cancelled by you — nothing else will happen", redactions)
+                    self._log(h, "sys", "execution cancelled by you — nothing else will happen", redactions)
                 elif rc == 0:
                     h["steps"][i]["status"] = "succeeded"
                 else:
@@ -226,13 +226,13 @@ class Engine:
                 h["status"] = "cancelled"
             elif failed:
                 h["status"] = "failed"
-                self._log(h, "sys", f"run failed — see the step above", redactions)
+                self._log(h, "sys", f"execution failed — see the step above", redactions)
             else:
                 h["status"] = "succeeded"
             h["finished_at"] = datetime.now().isoformat(timespec="seconds")
             if result_touched and not state["cancel"]:
                 # The chip is optional (§4.5): it lives on the execution header,
-                # tinted by the run's result status; result.yaml keeps chips/values.
+                # tinted by the execution's result status; result.yaml keeps chips/values.
                 h["chip"] = result["chip"]
                 h["chip_status"] = result["status"] if result["chip"] else None
                 body = {k: v for k, v in result.items() if k in ("chips", "values") and v}
@@ -270,7 +270,7 @@ class Engine:
                 return agents[aid]
         return None
 
-    def _run_step(self, auto: dict, ver: dict, h: dict, s: dict, step_index: int, vdir: Path,
+    def _execute_step(self, auto: dict, ver: dict, h: dict, s: dict, step_index: int, vdir: Path,
                   params: dict, secret_values: dict, agent_cfg: dict | None,
                   state: dict, redactions: dict, result: dict, notify_holder: dict) -> int:
         script = vdir / (s.get("file") or "")
@@ -279,7 +279,7 @@ class Engine:
             return 1
         # §6 secret scoping: a step only receives the secrets its own source
         # references. The full value map stays engine-side for log redaction;
-        # reading an uninjected secret raises in the runner and fails the run.
+        # reading an uninjected secret raises in the executor and fails the execution.
         step_refs = set(SECRET_REF_RE.findall(s.get("code", "")))
         step_secrets = {k: v for k, v in secret_values.items() if k in step_refs}
         ctx = {
@@ -292,17 +292,17 @@ class Engine:
             "agent": agent_cfg,
             "is_agent_step": bool(s.get("agent")),
             "agent_timeout": 120,
-            "run": {
+            "execution": {
                 "automation_id": auto["id"],
                 "automation_name": auto["name"],
-                "execution_id": h["id"],
+                "id": h["id"],
                 "step_index": step_index,
                 "step_name": s["name"],
                 "trigger": h["trigger"],
             },
         }
         proc = subprocess.Popen(
-            [sys.executable, "-m", "autodave.runner", str(script)],
+            [sys.executable, "-m", "autodave.executor", str(script)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         state["proc"] = proc
@@ -374,7 +374,7 @@ class Engine:
         )
         if setting == "all" or interesting:
             body = notify_text or (result or {}).get("chip") or \
-                ("Run failed" if status == "failed" else "Run finished")
+                ("Execution failed" if status == "failed" else "Execution finished")
             title_param = None
             ver = self._resolve_version(auto, h["ver"]) or {}
             for p in ver.get("params", []):

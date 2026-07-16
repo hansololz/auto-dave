@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Eyebrow, resultChipColors, Spinner } from './ui'
-import type { ResultFile, ResultValue, RunResult } from './types'
+import type { ResultFile, ResultValue, ExecResult } from './types'
 
 const MD_EXT = ['md', 'markdown']
 const HTML_EXT = ['html', 'htm']
@@ -353,7 +353,7 @@ function FilesFooter({ files, path }: { files: ResultFile[]; path?: string }) {
 // ---------- the section ----------
 
 export function ResultSection({ label, result, execId, measure = 640 }: {
-  label: string; result: RunResult & { when?: string }; execId: string; measure?: number
+  label: string; result: ExecResult & { when?: string }; execId: string; measure?: number
 }) {
   const [open, setOpen] = useState(true)
   const { c, bg } = resultChipColors(result.chipStatus)

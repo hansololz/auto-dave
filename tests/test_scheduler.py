@@ -1,4 +1,4 @@
-"""§6 scheduler retry policy: a failed scheduled run is retried once after
+"""§6 scheduler retry policy: a failed scheduled execution is retried once after
 5 minutes — once per failure streak per automation, not once per execution id."""
 from conftest import make_version
 
@@ -48,7 +48,7 @@ def test_manual_runs_never_arm_retry(store):
 
 
 def test_failed_scheduled_run_arms_retry_end_to_end(store):
-    """Real engine run with trigger Schedule arms the retry via on_finished."""
+    """Real engine execution with trigger Schedule arms the retry via on_finished."""
     import time
 
     engine, sched = _mk(store)

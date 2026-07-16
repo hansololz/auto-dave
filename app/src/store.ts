@@ -1,7 +1,7 @@
 // One central model drives everything (§4 top-level, §9 navigation).
 import { create } from 'zustand'
 import { api, connectInfo, openWs } from './api'
-import type { Agent, Auto, Blocker, Exec, RunResult, SecretMeta, Settings, StateSnapshot } from './types'
+import type { Agent, Auto, Blocker, Exec, ExecResult, SecretMeta, Settings, StateSnapshot } from './types'
 
 export type Surface = 'onboard' | 'app' | 'create' | 'menubar'
 export type Page =
@@ -27,15 +27,15 @@ export interface Model {
 
   toast: string | null
   execFull: Record<string, Exec>
-  // §11 test run — live state fed by the §19 test.* WS events. `analyzing` is
-  // the window between a failed run and its §8 issue-analysis result; `issue`
+  // §11 test — live state fed by the §19 test.* WS events. `analyzing` is
+  // the window between a failed test and its §8 issue-analysis result; `issue`
   // holds the analysis blockers until CreateFlow consumes them into its panel.
-  testrun: {
-    runId: string
+  test: {
+    testId: string
     steps: { name: string; status: string }[]
     lines: { t?: string; k: string; text: string }[]
-    status: 'running' | 'succeeded' | 'failed' | 'cancelled'
-    result: RunResult | null
+    status: 'executing' | 'succeeded' | 'failed' | 'cancelled'
+    result: ExecResult | null
     analyzing: boolean
     issue: Blocker[] | null
   } | null
@@ -49,8 +49,8 @@ export interface Model {
   showToast(msg: string, ms?: number): void
   loadExec(execId: string): Promise<void>
   loadAuto(autoId: string): Promise<void>
-  beginTestrun(runId: string): void
-  clearTestrun(): void
+  beginTest(testId: string): void
+  clearTest(): void
   consumeTestIssue(): void
 }
 
@@ -73,7 +73,7 @@ export const useStore = create<Model>((set, get) => ({
   createFrom: null,
   toast: null,
   execFull: {},
-  testrun: null,
+  test: null,
   ollamaPull: null,
 
   async boot() {
@@ -121,8 +121,8 @@ export const useStore = create<Model>((set, get) => ({
         if (ev === 'exec.finished') {
           void m.refresh()
           void m.loadExec(ej.id)
-          // §7: the finished run gets a summary toast (prototype pattern:
-          // "<name> finished — <chip>."). Cancelled runs are user-initiated — no toast.
+          // §7: the finished execution gets a summary toast (prototype pattern:
+          // "<name> finished — <chip>."). Cancelled executions are user-initiated — no toast.
           if (ej.status === 'succeeded' || ej.status === 'failed') {
             const aj = msg.auto_json as Auto | null | undefined
             const name = aj?.name ?? m.autos.find((a) => a.id === ej.autoId)?.name ?? 'Automation'
@@ -158,29 +158,29 @@ export const useStore = create<Model>((set, get) => ({
       }
       return
     }
-    // §19 test.* — ignore events for a run we aren't showing (stale/cancelled)
+    // §19 test.* — ignore events for a test we aren't showing (stale/cancelled)
     if (ev === 'test.step' || ev === 'test.log' || ev === 'test.done' || ev === 'test.issue') {
-      const t = m.testrun
-      if (!t || t.runId !== msg.runId) return
+      const t = m.test
+      if (!t || t.testId !== msg.testId) return
       if (ev === 'test.step') {
         const i = msg.i as number
         const step = { name: msg.name as string, status: msg.status as string }
         const steps = [...t.steps]
         steps[i] = step
-        set({ testrun: { ...t, steps } })
+        set({ test: { ...t, steps } })
       } else if (ev === 'test.log') {
         const line = msg.line as { t?: string; k: string; text: string }
-        set({ testrun: { ...t, lines: [...t.lines, line] } })
+        set({ test: { ...t, lines: [...t.lines, line] } })
       } else if (ev === 'test.done') {
         const status = msg.status as 'succeeded' | 'failed' | 'cancelled'
         set({
-          testrun: {
-            ...t, status, result: (msg.result as RunResult | undefined) ?? null,
+          test: {
+            ...t, status, result: (msg.result as ExecResult | undefined) ?? null,
             analyzing: status === 'failed', // §11: the issue-analysis call follows a failure
           },
         })
       } else {
-        set({ testrun: { ...t, analyzing: false, issue: (msg.blockers as Blocker[]) ?? [] } })
+        set({ test: { ...t, analyzing: false, issue: (msg.blockers as Blocker[]) ?? [] } })
       }
       return
     }
@@ -243,15 +243,15 @@ export const useStore = create<Model>((set, get) => ({
     } catch { /* deleted */ }
   },
 
-  beginTestrun(runId) {
-    set({ testrun: { runId, steps: [], lines: [], status: 'running', result: null, analyzing: false, issue: null } })
+  beginTest(testId) {
+    set({ test: { testId, steps: [], lines: [], status: 'executing', result: null, analyzing: false, issue: null } })
   },
 
-  clearTestrun() { set({ testrun: null }) },
+  clearTest() { set({ test: null }) },
 
   consumeTestIssue() {
-    const t = get().testrun
-    if (t) set({ testrun: { ...t, issue: null } })
+    const t = get().test
+    if (t) set({ test: { ...t, issue: null } })
   },
 }))
 

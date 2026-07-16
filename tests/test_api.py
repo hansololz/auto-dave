@@ -68,8 +68,8 @@ def test_draft_job_and_create_flow(client):
     assert r.status_code == 200
     auto = r.json()
     assert auto["version"] == 1 and auto["lastStatus"] == "none"
-    # §11 create toast state: nothing has run yet
-    assert auto["lastRunLabel"] == ""
+    # §11 create toast state: nothing has executed yet
+    assert auto["lastExecLabel"] == ""
 
 
 def _wait_job(client, job_id):
@@ -172,7 +172,7 @@ def test_draft_edit_honors_in_editor_grants(client):
     assert "TASK: build the automation" not in logged  # no steps call on edit
 
 
-def test_dryrun_honors_in_editor_grants(client, monkeypatch):
+def test_checks_honor_in_editor_grants(client, monkeypatch):
     from autodave import api
     from autodave.storage import store
 
@@ -183,34 +183,34 @@ def test_dryrun_honors_in_editor_grants(client, monkeypatch):
          "code": 'agent.ask("q", {})\n'},
     ])
     # saved grants: no secret allowed, only a nonexistent agent enabled
-    a = store.create_automation(ver, "Dry runner", "mock", enabled_agents=["ghost"])
+    a = store.create_automation(ver, "Checks Demo", "mock", enabled_agents=["ghost"])
     client.put("/secrets/MY_SECRET", json={"value": "v"})
     client.patch(f"/automations/{a['id']}", json={"paramValues": {"count": 0}})
 
     events = []
     monkeypatch.setattr(api.hub, "publish", lambda ev, **kw: events.append({"ev": ev, **kw}))
 
-    def run(body):
+    def checks(body):
         events.clear()
-        client.post(f"/automations/{a['id']}/dryrun", json=body)
+        client.post(f"/automations/{a['id']}/checks", json=body)
         for _ in range(100):
-            if any(e["ev"] == "dryrun.done" for e in events):
-                return [e for e in events if e["ev"] == "dryrun.line"]
+            if any(e["ev"] == "checks.done" for e in events):
+                return [e for e in events if e["ev"] == "checks.line"]
             time.sleep(0.05)
-        raise AssertionError(f"dryrun never finished: {events}")
+        raise AssertionError(f"checks never finished: {events}")
 
-    lines = run({})  # saved grants
+    lines = checks({})  # saved grants
     assert any("MY_SECRET isn't allowed" in e["text"] for e in lines)
     assert any("no agent is enabled" in e["text"] for e in lines)
     # number param below its min is advisory-amber
     bad_num = next(e for e in lines if e["text"].startswith("Count:"))
     assert bad_num["kind"] == "warn" and "needs attention" in bad_num["text"]
 
-    lines = run({"allowedSecrets": ["MY_SECRET"], "enabledAgents": ["mock"]})  # in-editor grants
+    lines = checks({"allowedSecrets": ["MY_SECRET"], "enabledAgents": ["mock"]})  # in-editor grants
     assert any("MY_SECRET is in your Keychain and allowed" in e["text"] for e in lines)
     assert any("an enabled agent is ready" in e["text"] for e in lines)
 
-    lines = run({"allowedSecrets": [], "enabledAgents": []})  # explicit empty overrides
+    lines = checks({"allowedSecrets": [], "enabledAgents": []})  # explicit empty overrides
     assert any("MY_SECRET isn't allowed" in e["text"] for e in lines)
     assert any("no agent is enabled" in e["text"] for e in lines)
 
@@ -218,16 +218,16 @@ def test_dryrun_honors_in_editor_grants(client, monkeypatch):
 def test_run_and_execution_pages(client):
     from autodave.storage import store
 
-    a = store.create_automation(make_version(), "API Runner", "mock")
-    r = client.post(f"/automations/{a['id']}/run", json={})
+    a = store.create_automation(make_version(), "API Exec", "mock")
+    r = client.post(f"/automations/{a['id']}/execute", json={})
     assert r.status_code == 200
     exec_id = r.json()["execId"]
     # §7: starting while live → 409
-    r2 = client.post(f"/automations/{a['id']}/run", json={})
+    r2 = client.post(f"/automations/{a['id']}/execute", json={})
     assert r2.status_code == 409
     for _ in range(100):
         e = client.get(f"/executions/{exec_id}").json()
-        if e["status"] != "running":
+        if e["status"] != "executing":
             break
         time.sleep(0.1)
     assert e["status"] == "succeeded"
@@ -329,7 +329,7 @@ def test_seed_then_state(client, home):
     assert first["text"].startswith("▸ Step 1") and first["step"] == "Read your manga list"
     step2 = next(l for l in raw if l["text"].startswith("▸ Step 2"))
     assert step2["step"] == "Check each site for new chapters"
-    # a line before any step marker is run-level (step: null)
+    # a line before any step marker is execution-level (step: null)
     shots_int = next(e for e in r["execs"] if e["status"] == "interrupted")
     int_logs = store.read_logs(shots_int["id"])
     assert int_logs and int_logs[0]["step"] is None

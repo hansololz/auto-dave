@@ -1,7 +1,7 @@
 // API shapes (§4 field names, served by §19).
 
 export type Status =
-  | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  | 'queued' | 'executing' | 'succeeded' | 'failed' | 'cancelled'
   | 'skipped' | 'reused' | 'interrupted' | 'none'
 
 export interface ParamDef {
@@ -35,7 +35,7 @@ export interface Step {
 export interface ResultValue { name: string; value: string | string[] }
 export interface ResultFile { name: string; size: string }
 
-export interface RunResult {
+export interface ExecResult {
   chip?: string
   chipStatus?: 'changes' | 'ok' | 'attention'
   chips?: string[]
@@ -71,12 +71,12 @@ export interface Auto {
   live: string | null
   resultChip: string | null
   resultStatus: 'changes' | 'ok' | 'attention' | null
-  lastRunLabel: string
+  lastExecLabel: string
   agentId: string | null
   stepAgents: string[]
   allowedSecrets: string[]
   specMeta: string
-  latest?: (RunResult & { execId: string; when: string }) | null
+  latest?: (ExecResult & { execId: string; when: string }) | null
   params?: ParamDef[]
   memory?: { size: string; updated: string; path?: string }
   steps?: Step[]
@@ -101,7 +101,7 @@ export interface Exec {
   note: string | null
   steps: ExecStep[]
   logs?: { t: string; k: 'sys' | 'out' | 'wrn' | 'err'; text: string }[]
-  result?: RunResult | null
+  result?: ExecResult | null
   redact?: string | null
   params?: ParamDef[]
 }

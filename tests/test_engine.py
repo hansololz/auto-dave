@@ -6,7 +6,7 @@ from conftest import make_version
 def wait_done(engine, exec_id, timeout=30):
     t0 = time.time()
     while engine.is_live(exec_id):
-        assert time.time() - t0 < timeout, "run didn't finish in time"
+        assert time.time() - t0 < timeout, "execution didn't finish in time"
         time.sleep(0.1)
 
 
@@ -14,7 +14,7 @@ def test_run_lifecycle_success(store):
     from autodave.engine import Engine
 
     engine = Engine(store)
-    a = store.create_automation(make_version(), "Runner", None)
+    a = store.create_automation(make_version(), "Exec Demo", None)
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
@@ -31,7 +31,7 @@ def test_run_lifecycle_success(store):
 
 
 def test_chip_is_optional(store):
-    """§4.5: a run that never calls result.chip() has no chip anywhere."""
+    """§4.5: an execution that never calls result.chip() has no chip anywhere."""
     from autodave.engine import Engine
 
     engine = Engine(store)
@@ -129,7 +129,7 @@ def test_multiline_secret_lines_redacted_from_logs(store):
     assert "PEM_KEY" in h["redacted"]
 
 
-def test_rerun_from_failed_reuses_earlier_steps(store):
+def test_reexecute_from_failed_reuses_earlier_steps(store):
     from autodave.engine import Engine
 
     engine = Engine(store)
@@ -143,13 +143,13 @@ def test_rerun_from_failed_reuses_earlier_steps(store):
     h1 = engine.start(a, "Manual")
     wait_done(engine, h1["id"])
     assert h1["status"] == "failed" and h1["steps"][1]["status"] == "failed"
-    h2 = engine.rerun_from_failed(a, h1)
+    h2 = engine.reexecute_from_failed(a, h1)
     wait_done(engine, h2["id"])
     assert h2["steps"][0]["status"] == "reused"
     assert h2["steps"][1]["status"] == "failed"
 
 
-def test_one_run_at_a_time(store):
+def test_one_execution_at_a_time(store):
     import pytest
 
     from autodave.engine import Engine
@@ -159,21 +159,21 @@ def test_one_run_at_a_time(store):
     ver["steps"][0]["code"] = "import time\ntime.sleep(3)\n"
     a = store.create_automation(ver, "Slowpoke", None)
     h = engine.start(a, "Manual")
-    with pytest.raises(RuntimeError, match="already running"):
+    with pytest.raises(RuntimeError, match="already executing"):
         engine.start(a, "Manual")
     engine.cancel(h["id"])
     wait_done(engine, h["id"])
     assert h["status"] == "cancelled"
 
 
-def test_memory_persists_between_runs(store):
+def test_memory_persists_between_executions(store):
     from autodave.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
     ver["steps"] = [
         {"file": "01-count.py", "name": "Count", "desc": "",
-         "code": 'n = memory.load("n", 0) + 1\nmemory.save("n", n)\nlog(f"run number {n}")\n'
+         "code": 'n = memory.load("n", 0) + 1\nmemory.save("n", n)\nlog(f"execution number {n}")\n'
                  'result.status("ok")\nresult.chip(str(n))\n'},
     ]
     a = store.create_automation(ver, "Memoryful", None)
@@ -183,8 +183,8 @@ def test_memory_persists_between_runs(store):
         assert h["chip"] == expect
 
 
-def test_run_metadata_and_env_vars(store):
-    """§6.1: steps see run.* metadata; child processes see AUTODAVE_* env vars."""
+def test_execution_metadata_and_env_vars(store):
+    """§6.1: steps see execution.* metadata; child processes see AUTODAVE_* env vars."""
     from autodave.engine import Engine
 
     engine = Engine(store)
@@ -193,14 +193,14 @@ def test_run_metadata_and_env_vars(store):
         {"file": "01-meta.py", "name": "Meta", "desc": "",
          "code": (
              "import os, subprocess, sys\n"
-             'log(f"run={run.automation_name}/{run.step_index}/{run.step_name}/{run.trigger}")\n'
+             'log(f"meta={execution.automation_name}/{execution.step_index}/{execution.step_name}/{execution.trigger}")\n'
              'log("env=" + os.environ["AUTODAVE_EXECUTION_ID"])\n'
              "child = subprocess.run([sys.executable, '-c',"
              " 'import os; print(os.environ[\"AUTODAVE_AUTOMATION_NAME\"])'],"
              " capture_output=True, text=True)\n"
              'log("child=" + child.stdout.strip())\n'
              "try:\n"
-             "    run.step_index = 99\n"
+             "    execution.step_index = 99\n"
              "except AttributeError:\n"
              '    log("readonly ok")\n'
          )},
@@ -210,7 +210,7 @@ def test_run_metadata_and_env_vars(store):
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
     logs = [l["text"] for l in store.read_logs(h["id"])]
-    assert "run=MetaAuto/1/Meta/Manual" in logs
+    assert "meta=MetaAuto/1/Meta/Manual" in logs
     assert f"env={h['id']}" in logs
     assert "child=MetaAuto" in logs
     assert "readonly ok" in logs
@@ -278,7 +278,7 @@ def test_step_timeout_applies_to_silent_hang(store, monkeypatch):
 
 
 def test_run_draft_version_lowercase_label(store):
-    """§19: POST /run accepts version 'draft' (lowercase) as well as 'Draft'."""
+    """§19: POST /execute accepts version 'draft' (lowercase) as well as 'Draft'."""
     from autodave.engine import Engine
 
     engine = Engine(store)
@@ -297,19 +297,19 @@ def test_run_draft_version_lowercase_label(store):
 
 
 def test_runtime_import_allowlist_revalidated(store):
-    """§6.2: runner re-checks the curated allowlist before exec'ing a step."""
+    """§6.2: the executor re-checks the curated allowlist before exec'ing a step."""
     from autodave.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
-    ver["steps"][0]["code"] = "import django\nlog('never runs')\n"
+    ver["steps"][0]["code"] = "import django\nlog('never executes')\n"
     a = store.create_automation(ver, "Importer", None)
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "failed"
     logs = store.read_logs(h["id"])
     assert any(l["k"] == "err" and "django" in l["text"] and "isn't allowed" in l["text"] for l in logs)
-    assert not any("never runs" in l["text"] for l in logs)
+    assert not any("never executes" in l["text"] for l in logs)
 
 
 def test_agent_audit_logs_full_prompt(store):
@@ -394,7 +394,7 @@ def test_run_level_log_lines_have_null_step(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     logs = store.read_logs(h["id"])
-    final = [l for l in logs if l["text"].startswith("run failed")]
+    final = [l for l in logs if l["text"].startswith("execution failed")]
     assert final and final[0]["step"] is None
 
 

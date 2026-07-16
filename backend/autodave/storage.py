@@ -201,11 +201,11 @@ class Store:
             latest = self._latest_exec(a["id"])
             a["_last_status"] = latest["status"] if latest else "none"
             a["_last_exec_at"] = latest["started_at"] if latest else None
-            a["_live"] = latest["id"] if latest and latest["status"] == "running" else None
+            a["_live"] = latest["id"] if latest and latest["status"] == "executing" else None
 
     def _latest_exec(self, auto_id: str) -> dict | None:
-        # skipped records never ran — §4.1's lastStatus vocabulary excludes them,
-        # so they must not shadow the real latest run's status/chip.
+        # skipped records never executed — §4.1's lastStatus vocabulary excludes them,
+        # so they must not shadow the real latest execution's status/chip.
         hs = [h for h in self.execs.values()
               if h["auto_id"] == auto_id and h["status"] != "skipped"]
         return max(hs, key=lambda h: h["started_at"] or "") if hs else None
@@ -365,7 +365,7 @@ class Store:
     # ---------- executions ----------
     def create_execution(self, auto: dict, ver_label: str, trigger: str,
                          steps: list[dict], note: str | None = None,
-                         status: str = "running", params: list[dict] | None = None) -> dict:
+                         status: str = "executing", params: list[dict] | None = None) -> dict:
         with self.lock:
             h = {
                 "id": new_id(), "auto_id": auto["id"], "auto_name": auto["name"],
@@ -381,16 +381,16 @@ class Store:
             (d / "result").mkdir(parents=True, exist_ok=True)
             self.execdb.upsert(h)
             self.execs[h["id"]] = h
-            if status == "running":
+            if status == "executing":
                 auto["_live"] = h["id"]
-                auto["_last_status"] = "running"
+                auto["_last_status"] = "executing"
                 auto["_last_exec_at"] = h["started_at"]
             return h
 
     def update_execution(self, h: dict) -> None:
         with self.lock:
             self.execdb.upsert(h)
-            if h["status"] != "running":
+            if h["status"] != "executing":
                 a = self.autos.get(h["auto_id"])
                 if a and a.get("_live") == h["id"]:
                     a["_live"] = None
@@ -440,7 +440,7 @@ class Store:
 
     def result_json(self, h: dict) -> dict | None:
         """§4.5 result object: header chip + yaml fields + files listing + dir path.
-        A run with only output files (no builder calls) still has a result."""
+        An execution with only output files (no builder calls) still has a result."""
         r = self.read_result(h["id"])
         files = self.result_files(h["id"])
         if not r and not files and not h.get("chip"):
@@ -464,7 +464,7 @@ class Store:
             days = max(1, int(self.settings.get("days", 90)))
             cutoff = datetime.now().timestamp() - days * 86400
             doomed = [h["id"] for h in self.execs.values()
-                      if h["status"] != "running" and h["started_at"]
+                      if h["status"] != "executing" and h["started_at"]
                       and datetime.fromisoformat(h["started_at"]).timestamp() < cutoff]
             for eid in doomed:
                 self.delete_execution(eid)
@@ -548,7 +548,7 @@ class Store:
         return out
 
     def latest_result_json(self, a: dict) -> dict | None:
-        hs = [h for h in self.execs.values() if h["auto_id"] == a["id"] and h["status"] != "running"]
+        hs = [h for h in self.execs.values() if h["auto_id"] == a["id"] and h["status"] != "executing"]
         for h in sorted(hs, key=lambda x: x["started_at"] or "", reverse=True):
             r = self.result_json(h)
             if r:
@@ -592,7 +592,7 @@ class Store:
             "live": live,
             "resultChip": chip,
             "resultStatus": chip_status,
-            "lastRunLabel": "running…" if live else timefmt.last_run_label(last_dt),
+            "lastExecLabel": "executing…" if live else timefmt.last_exec_label(last_dt),
             "agentId": a["agent_id"],
             "stepAgents": a["enabled_agents"],
             "allowedSecrets": a["allowed_secrets"],

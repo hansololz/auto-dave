@@ -14,7 +14,7 @@ type LoState = 'idle' | 'installing' | 'sudo' | 'denied' | 'downloading' | 'read
 interface Ob {
   phase: 'welcome' | 'connect'
   smStarted: boolean
-  smSteps: { name: string; status: 'pending' | 'running' | 'done'; dur: string }[]
+  smSteps: { name: string; status: 'pending' | 'executing' | 'done'; dur: string }[]
   smShowResult: boolean
   smDone: boolean
   det: 'searching' | 'cards'
@@ -32,7 +32,7 @@ interface Ob {
 }
 
 // When the Create flow (step 3) navigates back into onboarding, resume at
-// step 2 instead of re-running the welcome self-check.
+// step 2 instead of repeating the welcome self-check.
 let resumeAtConnect = false
 // The prototype keeps onboarding state in its central model: back from step 3
 // lands on step 2 with detection results, connect states, and the chosen
@@ -199,9 +199,9 @@ export default function Onboarding() {
   useEffect(() => {
     if (ob.phase !== 'welcome' || ob.smStarted) return
     ob.smStarted = true
-    t(() => up((o) => { o.smSteps[0].status = 'running' }), 500)
-    t(() => up((o) => { o.smSteps[0].status = 'done'; o.smSteps[0].dur = '1.1s'; o.smSteps[1].status = 'running' }), 1700)
-    t(() => up((o) => { o.smSteps[1].status = 'done'; o.smSteps[1].dur = '1.4s'; o.smSteps[2].status = 'running' }), 3100)
+    t(() => up((o) => { o.smSteps[0].status = 'executing' }), 500)
+    t(() => up((o) => { o.smSteps[0].status = 'done'; o.smSteps[0].dur = '1.1s'; o.smSteps[1].status = 'executing' }), 1700)
+    t(() => up((o) => { o.smSteps[1].status = 'done'; o.smSteps[1].dur = '1.4s'; o.smSteps[2].status = 'executing' }), 3100)
     const finish = () => {
       // Real verification: the store booted against the backend before this
       // surface rendered — only report "ready" once that connection is live.
@@ -215,7 +215,7 @@ export default function Onboarding() {
     t(finish, 3950)
     bump()
     // Re-arm after StrictMode's dev remount (the timer-clearing cleanup above
-    // runs between the two effect passes, so the guard must reset with it).
+    // fires between the two effect passes, so the guard must reset with it).
     return () => { ob.smStarted = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -452,7 +452,7 @@ export default function Onboarding() {
       </div>
 
       <div style={{ flex: 'none', borderTop: '1px solid var(--hairline)', padding: '13px 28px', display: 'flex', justifyContent: 'center', gap: 26, flexWrap: 'wrap' }}>
-        {['Everything runs on this Mac', 'Nothing runs until you review it', 'Passwords stay in your Keychain'].map((p) => (
+        {['Everything executes on this Mac', 'Nothing executes until you review it', 'Passwords stay in your Keychain'].map((p) => (
           <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--green)' }} />
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p}</span>
@@ -465,7 +465,7 @@ export default function Onboarding() {
   // ---------- step 1 ----------
   function renderWelcome() {
     const stepDot = (s: Ob['smSteps'][number]) =>
-      s.status === 'running' ? { dot: 'var(--cyan)', anim: 'adPulse 1.2s ease-in-out infinite', c: 'var(--text)' }
+      s.status === 'executing' ? { dot: 'var(--cyan)', anim: 'adPulse 1.2s ease-in-out infinite', c: 'var(--text)' }
       : s.status === 'done' ? { dot: 'var(--green)', anim: 'none', c: 'var(--text-2em)' }
       : { dot: '#3a414c', anim: 'none', c: 'var(--text-faint)' }
     const chips = ['Settings created', 'Folders in place']
@@ -493,7 +493,7 @@ export default function Onboarding() {
           Recurring jobs, done exactly the same way every time.
         </h1>
         <p style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--text-2)', margin: '0 0 28px' }}>
-          Describe a job in plain words. Your AI writes it as scripts you can read. Auto Dave runs them on your schedule and shows you the result.
+          Describe a job in plain words. Your AI writes it as scripts you can read. Auto Dave executes them on your schedule and shows you the result.
         </p>
 
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
@@ -558,7 +558,7 @@ export default function Onboarding() {
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '44px 32px 60px', animation: 'adFadeUp .5s ease both' }}>
         <h1 style={{ fontWeight: 600, fontSize: 26, lineHeight: 1.25, letterSpacing: '-.02em', margin: '0 0 10px' }}>Connect your AI</h1>
         <p style={{ fontSize: 14.5, lineHeight: 1.6, color: 'var(--text-2)', margin: '0 0 26px' }}>
-          The AI only writes the scripts — Auto Dave runs them. Nothing runs before you review it.
+          The AI only writes the scripts — Auto Dave executes them. Nothing executes before you review it.
         </p>
 
         {ob.det === 'searching' && (
@@ -757,7 +757,7 @@ export default function Onboarding() {
           {choice && ob.lo === 'ready' && <RadioRing selected={sel} />}
         </div>
         <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)', flex: 1 }}>
-          Sets up Ollama with Qwen3 8B. Runs on this Mac, works offline.
+          Sets up Ollama with Qwen3 8B. Local to this Mac, works offline.
         </p>
         {ob.lo === 'idle' && (
           <SubtleBtn onClick={(e) => { e.stopPropagation(); ollamaInstall(false) }}>Download and install · 5.2 GB</SubtleBtn>

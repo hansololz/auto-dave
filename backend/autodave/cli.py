@@ -15,7 +15,7 @@ class Client:
     def __init__(self) -> None:
         bj = paths.backend_json()
         if not bj.exists():
-            sys.exit("backend isn't running (no backend.json) — start it with "
+            sys.exit("backend isn't up (no backend.json) — start it with "
                      "`autodave service install` or `autodave-backend`")
         info = json.loads(bj.read_text())
         self.base = f"http://127.0.0.1:{info['port']}"
@@ -55,9 +55,9 @@ def cmd_list(c: Client, _args) -> None:
               f"{a.get('resultChip') or ''}  [{a['id'][:8]}]")
 
 
-def cmd_run(c: Client, args) -> None:
+def cmd_execute(c: Client, args) -> None:
     a = find_auto(c, args.automation)
-    r = c.req("POST", f"/automations/{a['id']}/run", {"trigger": "Manual"})
+    r = c.req("POST", f"/automations/{a['id']}/execute", {"trigger": "Manual"})
     print(f"started — execution {r['execId']}")
     if args.follow:
         follow_exec(c, r["execId"])
@@ -70,7 +70,7 @@ def follow_exec(c: Client, exec_id: str) -> None:
         for line in e.get("logs", [])[seen:]:
             print(f"  {line['t']} [{line['k']}] {line['text']}")
         seen = len(e.get("logs", []))
-        if e["status"] != "running":
+        if e["status"] != "executing":
             print(f"→ {e['status']} in {e['dur']}")
             break
         time.sleep(1)
@@ -124,7 +124,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list", help="list automations")
-    p = sub.add_parser("run", help="run an automation now")
+    p = sub.add_parser("execute", help="execute an automation now")
     p.add_argument("automation")
     p.add_argument("-f", "--follow", action="store_true", help="stream logs until it finishes")
     p = sub.add_parser("executions", help="recent executions")
@@ -142,7 +142,7 @@ def main() -> None:
     args = ap.parse_args()
     c = Client() if args.cmd != "service" else None
     {
-        "list": cmd_list, "run": cmd_run, "executions": cmd_execs, "tail": cmd_tail,
+        "list": cmd_list, "execute": cmd_execute, "executions": cmd_execs, "tail": cmd_tail,
         "secrets": cmd_secrets, "agents": cmd_agents, "service": cmd_service,
     }[args.cmd](c, args)
 

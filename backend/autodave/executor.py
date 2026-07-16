@@ -1,6 +1,6 @@
-"""Per-step subprocess runner + the `autodave` step SDK (§6.1).
+"""Per-step subprocess executor + the `autodave` step SDK (§6.1).
 
-Invoked as `python -m autodave.runner <script.py>` with a JSON context on
+Invoked as `python -m autodave.executor <script.py>` with a JSON context on
 stdin (never argv/env — secrets travel on the pipe). Injects the SDK globals,
 executes the script, and reports structured events as `@@AD@@{json}` control
 lines on stdout. Plain stdout/stderr lines become out/err log lines.
@@ -78,10 +78,10 @@ class Memory:
         f.write_text(yaml.safe_dump(obj, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
-class Run:
-    """§6.1 read-only run metadata: which automation/execution/step this is."""
+class Execution:
+    """§6.1 read-only execution metadata: which automation/execution/step this is."""
 
-    _FIELDS = ("automation_id", "automation_name", "execution_id",
+    _FIELDS = ("automation_id", "automation_name", "id",
                "step_index", "step_name", "trigger")
 
     def __init__(self, meta: dict):
@@ -89,7 +89,7 @@ class Run:
             object.__setattr__(self, f, meta.get(f))
 
     def __setattr__(self, name: str, value) -> None:
-        raise AttributeError("run metadata is read-only")
+        raise AttributeError("execution metadata is read-only")
 
 
 class Log:
@@ -250,17 +250,17 @@ def main() -> int:
 
     os.chdir(workspace)
 
-    # §6.1: non-secret run metadata + paths go into the environment too, so
+    # §6.1: non-secret execution metadata + paths go into the environment too, so
     # child processes a step spawns can self-identify without plumbing. The
-    # runner itself never reads these back — stdin JSON stays the only input.
-    run_meta = ctx.get("run", {})
+    # executor itself never reads these back — stdin JSON stays the only input.
+    exec_meta = ctx.get("execution", {})
     for key, value in {
-        "AUTODAVE_AUTOMATION_ID": run_meta.get("automation_id"),
-        "AUTODAVE_AUTOMATION_NAME": run_meta.get("automation_name"),
-        "AUTODAVE_EXECUTION_ID": run_meta.get("execution_id"),
-        "AUTODAVE_STEP_INDEX": run_meta.get("step_index"),
-        "AUTODAVE_STEP_NAME": run_meta.get("step_name"),
-        "AUTODAVE_TRIGGER": run_meta.get("trigger"),
+        "AUTODAVE_AUTOMATION_ID": exec_meta.get("automation_id"),
+        "AUTODAVE_AUTOMATION_NAME": exec_meta.get("automation_name"),
+        "AUTODAVE_EXECUTION_ID": exec_meta.get("id"),
+        "AUTODAVE_STEP_INDEX": exec_meta.get("step_index"),
+        "AUTODAVE_STEP_NAME": exec_meta.get("step_name"),
+        "AUTODAVE_TRIGGER": exec_meta.get("trigger"),
         "AUTODAVE_WORKSPACE": str(workspace),
         "AUTODAVE_MEMORY_DIR": ctx["memory_dir"],
         "AUTODAVE_RESULT_DIR": ctx["result_dir"],
@@ -281,7 +281,7 @@ def main() -> int:
         "secrets": Secrets(ctx.get("secrets", {}), ctx.get("allowed_secrets", [])),
         "memory": Memory(ctx["memory_dir"]),
         "workspace": workspace,
-        "run": Run(run_meta),
+        "execution": Execution(exec_meta),
         "log": Log(),
         "result": Result(ctx["result_dir"]),
         "notify": notify,

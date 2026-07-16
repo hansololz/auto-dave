@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Fastest way to run Auto Dave from the repo, with hot reloading: deps only (no
+# Fastest way to launch Auto Dave from the repo, with hot reloading: deps only (no
 # renderer bundle), then the real backend, a Vite dev server for the renderer
 # (HMR — edits to app/src apply live), and Electron pointed at it via
 # AUTODAVE_RENDERER_URL (§15). Same real code everywhere: real data dir
 # (~/Library/Application Support/Auto Dave), macOS Keychain, random free port,
 # backend as the real launchd LaunchAgent (com.autodave.backend, §3:
 # RunAtLoad/KeepAlive, survives Electron quit), no mocks, no seed data.
-# Backend edits still need a rerun (the backend is not hot-reloaded).
+# Backend edits still need a restart (the backend is not hot-reloaded).
 # Ctrl+C shuts the whole app down (Electron, vite, and the backend);
-# quitting Electron normally leaves the backend running, like release.
+# quitting Electron normally leaves the backend up, like release.
 #
 #   ./scripts/dev.sh    deps, restart the service, vite + Electron with HMR
 #
@@ -58,7 +58,7 @@ kill_stale() {
   pkill -9 -f "$pattern" 2>/dev/null || true
 }
 
-# ---- shut down lingering processes from previous runs ----
+# ---- shut down lingering processes from previous sessions ----
 # ps shows the venv python's RESOLVED binary (e.g. Homebrew Python.app), never
 # "$ROOT/.venv/bin/python", so match the module invocation itself. Backends can
 # be stuck in graceful shutdown (uvicorn waits on open WebSockets) — the
@@ -78,7 +78,7 @@ if [ "$ISOLATED" = "1" ]; then
     "$ROOT/.venv/bin/python" -m autodave.main \
     > "$LOGS/backend.out.log" 2> "$LOGS/backend.err.log" &)
 else
-  # the real thing: launchd LaunchAgent, exactly as a release install runs it
+  # the real thing: launchd LaunchAgent, exactly as a release install starts it
   echo "· installing launchd service (data: $DATA)"
   "$ROOT/.venv/bin/autodave" service install
 fi
@@ -88,7 +88,7 @@ fi
 # uninstall first (launchd KeepAlive would otherwise respawn it), then
 # kill_stale, because a plain SIGTERM leaves uvicorn hanging in graceful
 # shutdown and only its SIGKILL fallback clears that. Quitting Electron
-# normally (Cmd+Q) still leaves the backend running, like release.
+# normally (Cmd+Q) still leaves the backend up, like release.
 shutdown_backend() {
   echo
   echo "· ctrl-c — stopping the backend"
@@ -128,6 +128,6 @@ for _ in $(seq 1 75); do
 done
 [ -n "$VITE_UP" ] || { echo "vite didn't come up — see $LOGS/vite.log"; exit 1; }
 
-# ---- electron (foreground; quitting it leaves the backend running, like release) ----
+# ---- electron (foreground; quitting it leaves the backend up, like release) ----
 echo "· launching Electron (HMR via http://127.0.0.1:$VPORT)"
 cd "$ROOT/app" && AUTODAVE_RENDERER_URL="http://127.0.0.1:$VPORT" npx electron .

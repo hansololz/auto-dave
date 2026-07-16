@@ -55,21 +55,21 @@ def status() -> str:
     for line in r.stdout.splitlines():
         if LABEL in line:
             pid = line.split()[0]
-            running = pid != "-"
+            alive = pid != "-"
             bj = paths.backend_json()
             port = ""
             if bj.exists():
                 import json
 
                 port = f" · port {json.loads(bj.read_text())['port']}"
-            return ("running" if running else "loaded, not running") + f" (pid {pid}){port}"
+            return ("active" if alive else "loaded, not active") + f" (pid {pid}){port}"
     return "not installed"
 
 
 def restart() -> str:
     p = plist_path()
     if not p.exists():
-        return "not installed — run `autodave service install` first"
+        return "not installed — use `autodave service install` first"
     subprocess.run(["launchctl", "unload", str(p)], capture_output=True)
     r = subprocess.run(["launchctl", "load", str(p)], capture_output=True, text=True)
     return "restarted" if r.returncode == 0 else f"restart failed: {r.stderr.strip()}"
