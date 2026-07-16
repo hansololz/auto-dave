@@ -1338,15 +1338,17 @@ export default function CreateFlow() {
                   )}
                   {/* ask-the-agent box — hidden until a spec exists to edit */}
                   {!rev.specBusy && !rev.specErr && !rev.specBlockers && (<>
-                  <div style={{ borderTop: '1px solid var(--hairline)', padding: '12px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input
-                      value={rev.ask}
+                  <div style={{ borderTop: '1px solid var(--hairline)', padding: '12px 14px', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                    <textarea
+                      value={rev.ask} rows={1}
+                      ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` } }}
                       onChange={(e) => up({ ask: e.target.value })}
-                      onKeyDown={(e) => { if (e.key === 'Enter') void sendAsk() }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendAsk() } }}
                       placeholder="Ask for a change — “also check on weekends”"
                       style={{
                         flex: 1, background: 'var(--bg-inset)', border: '1px solid rgba(255,255,255,.08)',
-                        borderRadius: 8, color: 'var(--text)', font: "400 12.5px var(--sans)", padding: '8px 12px', outline: 'none',
+                        borderRadius: 8, color: 'var(--text)', font: "400 12.5px/1.5 var(--sans)", padding: '8px 12px', outline: 'none',
+                        resize: 'none', overflow: 'hidden', display: 'block',
                       }}
                     />
                     {rev.syncBusy || rev.askBusy ? (

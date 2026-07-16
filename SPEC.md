@@ -1019,7 +1019,8 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   clarification cards, or being edited, and the Edit/Cancel/Save
   buttons + body + ask box hide when collapsed). Editable as markdown-ish text (`#`, `##`, `-`,
   plain ↔ h1/h2/li/p blocks). Also an
-  "ask the agent" box ("Edit with agent") that starts one §8 `edit` job (spec call only) with the
+  "ask the agent" box ("Edit with agent") — a multiline textarea (1 row min) that grows with
+  its content, never scrolls (Enter sends, Shift+Enter inserts a newline) and starts one §8 `edit` job (spec call only) with the
   selected drafting agent (the automation's agent, falling back to the default agent): the agent
   receives the in-editor draft (spec + steps + build instructions) and the in-editor grants
   (enabled agent names, allowed secret names) and returns the rewritten spec. The steps are not
