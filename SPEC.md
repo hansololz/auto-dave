@@ -630,11 +630,16 @@ also served to the create/edit page via §19 `GET /instructions`):
   with **every** call, written as structured markdown (headings, fenced code blocks for the
   envelopes and SDK reference, a table for parameter kinds): the agent's role, the generic
   file-block envelope (the per-call TASK directive
-  names the exact files), the blocker envelope and when to use it, the `autodave` SDK reference, the curated package list, the parameter
+  names the exact files), the blocker envelope and when to use it, the task-solving ladder
+  (deterministic code with curated libraries first; an agent step only when judgment is truly
+  needed, its prompt kept small enough for a local model — narrow question, strict output
+  format, reply validated in code), the `autodave` SDK reference with worked examples (a typical
+  memory-diff last step; a validated `agent.ask` call), the curated package list, the parameter
   kinds table (§4.2), schedule- and step-design duties, and all five §6 policy sections. The §11
   Framework-instructions card renders this file as markdown.
 - `backend/autodave/instructions/default-build-instructions.md` — the default best-practice
   build instructions (never delete files, write only to memory/workspace, small single-purpose
+  steps, prefer existing libraries over hand-written code, prefer deterministic code over agent
   steps, fail loudly, quiet executions stay quiet, track seen items in memory). In `create` mode, when
   the user gave none, the backend seeds `instr` from this file; the validated create draft
   carries `instr` back so the Review card arrives pre-filled — the user edits or deletes the

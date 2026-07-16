@@ -34,6 +34,22 @@ Use it for genuine impossibility only, never mere uncertainty — when in doubt,
 build your best attempt. Report ALL blockers in one response, in plain words
 the user can act on. Never mix file blocks and a blocker envelope.
 
+## How to solve a task
+
+Work down this ladder and stop at the first rung that does the job:
+
+1. **Deterministic code** — plain Python using the stdlib and curated packages.
+   Most steps live here. Prefer a library that already solves the problem over
+   code you write yourself: `feedparser` for feeds, `bs4`/`lxml` for HTML,
+   `dateutil` for messy dates, `requests`/`httpx` for HTTP beyond `fetch_page`.
+   Less hand-written code, fewer ways to break.
+2. **Agent step** (`agent: true`) — only when a step needs judgment code cannot
+   express (classify, summarize, compare meaning). The user may route agent
+   steps to a small local model, so write every prompt a small model can
+   answer: pre-extract the data in code first, ask one narrow question, demand
+   a strict output format, and validate the reply in code. If only a big hosted
+   model could answer, the question is too broad — narrow it or split it.
+
 ## Step scripts and the autodave SDK
 
 Step scripts execute one per subprocess with these globals (the autodave SDK):
@@ -48,12 +64,47 @@ log(text)                 # also log.warn(text) / log.error(text)
 result.status('changes' | 'ok' | 'attention')
 result.chip(text)         # short summary chip; also result.chips
 result.value(name, text_or_list)
-result.path               # directory — write any output files there
-result.md                 # renders as markdown
-result.html               # renders as a styled page
+result.path               # dir for output files; a result.md there renders as
+                          #   markdown, result.html as a styled page, images inline
 notify(text)
 fetch_page(url)
 agent.ask(prompt, data)   # only in steps marked agent: true
+```
+
+A typical last step, end to end — load what earlier steps left in the workspace
+(the cwd), diff against memory, report:
+
+```python
+import json, pathlib
+
+entries = json.loads(pathlib.Path("entries.json").read_text())
+seen = memory.load("seen_ids", default=[])
+new = [e for e in entries if e["id"] not in seen]
+log(f"{len(new)} new of {len(entries)}")
+
+if not new:
+    result.status("ok")
+else:
+    result.status("changes")
+    result.chip(f"{len(new)} new")
+    result.value("New items", [e["title"] for e in new])
+    lines = [f"| {e['title']} | {e['date']} |" for e in new]
+    (result.path / "result.md").write_text(
+        "| Title | Date |\n|---|---|\n" + "\n".join(lines))
+    notify(f"{len(new)} new items")
+    memory.save("seen_ids", seen + [e["id"] for e in new])
+```
+
+An agent call, kept small enough for a local model — narrow question, strict
+format, reply validated in code:
+
+```python
+answer = agent.ask(
+    "Which titles below are NEW chapters, not reprints? "
+    "Reply with the matching ids only, one per line, nothing else.",
+    data=titles_block,
+)
+new_ids = [l.strip() for l in answer.splitlines() if l.strip() in known_ids]
 ```
 
 Notes:
@@ -61,13 +112,14 @@ Notes:
 - `result.chip(text)` is a short summary chip — optional: skip it when the job
   has nothing worth summarizing in three words.
 - `result.value(name, text_or_list)` sets named values shown first in the UI.
-- `result.md` renders as markdown (use markdown tables); `result.html` as a
-  styled page; images inline.
+- Pass data between steps as files in the workspace (the cwd) — it lives for
+  the whole execution and is discarded after. Only `memory` survives between
+  executions; only `result.path` reaches the user.
 
 ## Allowed imports
 
 Python stdlib, `autodave`, `requests`, `httpx`, `bs4`, `lxml`, `feedparser`,
-`dateutil`, `yaml`. Nothing else.
+`dateutil`, `yaml`. Nothing else — the engine rejects any other import.
 
 ## Schedule
 
@@ -91,8 +143,8 @@ script. Kinds:
 ## Steps
 
 Few and single-purpose (fetch → decide → act → report), each short and
-readable. The last step builds the result; mark `agent: true` only where
-judgment on data is truly needed.
+readable. The last step builds the result; mark `agent: true` only where the
+"How to solve a task" ladder lands on an agent step.
 
 ## Framework policies the engine enforces
 
