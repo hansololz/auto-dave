@@ -364,10 +364,12 @@ def post_draft(body: dict) -> dict:
     if allowed is None:
         allowed = auto["allowed_secrets"] if auto else []
     grants = {
-        # §8: grants context carries agent NAMES — ids are meaningless to the drafting agent.
-        "agents": [g.get("name") or g.get("harness", "") for g in store.agents
-                   if g["id"] in enabled_ids] if enabled_ids is not None
-                  else [agent.get("name") or agent.get("harness", "")],
+        # §8: grants context carries agent names + descriptions — ids are meaningless
+        # to the drafting agent; the §4.7 desc tells it what each agent is for.
+        "agents": [{"name": g.get("name") or g.get("harness", ""), "desc": g.get("desc") or ""}
+                   for g in store.agents if g["id"] in enabled_ids] if enabled_ids is not None
+                  else [{"name": agent.get("name") or agent.get("harness", ""),
+                         "desc": agent.get("desc") or ""}],
         "secrets": allowed,
     }
     job_id = draft_jobs.start(mode, agent, body.get("text"), current, grants)

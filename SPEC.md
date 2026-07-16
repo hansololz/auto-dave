@@ -306,7 +306,9 @@ skipped (gray) · reused (gray) · interrupted (magenta) · none → "Not execut
   mode: default | ollama, model }
 ```
 `desc` is an optional free-text description ("What this agent is for — shown on the Agents
-page"), rendered as the detail line on the agent card.
+page and given to the drafting agent"), rendered as the detail line on the agent card and
+carried into the §8 drafting prompts next to the agent's name so the drafting agent knows what
+each enabled agent is for.
 Default models per harness: Claude Code → "Claude Sonnet 4.5", Gemini CLI → "Gemini 2.5 Pro",
 Codex → "GPT-5 Codex", else "Configured default". Display shows "Default configured model" when
 the model equals the harness default. One agent is the app default; deleting an agent reassigns
@@ -705,7 +707,9 @@ return the rewritten spec; the steps are untouched and a later `sync` rebuilds t
 **Call 1 — write the spec** (`create`/`edit`; skipped on `sync`). Step code never travels in
 this call; the prompt just asks to update the spec from the user request. Sections in order:
 
-1. **Available agents** — enabled agent names.
+1. **Available agents** — enabled agent names, each rendered `name — desc` when the agent has
+   a §4.7 description (name alone otherwise), so the drafting agent knows what each agent is
+   for; entries joined with `;`. The same rendering applies to the call-2 grants context.
 2. **Available secrets** — allowed secret **names** (never values, memory contents, or
    execution logs). For both grant lines the §19 body's grant arrays (the in-editor toggles)
    win over the stored automation's; absent both, the drafting agent's own name and no secrets.
@@ -1125,7 +1129,8 @@ schedule — but you need an agent to create or edit them." + CTA "Add your firs
 **New / Edit agent** form (720 px, one form — title and submit label switch to "Edit agent" /
 "Save changes" when editing): pick harness (Claude Code / Gemini CLI / Codex / OpenCode /
 Ollama), mode (default model vs. local Ollama model), model (required for Ollama mode), name
-(required), optional description ("What this agent is for — shown on the Agents page"). The
+(required), optional description ("What this agent is for — shown on the Agents page and given
+to the drafting agent"). The
 submit button renders disabled-styled until valid but stays clickable: submitting with a missing
 name shows an inline red error "A name is required — give this agent a name before saving." (red
 input border, clears on typing); missing Ollama toasts "Install Ollama first."; otherwise "Pick

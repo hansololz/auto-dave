@@ -313,7 +313,7 @@ export default function AgentNewPage() {
       <textarea
         value={desc}
         onChange={(e) => setDesc(e.target.value)}
-        placeholder="What this agent is for — shown on the Agents page"
+        placeholder="What this agent is for — shown on the Agents page and given to the drafting agent"
         rows={2}
         style={{
           width: '100%', boxSizing: 'border-box', background: 'var(--bg-card)',

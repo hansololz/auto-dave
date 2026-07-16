@@ -210,6 +210,16 @@ def test_spec_prompt_carries_framework_instructions_and_request():
     assert "=== USER REQUEST ===\nWatch a product price" in p
 
 
+def test_prompts_carry_agent_descriptions():
+    # §8: each enabled agent renders `name — desc` (name alone without a desc)
+    # in both calls so the drafting agent knows what each agent is for.
+    grants = {"agents": [{"name": "Claude Code", "desc": "Best for coding judgment"},
+                         {"name": "Local", "desc": ""}], "secrets": []}
+    for p in (build_spec_prompt("create", "x", None, grants),
+              build_steps_prompt("sync", "# T\n\nBody.", None, grants)):
+        assert "Claude Code — Best for coding judgment; Local" in p
+
+
 def test_prompts_carry_blocker_contract():
     # §8: framework-instructions travel with every call, blocker envelope included
     for p in (build_spec_prompt("create", "x", None, GRANTS),

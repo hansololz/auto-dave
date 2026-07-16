@@ -77,12 +77,20 @@ def spec_as_md(current: dict | None) -> str:
     return spec_val if isinstance(spec_val, str) else blocks_to_md(spec_val)
 
 
+def _agent_grants(grants: dict) -> str:
+    """§8: each enabled agent renders `name — desc` (name alone without a §4.7
+    description) so the drafting agent knows what each agent is for."""
+    ents = [f"{a['name']} — {a['desc']}" if a.get("desc") else a["name"]
+            for a in grants.get("agents", [])]
+    return "; ".join(ents) or "none"
+
+
 def _common_context(current: dict | None, grants: dict) -> list[str]:
     """Grants + build instructions — the steps call's shared context (call 1
     builds its own sections in its own order)."""
     parts = [
         "Grants for this automation — enabled agents (agent: true steps allowed only if nonempty): "
-        f"{', '.join(grants.get('agents', [])) or 'none'}; allowed secret names: "
+        f"{_agent_grants(grants)}; allowed secret names: "
         f"{', '.join(grants.get('secrets', [])) or 'none'}."
     ]
     # §8: instructions travel with every call as context only — never returned by
@@ -100,7 +108,7 @@ def build_spec_prompt(mode: str, user_text: str | None, current: dict | None,
     travels here; the closing TASK just asks to update the spec from the request."""
     parts = [
         "Available agents (agent: true steps allowed only if nonempty): "
-        f"{', '.join(grants.get('agents', [])) or 'none'}.",
+        f"{_agent_grants(grants)}.",
         "Available secrets (allowed secret names): "
         f"{', '.join(grants.get('secrets', [])) or 'none'}.",
     ]
