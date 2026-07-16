@@ -1021,7 +1021,10 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
 - **Spec** — collapsible card (caret + `SPEC` header toggle; defaults open on create — it is
   the drafting surface — and on edit; force-open while the spec is writing, showing
   clarification cards, or being edited, and the Edit/Cancel/Save
-  buttons + body + ask box hide when collapsed). Editable as markdown-ish text (`#`, `##`, `-`,
+  buttons + body + ask box hide when collapsed; collapsed, a faint one-line hint shows in their
+  place — "What the automation should do, in plain words. The AI regenerates the steps from
+  this document when it changes." — and clicking it expands the card, same as the other
+  collapsed-section hints on this page). Editable as markdown-ish text (`#`, `##`, `-`,
   plain ↔ h1/h2/li/p blocks). Also an
   "ask the agent" box ("Edit with agent") — a multiline textarea (1 row min) that grows with
   its content, never scrolls (Enter sends, Shift+Enter inserts a newline) and starts one §8 `edit` job (spec call only) with the

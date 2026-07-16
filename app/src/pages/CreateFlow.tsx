@@ -1270,6 +1270,11 @@ export default function CreateFlow() {
                       </div>
                     ))}
                   </div>
+                  {!specOpenEff && (
+                    <div onClick={() => up({ specSecOpen: true })} style={{ padding: '0 20px 13px 43px', font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-faintest)', cursor: 'pointer', userSelect: 'none' }}>
+                      What the automation should do, in plain words. The AI regenerates the steps from this document when it changes.
+                    </div>
+                  )}
                   {specOpenEff && (<>
                   {/* §11 drafting-on-Review: call 1 in flight */}
                   {rev.specBusy ? (
