@@ -42,6 +42,8 @@ Step scripts run one per subprocess with these globals (the autodave SDK):
 params                    # dict, by param name
 secrets.NAME              # Keychain values — never log them
 memory                    # persistent dir: .load(name, default) / .save(name, obj)
+run                       # read-only metadata: .automation_id / .automation_name /
+                          #   .execution_id / .step_index / .step_name / .trigger
 log(text)                 # also log.warn(text) / log.error(text)
 result.status('changes' | 'ok' | 'attention')
 result.chip(text)         # short summary chip; also result.chips

@@ -78,6 +78,20 @@ class Memory:
         f.write_text(yaml.safe_dump(obj, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
+class Run:
+    """§6.1 read-only run metadata: which automation/execution/step this is."""
+
+    _FIELDS = ("automation_id", "automation_name", "execution_id",
+               "step_index", "step_name", "trigger")
+
+    def __init__(self, meta: dict):
+        for f in self._FIELDS:
+            object.__setattr__(self, f, meta.get(f))
+
+    def __setattr__(self, name: str, value) -> None:
+        raise AttributeError("run metadata is read-only")
+
+
 class Log:
     def __call__(self, text: str) -> None:
         emit("log", k="out", text=str(text))
@@ -236,6 +250,24 @@ def main() -> int:
 
     os.chdir(workspace)
 
+    # §6.1: non-secret run metadata + paths go into the environment too, so
+    # child processes a step spawns can self-identify without plumbing. The
+    # runner itself never reads these back — stdin JSON stays the only input.
+    run_meta = ctx.get("run", {})
+    for key, value in {
+        "AUTODAVE_AUTOMATION_ID": run_meta.get("automation_id"),
+        "AUTODAVE_AUTOMATION_NAME": run_meta.get("automation_name"),
+        "AUTODAVE_EXECUTION_ID": run_meta.get("execution_id"),
+        "AUTODAVE_STEP_INDEX": run_meta.get("step_index"),
+        "AUTODAVE_STEP_NAME": run_meta.get("step_name"),
+        "AUTODAVE_TRIGGER": run_meta.get("trigger"),
+        "AUTODAVE_WORKSPACE": str(workspace),
+        "AUTODAVE_MEMORY_DIR": ctx["memory_dir"],
+        "AUTODAVE_RESULT_DIR": ctx["result_dir"],
+    }.items():
+        if value is not None:
+            os.environ[key] = str(value)
+
     notify_holder = {}
 
     def notify(text: str) -> None:
@@ -249,6 +281,7 @@ def main() -> int:
         "secrets": Secrets(ctx.get("secrets", {}), ctx.get("allowed_secrets", [])),
         "memory": Memory(ctx["memory_dir"]),
         "workspace": workspace,
+        "run": Run(run_meta),
         "log": Log(),
         "result": Result(ctx["result_dir"]),
         "notify": notify,

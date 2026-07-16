@@ -183,6 +183,39 @@ def test_memory_persists_between_runs(store):
         assert h["chip"] == expect
 
 
+def test_run_metadata_and_env_vars(store):
+    """§6.1: steps see run.* metadata; child processes see AUTODAVE_* env vars."""
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"] = [
+        {"file": "01-meta.py", "name": "Meta", "desc": "",
+         "code": (
+             "import os, subprocess, sys\n"
+             'log(f"run={run.automation_name}/{run.step_index}/{run.step_name}/{run.trigger}")\n'
+             'log("env=" + os.environ["AUTODAVE_EXECUTION_ID"])\n'
+             "child = subprocess.run([sys.executable, '-c',"
+             " 'import os; print(os.environ[\"AUTODAVE_AUTOMATION_NAME\"])'],"
+             " capture_output=True, text=True)\n"
+             'log("child=" + child.stdout.strip())\n'
+             "try:\n"
+             "    run.step_index = 99\n"
+             "except AttributeError:\n"
+             '    log("readonly ok")\n'
+         )},
+    ]
+    a = store.create_automation(ver, "MetaAuto", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "succeeded"
+    logs = [l["text"] for l in store.read_logs(h["id"])]
+    assert "run=MetaAuto/1/Meta/Manual" in logs
+    assert f"env={h['id']}" in logs
+    assert "child=MetaAuto" in logs
+    assert "readonly ok" in logs
+
+
 def test_workspace_shared_between_steps(store):
     """§6: all steps of an execution share one workspace (cwd)."""
     from autodave.engine import Engine

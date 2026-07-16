@@ -514,6 +514,9 @@ The engine's runner injects these globals — scripts may also `import autodave`
   before step 1). Values never repr/print unredacted — the engine scans all log lines.
 - `memory` — `pathlib.Path` of the automation's memory dir, plus `memory.load(name, default)` /
   `memory.save(name, obj)` YAML helpers.
+- `run` — read-only run metadata: `run.automation_id`, `run.automation_name`, `run.execution_id`,
+  `run.step_index` (1-based), `run.step_name`, `run.trigger` (the execution's trigger label,
+  e.g. `Manual` / `Schedule`). Assigning to any field raises.
 - `log` — `log(text)` / `log.warn(text)` / `log.error(text)` → `out`/`wrn`/`err` NDJSON lines
   (`log.info` is an alias of `log`).
 - `result` — builder used by the last step (any step may add): `result.chip(text)` (optional —
@@ -535,7 +538,12 @@ The engine's runner injects these globals — scripts may also `import autodave`
 
 Runner↔engine protocol: stdout/stderr are captured line-by-line as `out`/`err`; structured calls
 (log/result/notify) emit `@@AD@@{json}` control lines on stdout. Context (param values, secret
-values, paths, agent config) arrives as JSON on stdin — never argv, never the environment.
+values, paths, agent config, run metadata) arrives as JSON on stdin — never argv, never the
+environment. The runner does export the non-secret pieces back out as env vars so child
+processes a step spawns can self-identify: `AUTODAVE_AUTOMATION_ID`, `AUTODAVE_AUTOMATION_NAME`,
+`AUTODAVE_EXECUTION_ID`, `AUTODAVE_STEP_INDEX`, `AUTODAVE_STEP_NAME`, `AUTODAVE_TRIGGER`,
+`AUTODAVE_WORKSPACE`, `AUTODAVE_MEMORY_DIR`, `AUTODAVE_RESULT_DIR`. Param values, secret values,
+and agent config never enter the environment; the runner never reads env as input.
 
 ### 6.2 Curated packages (decided)
 

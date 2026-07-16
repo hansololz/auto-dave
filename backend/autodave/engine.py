@@ -200,7 +200,7 @@ class Engine:
                         self._step_event(h, i)
                         failed = True
                         continue
-                rc = self._run_step(auto, ver, h, s, vdir, params, secret_values, agent_cfg,
+                rc = self._run_step(auto, ver, h, s, i + 1, vdir, params, secret_values, agent_cfg,
                                     state, redactions, result, notify_holder := {})
                 if notify_holder.get("text"):
                     notify_text = notify_holder["text"]
@@ -270,7 +270,7 @@ class Engine:
                 return agents[aid]
         return None
 
-    def _run_step(self, auto: dict, ver: dict, h: dict, s: dict, vdir: Path,
+    def _run_step(self, auto: dict, ver: dict, h: dict, s: dict, step_index: int, vdir: Path,
                   params: dict, secret_values: dict, agent_cfg: dict | None,
                   state: dict, redactions: dict, result: dict, notify_holder: dict) -> int:
         script = vdir / (s.get("file") or "")
@@ -292,6 +292,14 @@ class Engine:
             "agent": agent_cfg,
             "is_agent_step": bool(s.get("agent")),
             "agent_timeout": 120,
+            "run": {
+                "automation_id": auto["id"],
+                "automation_name": auto["name"],
+                "execution_id": h["id"],
+                "step_index": step_index,
+                "step_name": s["name"],
+                "trigger": h["trigger"],
+            },
         }
         proc = subprocess.Popen(
             [sys.executable, "-m", "autodave.runner", str(script)],
