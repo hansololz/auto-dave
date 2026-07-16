@@ -1,5 +1,5 @@
-"""§6 scheduler retry policy: a failed scheduled execution is retried once after
-5 minutes — once per failure streak per automation, not once per execution id."""
+"""§6 scheduler retry policy: a failed trigger-fired execution is retried once
+after 5 minutes — once per failure streak per automation, not once per execution id."""
 from conftest import make_version
 
 
@@ -12,20 +12,20 @@ def _mk(store):
     return engine, sched
 
 
-def _finished(auto_id, exec_id, status, trigger="Schedule"):
+def _finished(auto_id, exec_id, status, trigger="Cron"):
     return {"id": exec_id, "auto_id": auto_id, "trigger": trigger, "status": status}
 
 
 def test_failed_scheduled_run_retried_once_per_streak(store):
     engine, sched = _mk(store)
-    # first scheduled failure → one retry scheduled
+    # first trigger-fired failure → one retry scheduled
     engine.on_finished(_finished("a1", "e1", "failed"))
     assert "a1" in sched._retry_at and "a1" in sched._retried
     # the retry fires (tick pops the entry) and fails again — no second retry
     sched._retry_at.pop("a1")
     engine.on_finished(_finished("a1", "e2", "failed"))
     assert "a1" not in sched._retry_at
-    # a later scheduled failure of the same streak still doesn't re-arm
+    # a later trigger-fired failure of the same streak still doesn't re-arm
     engine.on_finished(_finished("a1", "e3", "failed"))
     assert "a1" not in sched._retry_at
 
@@ -48,14 +48,14 @@ def test_manual_runs_never_arm_retry(store):
 
 
 def test_failed_scheduled_run_arms_retry_end_to_end(store):
-    """Real engine execution with trigger Schedule arms the retry via on_finished."""
+    """Real engine execution with trigger Cron arms the retry via on_finished."""
     import time
 
     engine, sched = _mk(store)
     ver = make_version()
     ver["steps"][0]["code"] = 'raise RuntimeError("boom")\n'
     a = store.create_automation(ver, "Sched Fail", None)
-    h = engine.start(a, "Schedule")
+    h = engine.start(a, "Cron")
     t0 = time.time()
     while engine.is_live(h["id"]):
         assert time.time() - t0 < 30

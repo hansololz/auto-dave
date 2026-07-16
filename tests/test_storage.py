@@ -4,7 +4,8 @@ from conftest import make_version
 def test_create_and_reload_roundtrip(store, home):
     from autodave.storage import Store
 
-    a = store.create_automation(make_version(), "My Test Job", "agent-1", hour=7, minute=30)
+    trig = {"id": "t-1", "kind": "cron", "off": False, "expr": "30 7 * * *"}
+    a = store.create_automation(make_version(), "My Test Job", "agent-1", triggers=[trig])
     assert (home / "automations" / "my-test-job" / "versions" / "v1" / "01-say.py").exists()
     assert (home / "automations" / "my-test-job" / "versions" / "v1" / "spec.md").exists()
 
@@ -12,26 +13,29 @@ def test_create_and_reload_roundtrip(store, home):
     s2.load_all()
     b = s2.autos[a["id"]]
     assert b["name"] == "My Test Job"
-    assert b["hour"] == 7 and b["min"] == 30
+    assert b["triggers"] == [trig]
+    assert s2.auto_json(b)["triggerChip"] == "Daily 7:30"
     ver = b["versions"][1]
     assert ver["steps"][0]["name"] == "Say hello"
     assert "params['greeting']" in ver["steps"][0]["code"]
     assert ver["spec"][0] == {"k": "h1", "text": "Test automation"}
 
 
-def test_no_schedule_roundtrip(store, home):
+def test_no_triggers_roundtrip(store, home):
     from autodave.storage import Store
 
-    # No hour given -> no schedule (manual / menu bar only).
-    a = store.create_automation(make_version(), "No Sched Job", "agent-1")
-    assert a["hour"] is None
+    # No triggers given -> manual / menu bar only.
+    a = store.create_automation(make_version(), "No Trigger Job", "agent-1")
+    assert a["triggers"] == []
 
     s2 = Store()
     s2.load_all()
     b = s2.autos[a["id"]]
-    assert b["hour"] is None
-    assert s2.auto_json(b)["schedule"] == "No schedule"
-    assert s2.auto_json(b)["scheduleShort"] == "No schedule"
+    assert b["triggers"] == []
+    j = s2.auto_json(b)
+    assert j["triggerChip"] == "No triggers"
+    assert j["triggersOff"] is False
+    assert j["nextAt"] is None
 
 
 def test_versioning_and_restore(store):

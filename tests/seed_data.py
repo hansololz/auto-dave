@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timedelta
 
 from autodave import keychain
-from autodave.storage import Store
+from autodave.storage import Store, new_id
 
 
 def _mk_ver(desc, params, steps, spec, instr=None, note=None):
@@ -113,7 +113,7 @@ def seed(store: Store) -> None:
     manga = store.create_automation(
         _mk_ver("Checks the manga you follow every morning and tells you when new chapters are out.",
                 manga_params, manga_steps, manga_spec, instr=manga_instr, note="Created"),
-        "Track manga chapters", agent_id, hour=8)
+        "Track manga chapters", agent_id, triggers=[{"id": new_id(), "kind": "cron", "off": False, "expr": "0 8 * * *"}])
     # older versions v2 (v1 base), then current becomes v3
     v2_spec = [b for b in manga_spec if not (b["k"] == "h2" and b["text"].startswith("Change"))
                and b["text"] != "Added display names so long titles stay readable in the table."]
@@ -190,7 +190,7 @@ def seed(store: Store) -> None:
     backup = store.create_automation(
         _mk_ver("Copies changed files from Projects to the backup drive every night.",
                 backup_params, backup_steps, backup_spec[:2]),
-        "Nightly folder backup", agent_id, hour=2)
+        "Nightly folder backup", agent_id, triggers=[{"id": new_id(), "kind": "cron", "off": False, "expr": "0 2 * * *"}])
     store.save_new_version(backup, _mk_ver(backup["versions"][1]["desc"], backup_params, backup_steps,
                                            backup_spec, note="Copies are now verified with checksums."))
     store.patch_automation(backup, {"allowedSecrets": ["VAULT_DRIVE_KEY"]})
@@ -239,7 +239,7 @@ def seed(store: Store) -> None:
     report = store.create_automation(
         _mk_ver("Gathers the week's numbers and emails the summary every Monday morning.",
                 report_params, report_steps, report_spec[:2]),
-        "Weekly report email", agent_id, hour=9, dow=1)
+        "Weekly report email", agent_id, triggers=[{"id": new_id(), "kind": "cron", "off": False, "expr": "0 9 * * 1"}])
     for note in ["Summary capped at roughly 200 words.",
                  "Added week-over-week comparison to the summary.",
                  "Send to the team alias instead of individual addresses.",
@@ -280,7 +280,7 @@ def seed(store: Store) -> None:
                 shots_steps,
                 [{"k": "h1", "text": "Clean screenshots folder"},
                  {"k": "p", "text": "Every Sunday night, files desktop screenshots into monthly folders."}]),
-        "Clean screenshots folder", agent_id, hour=21, dow=0)
+        "Clean screenshots folder", agent_id, triggers=[{"id": new_id(), "kind": "cron", "off": False, "expr": "0 21 * * 0"}])
 
     # ---------- executions (12, every status) ----------
     P_ACCENT, P_GREEN, P_AMBER, P_ORANGE = "accent", "green", "amber", "orange"
@@ -375,9 +375,9 @@ def seed(store: Store) -> None:
                       ("Check each site for new chapters", "succeeded", 19600),
                       ("Compare with memory", "succeeded", 300),
                       ("Notify and build the result", "succeeded", 1100)]
-    put_exec(manga, "v3", "succeeded", "Schedule", today8, 24800, manga_steps_ok, manga_logs, manga_result,
+    put_exec(manga, "v3", "succeeded", "Cron", today8, 24800, manga_steps_ok, manga_logs, manga_result,
              files={"result.md": manga_result_md})
-    put_exec(backup, "v2", "succeeded", "Schedule", today2, 41200,
+    put_exec(backup, "v2", "succeeded", "Cron", today2, 41200,
              [("Find files changed since last night", "succeeded", 3900),
               ("Copy them to the backup drive", "succeeded", 35000),
               ("Prune old copies", "succeeded", 2300)],
@@ -389,7 +389,7 @@ def seed(store: Store) -> None:
               ("out", "removed the copy from Jun 30 · 7 kept")],
              {"status": "ok", "chip": "All good", "chips": ["142 files copied", "1.8 GB", "41 s"],
               "values": [{"name": "Summary", "value": "Projects is fully backed up to the Vault drive. Nothing unusual last night."}]})
-    put_exec(report, "v5", "failed", "Schedule", monday9, 12400,
+    put_exec(report, "v5", "failed", "Cron", monday9, 12400,
              [("Gather the week’s numbers", "succeeded", 5800),
               ("Write the summary", "succeeded", 3100),
               ("Send the email", "failed", 3500),
@@ -413,9 +413,9 @@ def seed(store: Store) -> None:
              {"status": "changes", "chip": "1 new chapter", "chips": ["6 manga checked", "1 new chapter"],
               "values": [{"name": "New chapters", "value": ["One Piece — Ch. 1144"]},
                          {"name": "Unchanged", "value": "5"}]})
-    put_exec(backup, "v2", "cancelled", "Schedule", today2 - timedelta(days=1), None, [], [],
+    put_exec(backup, "v2", "cancelled", "Cron", today2 - timedelta(days=1), None, [], [],
              note="previous execution still in progress")
-    put_exec(manga, "v2", "succeeded", "Schedule", today8 - timedelta(days=5), 22900,
+    put_exec(manga, "v2", "succeeded", "Cron", today8 - timedelta(days=5), 22900,
              [("Read your manga list", "succeeded", 400),
               ("Check each site for new chapters", "skipped", 20100),
               ("Compare with memory", "succeeded", 300),
@@ -427,7 +427,7 @@ def seed(store: Store) -> None:
               "chips": ["5 of 6 manga checked", "No new chapters"],
               "values": [{"name": "Summary", "value": "No new chapters among the 5 manga that were checked."},
                          {"name": "Skipped", "value": ["mangadex.org didn’t respond after 3 tries — skipped this execution"]}]})
-    put_exec(manga, "v2", "cancelled", "Schedule", today8 - timedelta(days=6), None, [], [],
+    put_exec(manga, "v2", "cancelled", "Cron", today8 - timedelta(days=6), None, [], [],
              note="previous execution still in progress")
     put_exec(manga, "v2", "cancelled", "Manual", now.replace(hour=15, minute=12) - timedelta(days=7), 8400,
              [("Read your manga list", "succeeded", 400),
@@ -436,12 +436,12 @@ def seed(store: Store) -> None:
               ("Notify and build the result", "queued", None)],
              [("sys", "▸ Step 2 — Check each site for new chapters"),
               ("out", "execution cancelled by you — nothing else will happen")])
-    put_exec(shots, "v1", "interrupted", "Schedule", now.replace(hour=21, minute=0) - timedelta(days=11), 3100,
+    put_exec(shots, "v1", "interrupted", "Cron", now.replace(hour=21, minute=0) - timedelta(days=11), 3100,
              [("Find screenshots on the Desktop", "interrupted", 3100),
               ("File them into monthly folders", "queued", None)],
              [("wrn", "the Mac went to sleep — the execution will resume next Sunday")],
              note="Mac went to sleep")
-    put_exec(report, "v4", "succeeded", "Schedule", monday9 - timedelta(days=7), 18300,
+    put_exec(report, "v4", "succeeded", "Cron", monday9 - timedelta(days=7), 18300,
              [("Gather the week’s numbers", "succeeded", 6000),
               ("Write the summary", "succeeded", 3400),
               ("Send the email", "succeeded", 7700),
@@ -450,7 +450,7 @@ def seed(store: Store) -> None:
              {"status": "ok", "chip": "Email sent", "chips": ["3 recipients", "198 words"],
               "values": [{"name": "Summary", "value": "The weekly summary went out to the team at 9:00."}]},
              redacted=["SMTP_PASSWORD"])
-    put_exec(shots, "v1", "succeeded", "Schedule", now.replace(hour=21, minute=0) - timedelta(days=4), 5200,
+    put_exec(shots, "v1", "succeeded", "Cron", now.replace(hour=21, minute=0) - timedelta(days=4), 5200,
              [("Find screenshots on the Desktop", "succeeded", 1100),
               ("File them into monthly folders", "succeeded", 4100)],
              [("sys", "▸ Step 1 — Find screenshots on the Desktop"),

@@ -6,8 +6,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { Agent, Auto, Blocker, DraftPayload, SpecBlock, Step, VersionInfo } from '../types'
+import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, SpecBlock, Step, VersionInfo } from '../types'
 import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, paramSummary, resultChipColors, usePopover, validUrl } from '../ui'
+import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown } from '../result'
 
 // ---------- helpers ----------
@@ -18,12 +19,6 @@ function dispModel(ag: Agent): string {
 }
 const agName = (ag: Agent) => ag.name || ag.harness
 
-const DAYS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
-function schedLabel(s?: { hour: number; min: number; dow: number | null } | null): string {
-  if (!s) return 'No schedule'
-  const t = `${s.hour}:${String(s.min || 0).padStart(2, '0')}`
-  return s.dow == null ? `Daily at ${t}` : `${DAYS[s.dow]} at ${t}`
-}
 
 // markdown-ish text ↔ SpecBlock[] ('# ', '## ', '- ', plain lines)
 function specToText(blocks: SpecBlock[]): string {
@@ -209,8 +204,7 @@ interface Rev {
   spec: SpecBlock[]
   steps: Step[]
   params: NonNullable<DraftPayload['params']>
-  sched: { hour: number; min: number; dow: number | null } | null
-  schedLabel: string
+  triggers: DraftTrigger[]  // §11 TRIGGERS card is display-only — user-owned after save (§5)
   instr: string
   enabledAgents: string[]
   allowedSecrets: string[]
@@ -273,7 +267,7 @@ function seedDrafting(agents: Agent[]): Rev {
     ...revDefaults,
     name: 'New automation', desc: '', note: '',
     spec: [], steps: [], params: [],
-    sched: null, schedLabel: schedLabel(null),
+    triggers: [],
     instr: defaultBuildCache,
     enabledAgents: agents.map((g) => g.id),
     allowedSecrets: [],
@@ -286,7 +280,7 @@ function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
     ...revDefaults,
     name: d.name || 'New automation', desc: d.desc || '', note: d.note || '',
     spec: d.spec ?? [], steps: d.steps ?? [], params: d.params ?? [],
-    sched: d.schedule ?? null, schedLabel: schedLabel(d.schedule),
+    triggers: d.triggers ?? [],
     instr: d.instr ?? defaultBuildCache, // backend seeds instr from default-build-instructions.md
     enabledAgents: agents.map((g) => g.id),
     allowedSecrets: [],
@@ -303,7 +297,7 @@ function seedFromAuto(a: Auto, agents: Agent[], secretNames: string[]): Rev {
     spec: (src.spec ?? []).map((b) => ({ ...b })),
     steps: (src.steps ?? []).map((s) => ({ ...s })),
     params: (src.params ?? a.params ?? []).map((p) => ({ ...p })),
-    sched: a.hour == null ? null : { hour: a.hour, min: a.min, dow: a.dow }, schedLabel: a.schedule,
+    triggers: a.triggers.map(({ kind, off, expr, at }) => ({ kind, off, expr, at })),
     instr: src.instr || '',
     enabledAgents: a.stepAgents ? a.stepAgents.filter((id) => agents.some((g) => g.id === id)) : agents.map((g) => g.id),
     allowedSecrets: a.allowedSecrets
@@ -341,7 +335,7 @@ function serializeDraft(r: Rev): DraftPayload {
     steps: finalizeSteps(r.steps, r.enabledAgents),
     spec: r.spec,
     instr: r.instr,
-    schedule: r.sched ?? undefined,
+    triggers: r.triggers,
   }
 }
 
@@ -1183,7 +1177,7 @@ export default function CreateFlow() {
               }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--cyan)', animation: 'adPulse 1.4s ease-in-out infinite', flex: 'none' }} />
                 <span style={{ flex: 1, font: "400 12.5px/1.5 var(--sans)", color: 'var(--text)' }}>
-                  {`An execution is happening right now on v${auto.version}. Saving won’t interrupt it — that execution finishes on v${auto.version}. v${auto.version + 1} takes over from the next execution (${auto.schedule.toLowerCase()}).`}
+                  {`An execution is happening right now on v${auto.version}. Saving won’t interrupt it — that execution finishes on v${auto.version}. v${auto.version + 1} takes over from the next execution (${nextTriggerShort(auto.triggers) ?? auto.triggerChip}).`}
                 </span>
               </div>
             )}
@@ -1764,23 +1758,27 @@ export default function CreateFlow() {
                   </div>
                 </div>
 
-                {/* SCHEDULE */}
+                {/* TRIGGERS — display-only (§11): user-owned, edited on the automation page */}
                 <div style={cardStyle}>
                   <div style={{ display: 'flex', alignItems: 'center', padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
-                    <span style={eyebrowStyle}>SCHEDULE</span>
+                    <span style={eyebrowStyle}>TRIGGERS</span>
                   </div>
                   {drafting ? (
                     <div style={{ padding: '13px 20px', font: "400 12px var(--sans)", color: 'var(--text-faint)' }}>{stageLabel}</div>
                   ) : (
-                    <div style={{ padding: '13px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <span style={{
-                        font: "500 12px var(--mono)", color: 'var(--accent)', background: 'oklch(0.74 0.155 52 / .12)',
-                        borderRadius: 6, padding: '3px 9px', whiteSpace: 'nowrap',
-                      }}>
-                        {rev.schedLabel}
-                      </span>
+                    <div style={{ padding: '13px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      {rev.triggers.map((t, i) => (
+                        <span key={i} style={{
+                          font: "500 12px var(--mono)", color: 'var(--accent)', background: 'oklch(0.74 0.155 52 / .12)',
+                          borderRadius: 6, padding: '3px 9px', whiteSpace: 'nowrap',
+                        }}>
+                          {triggerShort(t)}
+                        </span>
+                      ))}
                       <span style={{ font: "400 11.5px var(--sans)", color: 'var(--text-faint)' }}>
-                        {rev.sched ? 'Executes even when the app is closed.' : 'No time set — executes only when you press Execute now or use the menu bar.'}
+                        {rev.triggers.length > 0
+                          ? 'Executes even when the app is closed. Add or change triggers anytime on the automation page.'
+                          : 'No triggers — executes only via Execute now and the menu bar.'}
                       </span>
                     </div>
                   )}

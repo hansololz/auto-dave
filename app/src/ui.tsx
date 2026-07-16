@@ -202,19 +202,10 @@ export function validUrl(s: string): boolean {
   return /^https?:\/\/\S+\.\S+/.test(s.trim())
 }
 
-/** §4.3 countdown "next in Xd Xh" / "Xh Xm". */
-export function nextIn(a: { hour: number | null; min: number; dow: number | null }): string {
-  const now = new Date()
-  const nxt = new Date(now)
-  nxt.setHours(a.hour ?? 8, a.min || 0, 0, 0)
-  if (a.dow != null) {
-    let add = (a.dow - nxt.getDay() + 7) % 7
-    if (add === 0 && nxt <= now) add = 7
-    nxt.setDate(nxt.getDate() + add)
-  } else if (nxt <= now) {
-    nxt.setDate(nxt.getDate() + 1)
-  }
-  const mTot = Math.max(1, Math.round((nxt.getTime() - now.getTime()) / 60000))
+/** §4.3 countdown "next in Xd Xh" / "Xh Xm" from the backend-derived `nextAt`. */
+export function nextIn(a: { nextAt: number | null }): string {
+  if (a.nextAt == null) return ''
+  const mTot = Math.max(1, Math.round((a.nextAt - Date.now()) / 60000))
   const dd = Math.floor(mTot / 1440)
   const hh = Math.floor((mTot % 1440) / 60)
   const mm = mTot % 60

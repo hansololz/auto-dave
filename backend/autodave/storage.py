@@ -139,16 +139,12 @@ class Store:
         top = load_yaml(d / "automation.yaml")
         if not top or "id" not in top:
             return None
-        sched = top.get("schedule", {}) or {}
         a: dict = {
             "id": top["id"],
             "slug": d.name,
             "name": top.get("name", d.name),
             "current_version": int(top.get("current_version", 1)),
-            "hour": sched.get("hour"),  # None -> no schedule (manual / menu bar only)
-            "min": sched.get("min", 0),
-            "dow": sched.get("dow"),
-            "sched_off": bool(sched.get("off", False)),
+            "triggers": self._load_triggers(top.get("triggers", []) or []),
             "agent_id": top.get("agent_id"),
             "enabled_agents": top.get("enabled_agents", []) or [],
             "allowed_secrets": top.get("allowed_secrets", []) or [],
@@ -170,6 +166,24 @@ class Store:
             log.warning("automation %r at %s has no version folders — skipping it at load", a["name"], d)
             return None
         return a
+
+    @staticmethod
+    def _load_triggers(raw: list) -> list[dict]:
+        """§4.3 stored shape from automation.yaml; malformed entries are dropped
+        with a warning (disk is hand-editable)."""
+        out = []
+        for t in raw:
+            if isinstance(t, dict) and schedule.validate_trigger(t) is None:
+                out.append({"id": t.get("id") or new_id(), "kind": t["kind"],
+                            "off": bool(t.get("off", False)),
+                            **({"expr": t["expr"]} if t["kind"] == "cron" else {"at": t["at"]})})
+            elif isinstance(t, dict) and t.get("kind") == "time":
+                # A past one-shot found on disk was missed while the backend was
+                # down — consumed (§4.3), never loaded.
+                continue
+            else:
+                log.warning("dropping malformed trigger %r", t)
+        return out
 
     def _load_version_folder(self, vd: Path) -> dict:
         meta = load_yaml(vd / "automation.yaml", {}) or {}
@@ -212,19 +226,11 @@ class Store:
 
     # ---------- automation writes ----------
     def _write_toplevel(self, a: dict) -> None:
-        sched: dict[str, Any] = {}
-        if a["hour"] is not None:
-            sched["hour"] = a["hour"]
-            sched["min"] = a["min"]
-            if a["dow"] is not None:
-                sched["dow"] = a["dow"]
-        if a["sched_off"]:
-            sched["off"] = True
         save_yaml(self.auto_dir(a) / "automation.yaml", {
             "id": a["id"],
             "name": a["name"],
             "current_version": a["current_version"],
-            "schedule": sched,
+            "triggers": a["triggers"],
             "agent_id": a["agent_id"],
             "enabled_agents": a["enabled_agents"],
             "allowed_secrets": a["allowed_secrets"],
@@ -259,7 +265,7 @@ class Store:
             (vd / "instructions.md").unlink()
 
     def create_automation(self, ver: dict, name: str, agent_id: str | None,
-                          hour: int | None = None, minute: int = 0, dow: int | None = None,
+                          triggers: list[dict] | None = None,
                           enabled_agents: list[str] | None = None,
                           allowed_secrets: list[str] | None = None) -> dict:
         with self.lock:
@@ -268,7 +274,7 @@ class Store:
             now = datetime.now().isoformat(timespec="seconds")
             a = {
                 "id": auto_id, "slug": slug, "name": name, "current_version": 1,
-                "hour": hour, "min": minute, "dow": dow, "sched_off": False,
+                "triggers": triggers or [],
                 "agent_id": agent_id,
                 "enabled_agents": enabled_agents or ([agent_id] if agent_id else []),
                 "allowed_secrets": allowed_secrets or [],
@@ -344,18 +350,27 @@ class Store:
                     a_new = paths.automations_dir() / new_slug
                     old.rename(a_new)
                     a["slug"] = new_slug
-            for k_api, k_int in [("hour", "hour"), ("min", "min"), ("agentId", "agent_id"),
+            for k_api, k_int in [("agentId", "agent_id"),
                                  ("stepAgents", "enabled_agents"), ("allowedSecrets", "allowed_secrets")]:
                 if k_api in patch:
                     a[k_int] = patch[k_api]
-            if "dow" in patch:
-                a["dow"] = patch["dow"]
-            if "schedOff" in patch:
-                a["sched_off"] = bool(patch["schedOff"])
+            if "triggers" in patch:
+                # Whole-list replace (§19) — the API validated + normalized it.
+                a["triggers"] = patch["triggers"]
             if "paramValues" in patch:
                 a["param_values"].update(patch["paramValues"])
             a["updated_at"] = datetime.now().isoformat(timespec="seconds")
             self._write_toplevel(a)
+
+    def consume_trigger(self, a: dict, trigger_id: str) -> None:
+        """§4.3 one-shot consumption: a fired or skipped `time` trigger leaves the list."""
+        with self.lock:
+            a["triggers"] = [t for t in a["triggers"] if t["id"] != trigger_id]
+            self._write_toplevel(a)
+
+    def trigger_json(self, t: dict) -> dict:
+        label, short = schedule.trigger_display(t)
+        return {**t, "label": label, "short": short}
 
     def delete_automation(self, a: dict) -> None:
         with self.lock:
@@ -570,6 +585,7 @@ class Store:
         elif latest_h and latest_h["status"] == "failed":
             chip = "Needs attention"
             chip_status = "attention"
+        nxt = schedule.next_at(a["triggers"])
         when = a["versions"].get(a["current_version"], {}).get("when")
         spec_meta = f"v{a['current_version']}"
         if when:
@@ -583,10 +599,10 @@ class Store:
             "name": a["name"],
             "desc": cur.get("desc", ""),
             "version": a["current_version"],
-            "schedule": schedule.schedule_label(a["hour"], a["min"], a["dow"]),
-            "scheduleShort": schedule.schedule_short(a["hour"], a["min"], a["dow"]),
-            "hour": a["hour"], "min": a["min"], "dow": a["dow"],
-            "schedOff": a["sched_off"],
+            "triggers": [self.trigger_json(t) for t in a["triggers"]],
+            "triggerChip": schedule.trigger_chip(a["triggers"]),
+            "triggersOff": bool(a["triggers"]) and all(t["off"] for t in a["triggers"]),
+            "nextAt": int(nxt.timestamp() * 1000) if nxt else None,
             "instr": cur.get("instr") or "",
             "lastStatus": a.get("_last_status", "none"),
             "live": live,

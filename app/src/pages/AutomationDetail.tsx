@@ -2,14 +2,15 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { Auto, ParamDef, Step } from '../types'
+import type { Auto, ParamDef, Step, Trigger } from '../types'
 import {
   Badge, BtnPrimary, ConfirmModal, Eyebrow, PyCode, Toggle,
   nextIn, paramSummary, usePopover, validUrl,
 } from '../ui'
+import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, triggerShort } from '../cron'
 import { ResultSection } from '../result'
 
-const EXECUTING_TOAST = 'Already executing — one execution at a time. A schedule firing now would be skipped.'
+const EXECUTING_TOAST = 'Already executing — one execution at a time. A trigger firing now would be skipped.'
 const badgeAnim = (s: string) => (s === 'executing' ? 'adPulse 1.4s ease-in-out infinite' : 'none')
 
 // ---------- small hover helpers (local — pages may not edit ui.tsx) ----------
@@ -49,6 +50,116 @@ function HoverRow({ children, onClick, style, hoverBg = 'rgba(255,255,255,.02)' 
 
 const inputBase: React.CSSProperties = {
   background: 'var(--bg-inset)', borderRadius: 8, color: 'var(--text)', outline: 'none',
+}
+
+// ---------- §9.2 Add-trigger editor (kind picker → cron expr / one-shot time) ----------
+
+const pickChipStyle = (active: boolean): React.CSSProperties => ({
+  fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11,
+  background: active ? 'oklch(0.74 0.155 52 / .13)' : 'rgba(255,255,255,.04)',
+  border: `1px solid ${active ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.1)'}`,
+  color: active ? 'var(--accent)' : 'var(--text-2em)', borderRadius: 6, padding: '4px 10px', flex: 'none',
+})
+
+function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: string; at?: string }) => void }) {
+  const [open, setOpen] = useState(false)
+  const [kind, setKind] = useState<'cron' | 'time'>('cron')
+  const [expr, setExpr] = useState('')
+  const [at, setAt] = useState('')
+  const exprOk = cronValid(expr)
+  const atDate = at ? new Date(at) : null
+  const atOk = !!atDate && !Number.isNaN(atDate.getTime()) && atDate > new Date()
+  const canAdd = kind === 'cron' ? exprOk : atOk
+  const nxt = kind === 'cron' && exprOk ? cronNext(expr) : null
+  const preview = kind === 'cron'
+    ? (exprOk ? `${cronLabels(expr).label}${nxt ? ` · next: ${fmtMoment(nxt)}` : ''}` : (expr ? 'Not a valid cron expression' : ''))
+    : (atOk ? `Once at ${fmtMoment(atDate)}` : (at ? 'Pick a time in the future' : ''))
+  const reset = () => { setOpen(false); setKind('cron'); setExpr(''); setAt('') }
+
+  if (!open) {
+    return (
+      <HoverBtn
+        onClick={() => setOpen(true)}
+        style={{
+          marginTop: 9, background: 'none', border: '1px dashed rgba(255,255,255,.14)', borderRadius: 7,
+          color: 'var(--text-muted)', fontWeight: 500, fontSize: 12, padding: '5px 11px',
+        }}
+        hoverStyle={{ color: 'var(--text)', border: '1px dashed var(--border-hover)' }}
+      >
+        <i className="fa-solid fa-plus" style={{ fontSize: 9 }} /> Add trigger
+      </HoverBtn>
+    )
+  }
+  return (
+    <div style={{ marginTop: 10, border: '1px dashed rgba(255,255,255,.12)', borderRadius: 8, padding: '11px 12px' }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        <button onClick={() => setKind('cron')} style={pickChipStyle(kind === 'cron')}>Cron</button>
+        <button onClick={() => setKind('time')} style={pickChipStyle(kind === 'time')}>One time</button>
+        {['Discord', 'iMessage', 'Pub/Sub'].map((n) => (
+          <span
+            key={n} title="Coming soon"
+            style={{
+              fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11, color: '#4a515c',
+              border: '1px dashed rgba(255,255,255,.1)', borderRadius: 6, padding: '4px 10px', flex: 'none',
+            }}
+          >
+            {n} — coming soon
+          </span>
+        ))}
+      </div>
+      {kind === 'cron' ? (
+        <input
+          value={expr}
+          onChange={(e) => setExpr(e.target.value)}
+          placeholder="0 8 * * *   (minute hour day month weekday, Sun = 0)"
+          spellCheck={false}
+          style={{
+            ...inputBase, width: '100%', fontFamily: 'var(--mono)', fontSize: 12, padding: '7px 10px',
+            border: `1px solid ${expr && !exprOk ? 'oklch(0.7 0.19 25 / .55)' : 'rgba(255,255,255,.1)'}`,
+          }}
+        />
+      ) : (
+        <input
+          type="datetime-local"
+          value={at}
+          onChange={(e) => setAt(e.target.value)}
+          style={{
+            ...inputBase, fontFamily: 'var(--mono)', fontSize: 12, padding: '6px 10px',
+            border: `1px solid ${at && !atOk ? 'oklch(0.7 0.19 25 / .55)' : 'rgba(255,255,255,.1)'}`,
+            colorScheme: 'dark',
+          }}
+        />
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
+        <span style={{
+          flex: 1, minWidth: 0, fontFamily: 'var(--mono)', fontSize: 11,
+          color: canAdd ? 'var(--accent)' : 'oklch(0.78 0.15 25)',
+        }}>
+          {preview}
+        </span>
+        <HoverBtn
+          onClick={() => { onAdd(kind === 'cron' ? { kind, expr: expr.trim() } : { kind, at }); reset() }}
+          disabled={!canAdd}
+          style={{
+            background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
+            borderRadius: 7, color: 'var(--accent)', fontFamily: 'var(--mono)', fontWeight: 500,
+            fontSize: 11.5, padding: '5px 11px', flex: 'none', opacity: canAdd ? 1 : 0.45,
+            cursor: canAdd ? 'pointer' : 'default',
+          }}
+          hoverStyle={{ background: 'oklch(0.74 0.155 52 / .2)' }}
+        >
+          Add
+        </HoverBtn>
+        <HoverBtn
+          onClick={reset}
+          style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontWeight: 500, fontSize: 12, flex: 'none' }}
+          hoverStyle={{ color: 'var(--text-2)' }}
+        >
+          Cancel
+        </HoverBtn>
+      </div>
+    </div>
+  )
 }
 
 function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: boolean }) {
@@ -355,18 +466,20 @@ export default function AutomationDetail() {
   if (!auto) return null
 
   const executing = !!auto.live
-  const noSched = auto.hour == null
-  const schedOff = !!auto.schedOff
-  const countdown = noSched ? '' : nextIn(auto)
-  const schedChip = executing ? `${auto.schedule} · executing now`
-    : noSched ? 'No schedule'
-    : schedOff ? `${auto.schedule} · schedule off`
-    : `${auto.schedule} · next in ${countdown}`
-  const schedStatusText = executing ? 'Executing now… the schedule is unchanged.'
-    : noSched ? 'No schedule set — executes only when you press Execute now or use the menu bar.'
-    : schedOff ? 'Off — won’t execute on its own. Execute now and the menu bar still work.'
-    : `Next execution in ${countdown} · executes even when the app is closed.`
-  const schedChipOn = executing || (!schedOff && !noSched)
+  const trigs = auto.triggers
+  const noTrigs = trigs.length === 0
+  const allOff = auto.triggersOff
+  const countdown = auto.nextAt == null ? '' : nextIn(auto)
+  const nextShort = nextTriggerShort(trigs)
+  const trigChip = executing ? `${auto.triggerChip} · executing now`
+    : noTrigs ? 'No triggers'
+    : allOff ? `${auto.triggerChip} · triggers off`
+    : `${auto.triggerChip} · next in ${countdown}`
+  const trigStatusText = executing ? 'Executing now… the triggers are unchanged.'
+    : noTrigs ? 'No triggers set — executes only when you press Execute now or use the menu bar.'
+    : allOff ? 'All triggers are off — won’t execute on its own. Execute now and the menu bar still work.'
+    : `Next execution in ${countdown}${nextShort ? ` (${nextShort})` : ''} · executes even when the app is closed.`
+  const trigChipOn = executing || (!allOff && !noTrigs)
   const execLabel = executing ? 'Executing…' : 'Execute now'
   const execIconCls = executing ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play'
 
@@ -383,19 +496,26 @@ export default function AutomationDetail() {
     })()
   }
 
-  const toggleSchedule = () => {
-    const willOff = !auto.schedOff
+  // §4.3 trigger edits are user-owned operational state: whole-list PATCH, no version, no AI.
+  const putTriggers = (next: Array<Partial<Trigger>>, toastMsg: string) => {
     void (async () => {
       try {
-        await api.patchAuto(auto.id, { schedOff: willOff })
-        showToast(willOff
-          ? `Schedule turned off — ${auto.name} won’t execute on its own. Execute now still works.`
-          : `Schedule turned on — next execution in ${nextIn(auto)}.`)
+        await api.patchAuto(auto.id, { triggers: next })
+        showToast(toastMsg)
         void loadAuto(auto.id)
       } catch (err) {
         showToast((err as Error).message)
       }
     })()
+  }
+  const toggleTrigger = (t: Trigger) => {
+    putTriggers(
+      trigs.map((x) => (x.id === t.id ? { ...x, off: !x.off } : x)),
+      t.off ? `Trigger turned on — ${t.short}.` : `Trigger turned off — ${t.short}. Execute now still works.`,
+    )
+  }
+  const removeTrigger = (t: Trigger) => {
+    putTriggers(trigs.filter((x) => x.id !== t.id), `Trigger removed — ${t.short}.`)
   }
 
   const confirmDelete = () => {
@@ -492,7 +612,7 @@ export default function AutomationDetail() {
                     v{auto.version} · current
                   </div>
                   <div style={{ fontSize: 11.5, lineHeight: 1.45, color: 'var(--text-muted)', marginTop: 1 }}>
-                    What the schedule and Execute now always use.
+                    What triggers and Execute now always use.
                   </div>
                 </div>
               </div>
@@ -510,7 +630,7 @@ export default function AutomationDetail() {
                   <HoverBtn
                     onClick={() => {
                       setVerOpen(false)
-                      doExecute(`v${v.v}`, `Executing v${v.v} once — the schedule and Execute now stay on v${auto.version}.`)
+                      doExecute(`v${v.v}`, `Executing v${v.v} once — triggers and Execute now stay on v${auto.version}.`)
                     }}
                     style={{
                       background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
@@ -527,7 +647,7 @@ export default function AutomationDetail() {
                 padding: '10px 14px', fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-faint)',
                 background: 'var(--bg-card)',
               }}>
-                Executing an older version once doesn’t change anything — the schedule and{' '}
+                Executing an older version once doesn’t change anything — triggers and{' '}
                 <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Execute now always use the current version.
                 To make an older version current, open Edit and restore it from the Version menu.
               </div>
@@ -587,19 +707,19 @@ export default function AutomationDetail() {
         </div>
       </div>
 
-      {/* §4.3 schedule status line */}
+      {/* §4.3 trigger status chip */}
       <div style={{ margin: '0 0 24px' }}>
         <span style={{
           display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--mono)', fontWeight: 500,
-          fontSize: 11.5, color: schedChipOn ? 'var(--accent)' : 'var(--gray)',
-          background: schedChipOn ? 'oklch(0.74 0.155 52 / .1)' : 'rgba(152,161,173,.12)',
+          fontSize: 11.5, color: trigChipOn ? 'var(--accent)' : 'var(--gray)',
+          background: trigChipOn ? 'oklch(0.74 0.155 52 / .1)' : 'rgba(152,161,173,.12)',
           borderRadius: 6, padding: '3px 9px', transition: 'color .18s ease,background .18s ease',
         }}>
           <i
-            className={executing ? 'fa-solid fa-spinner fa-spin' : (schedOff || noSched) ? 'fa-solid fa-pause' : 'fa-solid fa-clock'}
+            className={executing ? 'fa-solid fa-spinner fa-spin' : (allOff || noTrigs) ? 'fa-solid fa-pause' : 'fa-solid fa-clock'}
             style={{ fontSize: 9 }}
           />
-          {schedChip}
+          {trigChip}
         </span>
       </div>
 
@@ -670,41 +790,54 @@ export default function AutomationDetail() {
       <div style={{ marginBottom: 26 }}>
         <Eyebrow style={{ color: 'var(--text-faint)', marginBottom: 10 }}>WAYS TO EXECUTE</Eyebrow>
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', gap: 15, alignItems: 'center' }}>
-            <span style={{
-              width: 32, height: 32, borderRadius: 8,
-              background: (schedOff || noSched) ? 'rgba(255,255,255,.05)' : 'oklch(0.74 0.155 52 / .13)',
-              color: (schedOff || noSched) ? 'var(--text-faint)' : 'var(--accent)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
-              transition: 'background .18s ease,color .18s ease',
+          <div style={{ padding: '13px 18px 14px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+            <div style={{
+              fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 10, letterSpacing: '.08em',
+              color: 'var(--text-faintest)', marginBottom: 9,
             }}>
-              <i className={(schedOff || noSched) ? 'fa-solid fa-pause' : 'fa-solid fa-clock'} style={{ fontSize: 13 }} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>Schedule</span>
-                <span style={{
-                  fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11, color: 'var(--text-2em)',
-                  background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.08)',
-                  borderRadius: 6, padding: '2px 8px',
-                }}>
-                  {auto.scheduleShort}
-                </span>
-                {schedOff && (
-                  <span style={{
-                    display: 'inline-flex', padding: '2px 7px', borderRadius: 5, fontFamily: 'var(--mono)',
-                    fontWeight: 600, fontSize: 9.5, letterSpacing: '.06em',
-                    background: 'rgba(152,161,173,.16)', color: 'var(--gray)',
-                  }}>
-                    OFF
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 3 }}>{schedStatusText}</div>
+              TRIGGERS
             </div>
-            {!noSched && (
-              <Toggle on={!schedOff} onChange={toggleSchedule} title={schedOff ? 'Turn the schedule on' : 'Turn the schedule off'} />
+            {trigs.map((t) => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '5px 0' }}>
+                <span style={{
+                  width: 28, height: 28, borderRadius: 7,
+                  background: t.off ? 'rgba(255,255,255,.05)' : 'oklch(0.74 0.155 52 / .13)',
+                  color: t.off ? 'var(--text-faint)' : 'var(--accent)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+                  transition: 'background .18s ease,color .18s ease',
+                }}>
+                  <i className={t.kind === 'cron' ? 'fa-solid fa-clock' : 'fa-solid fa-calendar-day'} style={{ fontSize: 12 }} />
+                </span>
+                <span
+                  className="ad-copy"
+                  style={{
+                    flex: 1, minWidth: 0, fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12,
+                    color: t.off ? 'var(--text-faint)' : 'var(--text-2em)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {t.label}
+                </span>
+                <Toggle on={!t.off} onChange={() => toggleTrigger(t)} title={t.off ? 'Turn this trigger on' : 'Turn this trigger off'} />
+                <HoverBtn
+                  onClick={() => removeTrigger(t)} title="Remove trigger"
+                  style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: 13, padding: '2px 5px', flex: 'none' }}
+                  hoverStyle={{ color: 'oklch(0.78 0.15 25)' }}
+                >
+                  <i className="fa-solid fa-xmark" />
+                </HoverBtn>
+              </div>
+            ))}
+            {noTrigs && (
+              <div style={{
+                border: '1px dashed rgba(255,255,255,.1)', borderRadius: 8, padding: '9px 12px',
+                fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11.5, color: 'var(--text-faint)',
+              }}>
+                No triggers
+              </div>
             )}
+            <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 8 }}>{trigStatusText}</div>
+            <AddTrigger onAdd={(t) => putTriggers([...trigs, { ...t, off: false }], `Trigger added — ${triggerShort(t)}.`)} />
           </div>
           <div style={{ padding: '13px 18px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <HoverBtn
@@ -719,14 +852,7 @@ export default function AutomationDetail() {
               <i className={execIconCls} style={{ fontSize: 9 }} /> {execLabel}
             </HoverBtn>
             <span style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', minWidth: 0 }}>
-              Manual executions are always available — even when the schedule is off.
-            </span>
-            <div style={{ flex: 1 }} />
-            <span style={{
-              fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11.5, color: '#4a515c',
-              border: '1px dashed rgba(255,255,255,.1)', borderRadius: 7, padding: '6px 11px', flex: 'none',
-            }}>
-              Message triggers (Discord, iMessage) — coming soon
+              Manual executions are always available — even when every trigger is off.
             </span>
           </div>
         </div>
@@ -936,7 +1062,7 @@ export default function AutomationDetail() {
           body={(
             <>
               <span style={{ fontWeight: 500, color: 'var(--text)' }}>{auto.name}</span>
-              {' '}will be deleted — the schedule stops, and its versions and memory go with it. Past results stay in Executions.
+              {' '}will be deleted — its triggers stop, and its versions and memory go with it. Past results stay in Executions.
               {auto.live && (
                 <p style={{ color: 'var(--amber)', margin: '8px 0 0' }}>An execution is in progress — deleting cancels it.</p>
               )}

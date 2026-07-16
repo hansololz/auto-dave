@@ -5,7 +5,7 @@ import { useStore } from '../store'
 import type { Auto } from '../types'
 import { Badge, BtnPrimary, resultChipColors } from '../ui'
 
-const EXECUTING_TOAST = 'Already executing — one execution at a time. A schedule firing now would be skipped.'
+const EXECUTING_TOAST = 'Already executing — one execution at a time. A trigger firing now would be skipped.'
 
 function AutoCard({ a }: { a: Auto }) {
   const go = useStore((s) => s.go)
@@ -63,12 +63,12 @@ function AutoCard({ a }: { a: Auto }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
         <span style={{
           fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11,
-          color: (a.schedOff || a.hour == null) ? 'var(--text-faint)' : 'var(--text-muted)',
+          color: (a.triggersOff || a.triggers.length === 0) ? 'var(--text-faint)' : 'var(--text-muted)',
           background: 'rgba(255,255,255,.05)', borderRadius: 6, padding: '3px 8px',
         }}>
-          {a.scheduleShort}
+          {a.triggerChip}
         </span>
-        {a.schedOff && (
+        {a.triggersOff && (
           <span style={{
             display: 'inline-flex', padding: '3px 7px', borderRadius: 6,
             fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 9.5, letterSpacing: '.06em',

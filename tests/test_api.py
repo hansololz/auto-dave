@@ -241,19 +241,44 @@ def test_run_and_execution_pages(client):
     assert me["resultStatus"] == "ok"  # §4: tints the list-row chip like the detail page
 
 
-def test_patch_automation_schedule_and_grants(client):
+def test_patch_automation_triggers_and_grants(client):
     from autodave.storage import store
 
     a = store.create_automation(make_version(), "Patchable", "mock")
     r = client.patch(f"/automations/{a['id']}", json={
-        "hour": 6, "min": 15, "dow": 3, "schedOff": True,
+        "triggers": [{"kind": "cron", "expr": "15 6 * * 3", "off": True}],
         "allowedSecrets": ["X_TOKEN"], "paramValues": {"greeting": "yo"},
     })
     j = r.json()
-    assert j["schedule"] == "Wednesdays at 6:15"
-    assert j["schedOff"] is True
+    assert [t["label"] for t in j["triggers"]] == ["Wednesdays at 6:15"]
+    assert j["triggers"][0]["id"]  # backend assigned an id
+    assert j["triggerChip"] == "Wed 6:15"
+    assert j["triggersOff"] is True
     assert j["allowedSecrets"] == ["X_TOKEN"]
     assert next(p for p in j["params"] if p["name"] == "greeting")["value"] == "yo"
+
+    # whole-list replace: ids survive, additions get fresh ids
+    tid = j["triggers"][0]["id"]
+    r = client.patch(f"/automations/{a['id']}", json={
+        "triggers": [{**j["triggers"][0], "off": False}, {"kind": "cron", "expr": "0 2 * * *", "off": False}],
+    })
+    j = r.json()
+    assert j["triggers"][0]["id"] == tid
+    assert j["triggerChip"] == "2 triggers"
+    assert j["triggersOff"] is False
+
+
+def test_patch_automation_triggers_422(client):
+    from autodave.storage import store
+
+    a = store.create_automation(make_version(), "Strict", "mock")
+    # message kinds are reserved (§4.3), bad cron and past one-shots are refused
+    for bad in ([{"kind": "discord"}],
+                [{"kind": "cron", "expr": "not cron"}],
+                [{"kind": "time", "at": "2020-01-01T00:00"}]):
+        r = client.patch(f"/automations/{a['id']}", json={"triggers": bad})
+        assert r.status_code == 422
+    assert store.autos[a["id"]]["triggers"] == []  # nothing stored
 
 
 def test_save_version_and_restore(client):
@@ -297,7 +322,7 @@ def test_seed_then_state(client, home):
     manga = next(a for a in r["autos"] if a["name"] == "Track manga chapters")
     assert manga["version"] == 3
     assert manga["latest"]["chip"] == "2 new chapters"
-    assert manga["schedule"] == "Daily at 8:00"
+    assert manga["triggerChip"] == "Daily 8:00"
     assert len(manga["versions"]) == 2  # v2, v1 in history
     secrets = {s["name"] for s in r["secrets"]}
     assert secrets == {"SMTP_PASSWORD", "VAULT_DRIVE_KEY"}

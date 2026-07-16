@@ -65,7 +65,7 @@ def test_truncated_envelope_rejected():
         parse_envelope(GOOD_STEPS.replace("===END===", ""))
 
 
-# ---------- call 2: steps, params, schedule ----------
+# ---------- call 2: steps, params, triggers ----------
 
 def test_parse_and_validate_steps_good():
     files = parse_envelope(GOOD_STEPS)
@@ -77,19 +77,28 @@ def test_parse_and_validate_steps_good():
     assert "spec" not in draft  # the spec is settled in call 1
 
 
-def test_no_schedule_key_means_no_schedule():
-    # GOOD_STEPS carries no `schedule:` — the automation is manual / menu bar only.
+def test_no_triggers_key_means_no_triggers():
+    # GOOD_STEPS carries no `triggers:` — the automation is manual / menu bar only.
     draft, errors = validate_steps(parse_envelope(GOOD_STEPS))
     assert errors == []
-    assert draft["schedule"] is None
+    assert draft["triggers"] == []
 
 
-def test_schedule_key_is_parsed():
-    withsched = GOOD_STEPS.replace(
-        "note: Created\n", "note: Created\nschedule: { hour: 7, min: 30, dow: 2 }\n")
-    draft, errors = validate_steps(parse_envelope(withsched))
+def test_triggers_key_is_parsed():
+    withtrig = GOOD_STEPS.replace(
+        "note: Created\n", 'note: Created\ntriggers:\n  - cron: "30 7 * * 2"\n')
+    draft, errors = validate_steps(parse_envelope(withtrig))
     assert errors == []
-    assert draft["schedule"] == {"hour": 7, "min": 30, "dow": 2}
+    assert draft["triggers"] == [{"kind": "cron", "expr": "30 7 * * 2", "off": False}]
+
+
+def test_triggers_cron_only_and_validated():
+    # one-shot / message kinds and bad expressions are validation errors (§8)
+    for snippet in ('triggers:\n  - at: "2030-01-01T08:00"\n',
+                    'triggers:\n  - cron: "not cron"\n'):
+        bad = GOOD_STEPS.replace("note: Created\n", "note: Created\n" + snippet)
+        _, errors = validate_steps(parse_envelope(bad))
+        assert errors
 
 
 def test_steps_call_must_not_return_spec():

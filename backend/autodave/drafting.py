@@ -3,7 +3,7 @@
 Call 1 (create/edit): available agents + available secrets + build instructions +
 framework instructions + the original spec (edit only) + the user's request → spec.md;
 step code never travels here. Call 2 (create/sync; sync starts here): framework
-instructions + build instructions + the spec → manifest.yaml (params, schedule) + step files.
+instructions + build instructions + the spec → manifest.yaml (params, triggers) + step files.
 `edit` makes call 1 only — the rewritten spec lands out of sync and a later `sync`
 job rebuilds the steps. Each call is followed by deterministic validation with
 one automatic repair round; a valid ===BLOCKED=== envelope instead ends the job
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-from . import harness
+from . import harness, schedule
 from .events import hub
 from .imports_check import disallowed_imports
 from .specmd import blocks_to_md, md_to_blocks
@@ -50,7 +50,7 @@ SPEC_TASK = (
     "fresh from the request."
 )
 
-STEPS_TASK = """TASK: build the automation that implements the SPEC below, following the BUILD INSTRUCTIONS. Derive the schedule, every parameter (each with a default), and the steps from the SPEC. Return manifest.yaml plus one file block per step — no spec.md:
+STEPS_TASK = """TASK: build the automation that implements the SPEC below, following the BUILD INSTRUCTIONS. Derive the triggers, every parameter (each with a default), and the steps from the SPEC. Return manifest.yaml plus one file block per step — no spec.md:
 
 ===FILE: manifest.yaml===
 name: Suggested automation name        # create mode only
@@ -58,7 +58,8 @@ desc: One-line description
 note: One-line version note for the history menu
 params:                                # each param MUST carry a default
   - { name: snake_case_name, kind: toggle|list|kv|number|text, label: ..., help: ..., default: ... }
-schedule: { hour: 8, min: 0 }          # add dow: 0-6 (Sun=0) for weekly; omit the whole key if the spec names no time (no schedule -> manual / menu bar only)
+triggers:                              # cron entries only (see Triggers above); omit the whole key if the spec names no time (no triggers -> manual / menu bar only)
+  - cron: "0 8 * * *"
 steps:                                 # ordered; file names NN-name.py, two-digit, gapless from 01
   - { file: 01-fetch.py, name: ..., desc: ... }
   - { file: 02-judge.py, name: ..., desc: ..., agent: true, why: one line — why judgment is needed }
@@ -259,19 +260,26 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
             "file": s.get("file"), "name": s.get("name", ""), "desc": s.get("desc", ""),
             "agent": bool(s.get("agent")), "why": s.get("why", ""), "code": code,
         })
-    sched = manifest.get("schedule") or {}
-    if sched:
-        if not isinstance(sched, dict) or not (0 <= int(sched.get("hour", 8)) <= 23) \
-                or not (0 <= int(sched.get("min", 0)) <= 59) \
-                or (sched.get("dow") is not None and not (0 <= int(sched["dow"]) <= 6)):
-            errors.append("schedule out of range (hour 0-23, min 0-59, dow 0-6)")
+    trigs = manifest.get("triggers") or []
+    norm_trigs: list[dict] = []
+    if not isinstance(trigs, list):
+        errors.append("triggers must be a list of { cron: expr } entries")
+    else:
+        for t in trigs:
+            # §8: cron-only — one-shot and message triggers are never drafted.
+            if not isinstance(t, dict) or set(t) != {"cron"}:
+                errors.append(f"triggers entry {t!r} must be exactly {{ cron: expr }}")
+                continue
+            try:
+                schedule.parse_cron(str(t["cron"]))
+                norm_trigs.append({"kind": "cron", "expr": str(t["cron"]).strip(), "off": False})
+            except schedule.CronError as e:
+                errors.append(f"triggers: {e}")
     if errors:
         return {}, errors
-    # No schedule key -> the automation has no schedule (manual / menu bar only).
+    # No triggers key -> no triggers (manual / menu bar only).
     draft = {
-        "schedule": {"hour": int(sched["hour"]), "min": int(sched.get("min", 0)),
-                     "dow": int(sched["dow"]) if sched.get("dow") is not None else None}
-        if sched else None,
+        "triggers": norm_trigs,
         "name": manifest.get("name"),
         "desc": manifest.get("desc", ""),
         "note": manifest.get("note", ""),

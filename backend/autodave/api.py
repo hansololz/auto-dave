@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocket
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from . import __version__, harness, keychain, paths
-from . import drafting
+from . import drafting, schedule
 from .drafting import draft_jobs
 from .engine import Engine
 from .events import hub
@@ -127,6 +127,12 @@ def get_auto(auto_id: str) -> dict:
 @app.patch("/automations/{auto_id}", dependencies=[Depends(auth)])
 def patch_auto(auto_id: str, patch: dict) -> dict:
     a = _auto_or_404(auto_id)
+    if "triggers" in patch:
+        # §19: whole-list replace; message kinds / bad expressions / past times → 422.
+        norm, err = schedule.normalize_triggers(patch["triggers"])
+        if err:
+            raise HTTPException(422, err)
+        patch = {**patch, "triggers": norm}
     store.patch_automation(a, patch)
     hub.publish("auto.changed", autoId=auto_id)
     return store.auto_json(a)
@@ -153,12 +159,14 @@ def create_auto(body: dict) -> dict:
     d = body.get("draft") or {}
     if not d.get("steps"):
         raise HTTPException(422, "draft has no steps")
-    sched = d.get("schedule") or {}
+    triggers, err = schedule.normalize_triggers(d.get("triggers") or [])
+    if err:
+        raise HTTPException(422, err)
     a = store.create_automation(
         _draft_to_version(d),
         name=body.get("name") or d.get("name") or "New automation",
         agent_id=body.get("agentId"),
-        hour=sched.get("hour"), minute=sched.get("min", 0), dow=sched.get("dow"),
+        triggers=triggers,
         enabled_agents=body.get("stepAgents"),
         allowed_secrets=body.get("allowedSecrets"),
     )

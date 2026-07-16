@@ -55,17 +55,35 @@ export interface VersionInfo {
   params: ParamDef[]
 }
 
+// §4.3 trigger — cron or one-shot time; discord/imessage/pubsub are reserved
+// kinds the API refuses to store ("coming soon").
+export interface Trigger {
+  id: string
+  kind: 'cron' | 'time'
+  off: boolean
+  expr?: string   // cron: 5-field expression, local time
+  at?: string     // time: local wall-clock ISO timestamp
+  label: string   // backend-derived display strings (§4.3)
+  short: string
+}
+
+// The shape drafts carry (§8) and PATCH sends — no id/labels yet.
+export interface DraftTrigger {
+  kind: 'cron' | 'time'
+  off: boolean
+  expr?: string
+  at?: string
+}
+
 export interface Auto {
   id: string
   name: string
   desc: string
   version: number
-  schedule: string
-  scheduleShort: string
-  hour: number | null   // null = no schedule (manual / menu bar only)
-  min: number
-  dow: number | null
-  schedOff: boolean
+  triggers: Trigger[]        // §4.3 — user-owned, never versioned
+  triggerChip: string        // one → its short label · several → "N triggers" · none → "No triggers"
+  triggersOff: boolean       // nonempty list, every trigger off (drives the OFF tag)
+  nextAt: number | null      // epoch ms of the next enabled occurrence
   instr: string
   lastStatus: Status
   live: string | null
@@ -140,7 +158,7 @@ export interface DraftPayload {
   steps?: Step[]
   spec: SpecBlock[] | null
   instr?: string | null
-  schedule?: { hour: number; min: number; dow: number | null }
+  triggers?: DraftTrigger[]  // §8: cron-only in drafts
   secretRefs?: string[]
 }
 

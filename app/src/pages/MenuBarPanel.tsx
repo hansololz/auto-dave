@@ -75,7 +75,7 @@ export default function MenuBarPanel() {
                   {a.name}
                 </div>
                 <div style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: subColor, marginTop: 1 }}>
-                  {a.live ? 'Executing now…' : a.resultChip ?? a.scheduleShort}
+                  {a.live ? 'Executing now…' : a.resultChip ?? a.triggerChip}
                 </div>
               </div>
               <button

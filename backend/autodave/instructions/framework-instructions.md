@@ -121,10 +121,14 @@ Notes:
 Python stdlib, `autodave`, `requests`, `httpx`, `bs4`, `lxml`, `feedparser`,
 `dateutil`, `yaml`. Nothing else — the engine rejects any other import.
 
-## Schedule
+## Triggers
 
-Pick hour/min (plus dow for weekly) from the user's words ("every morning at 8"
-→ `hour: 8`). When no time is given, do not set a time.
+Derive cron triggers from the user's words ("every morning at 8" →
+`- cron: "0 8 * * *"`; "Mondays at 9" → `- cron: "0 9 * * 1"`). Cron fields:
+minute hour day-of-month month day-of-week (0–6, Sun = 0); numbers, `*`,
+lists, ranges, and steps only — no names, no `@daily`. When the spec names no
+time, omit the `triggers` key entirely. Never emit one-shot or message
+triggers — the user adds those on the automation page.
 
 ## Parameters
 
@@ -150,10 +154,11 @@ readable. The last step builds the result; mark `agent: true` only where the
 
 Design for them, never re-implement them:
 
-- **Scheduling & triggers:** one execution at a time — a schedule firing
-  mid-execution is skipped, not queued. A failed scheduled execution is retried
-  once after 5 minutes, resuming from the failed step. A time slept through
-  fires once on wake; missed occurrences never queue up.
+- **Scheduling & triggers:** one execution at a time — a trigger firing
+  mid-execution is skipped, not queued; same-moment occurrences coalesce into
+  one execution. A failed trigger-fired execution is retried once after
+  5 minutes, resuming from the failed step. A time slept through fires once on
+  wake; missed occurrences never queue up.
 - **Reading web pages:** `fetch_page` enforces a 10s timeout, 2s+ between
   requests to the same site, two retries, robots.txt, user agent
   "AutoDave/1.0".
