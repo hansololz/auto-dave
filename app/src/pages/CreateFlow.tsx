@@ -1,6 +1,8 @@
-// Create / edit flow (§11): Ask → Building → Review. Drafting/editing/syncing are §8
-// backend jobs (POST /drafts + polling); this page renders the three phases and the
-// Review dirty-gating, version menu, per-step agent menus, secrets and checks panels.
+// Create / edit flow (§11): Ask → Review — no separate building screen. Drafting/
+// editing/syncing are §8 backend jobs (POST /drafts + polling); on create, Review
+// renders in a drafting state and fills in as the pipeline delivers (spec card first,
+// steps skeletons after). This page also renders the Review dirty-gating, version
+// menu, per-step agent menus, secrets and checks panels.
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
@@ -115,30 +117,23 @@ function WarnBanner({ text }: { text: string }) {
   )
 }
 
-/** §11 Blocker panel cards — one per blocker, three labeled fields pre-filled
- * from the agent's answer; the user edits any of them (usually the fix).
- * readOnly for spec-call blockers, where the cards are informational. */
-function BlockerCards({ blockers, onChange, readOnly }: {
-  blockers: Blocker[]; onChange?: (i: number, patch: Partial<Blocker>) => void; readOnly?: boolean
+/** §11 blocker cards — one per blocker, three labeled, editable fields pre-filled
+ * from the agent's answer; the user edits any of them (usually the fix). */
+function BlockerCards({ blockers, onChange }: {
+  blockers: Blocker[]; onChange?: (i: number, patch: Partial<Blocker>) => void
 }) {
   const field = (label: string, value: string, rows: number, set: (v: string) => void, placeholder?: string) => (
     <div style={{ padding: '8px 16px 0' }}>
       <div style={eyebrowStyle}>{label}</div>
-      {readOnly ? (
-        value && (
-          <div style={{ font: "400 12.5px/1.6 var(--sans)", color: '#c6cdd6', padding: '4px 0 6px' }}>{value}</div>
-        )
-      ) : (
-        <textarea
-          value={value} rows={rows} placeholder={placeholder}
-          onChange={(e) => set(e.target.value)}
-          style={{
-            width: '100%', margin: '5px 0 2px', background: 'var(--bg-inset)',
-            border: '1px solid rgba(255,255,255,.08)', borderRadius: 7, color: 'var(--text)',
-            font: "400 12.5px/1.55 var(--sans)", padding: '7px 10px', resize: 'vertical', outline: 'none',
-          }}
-        />
-      )}
+      <textarea
+        value={value} rows={rows} placeholder={placeholder}
+        onChange={(e) => set(e.target.value)}
+        style={{
+          width: '100%', margin: '5px 0 2px', background: 'var(--bg-inset)',
+          border: '1px solid rgba(255,255,255,.08)', borderRadius: 7, color: 'var(--text)',
+          font: "400 12.5px/1.55 var(--sans)", padding: '7px 10px', resize: 'vertical', outline: 'none',
+        }}
+      />
     </div>
   )
   return (
@@ -230,11 +225,21 @@ interface Rev {
   ask: string
   syncBusy: boolean
   askBusy: boolean
-  // §11: one repair modal, two entry points — a blocked `sync` and a failed
-  // test's issue analysis both land here; `resolved` is the session's
-  // applied resolutions ("Previously resolved"). A blocked `edit` (ask box)
-  // shows an amber notice under the ask box instead.
-  repair: { source: 'sync' | 'test'; blockers: Blocker[] } | null
+  // §11 drafting-on-Review (create): call-1/call-2 in-flight flags drive the
+  // spec-card spinner and the right-column skeletons; a spec-call blocker is
+  // the clarification case (editable cards inside the spec card); spec/steps
+  // call failures render inside their cards.
+  specBusy: boolean
+  stepsBusy: boolean
+  specBlockers: Blocker[] | null
+  specErr: { msg: string; detail?: string[] } | null
+  stepsErr: { msg: string; detail?: string[] } | null
+  // §11: one repair modal, three entry points — a create job blocked at the
+  // steps call, a blocked `sync`, and a failed test's issue analysis all land
+  // here; `resolved` is the session's applied resolutions ("Previously
+  // resolved"). A blocked `edit` (ask box) shows an amber notice under the
+  // ask box instead.
+  repair: { source: 'create' | 'sync' | 'test'; blockers: Blocker[] } | null
   resolved: string[]
   askBlockers: Blocker[] | null
   stepsMeta: string | null
@@ -252,10 +257,28 @@ const revDefaults = {
   specEdit: false, specText: '', specTextOrig: '',
   instrEdit: false, instrDraft: null as string | null,
   ask: '', syncBusy: false, askBusy: false,
+  specBusy: false, stepsBusy: false,
+  specBlockers: null as Rev['specBlockers'], specErr: null as Rev['specErr'], stepsErr: null as Rev['stepsErr'],
   repair: null as Rev['repair'], resolved: [] as string[], askBlockers: null as Rev['askBlockers'],
   stepsMeta: null as string | null, stepOpen: null as number | null,
   viewing: 'draft' as Rev['viewing'],
   specSecOpen: null as boolean | null, agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
+}
+
+// §11 drafting-on-Review: the Review page mounts empty the moment the create
+// job starts — the spec card spins on call 1 and the right column shows
+// skeletons until call 2 delivers.
+function seedDrafting(agents: Agent[]): Rev {
+  return {
+    ...revDefaults,
+    name: 'New automation', desc: '', note: '',
+    spec: [], steps: [], params: [],
+    sched: null, schedLabel: schedLabel(null),
+    instr: defaultBuildCache,
+    enabledAgents: agents.map((g) => g.id),
+    allowedSecrets: [],
+    specBusy: true,
+  }
 }
 
 function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
@@ -496,21 +519,13 @@ export default function CreateFlow() {
   const isOnboard = createFrom === 'onboard'
   const auto = isEdit ? autos.find((a) => a.id === autoId) ?? null : null
 
-  const [phase, setPhase] = useState<'ask' | 'building' | 'review'>(isEdit ? 'review' : 'ask')
+  const [phase, setPhase] = useState<'ask' | 'review'>(isEdit ? 'review' : 'ask')
   const [text, setText] = useState('')
   const [askHint, setAskHint] = useState(false)
   const [textFocus, setTextFocus] = useState(false)
   const [agentId, setAgentId] = useState<string | null>(() =>
     isEdit ? (auto?.agentId ?? null) : ((agents.find((g) => g.default) ?? agents[0])?.id ?? null))
 
-  const [buildStage, setBuildStage] = useState(0)
-  const [buildErr, setBuildErr] = useState<{ msg: string; detail?: string[] } | null>(null)
-  // §11 Blocker panel (Building screen): `spec` is call 1's spec for the
-  // steps-call case (amended + rebuilt from here); `resolved` lists this
-  // session's earlier resolutions so a fix that didn't take is visible.
-  const [blocked, setBlocked] = useState<{
-    at: 'spec' | 'steps'; blockers: Blocker[]; spec: SpecBlock[] | null; resolved: string[]
-  } | null>(null)
   const jobIdRef = useRef<string | null>(null)
 
   const [rev, setRev] = useState<Rev | null>(null)
@@ -531,14 +546,19 @@ export default function CreateFlow() {
     onFail: (msg: string, detail?: string[]) => void,
     onCancelled?: () => void,
     onBlocked?: (blockers: Blocker[], at: 'spec' | 'steps', spec: SpecBlock[] | null) => void,
+    onSpec?: (spec: SpecBlock[]) => void, // §11: create job's call-1 spec, mid-job
   ) => {
     stopPoll()
     jobIdRef.current = jobId
+    let specDelivered = false
     pollRef.current = setInterval(() => {
       void (async () => {
         try {
           const j = await api.getDraftJob(jobId)
-          if (j.stage) setBuildStage(/step/i.test(j.stage) ? 1 : 0)
+          if (onSpec && !specDelivered && j.status === 'building' && j.draft?.spec) {
+            specDelivered = true
+            onSpec(j.draft.spec)
+          }
           if (j.status === 'done') {
             stopPoll()
             if (j.draft) onDone(j.draft)
@@ -605,64 +625,78 @@ export default function CreateFlow() {
 
   const selAgent = agents.find((g) => g.id === agentId) ?? agents.find((g) => g.default) ?? agents[0] ?? null
 
-  // ---- ask → building ----
-  const submitAsk = async () => {
-    if (!text.trim()) { setAskHint(true); return }
+  // ---- ask → review, drafting state (§11: no separate building screen) ----
+  // Review mounts empty right away; the spec card spins on call 1, renders the
+  // spec the moment it validates (onSpec, mid-job), and the right column stays
+  // skeleton until call 2 delivers the steps.
+  const submitAsk = async (description?: string) => {
+    const request = (description ?? text).trim()
+    if (!request) { setAskHint(true); return }
     setAskHint(false)
-    setBuildErr(null)
-    setBlocked(null)
-    setBuildStage(0)
-    setPhase('building')
+    setPhase('review')
+    setRev(seedDrafting(agents))
     try {
-      const { jobId } = await api.postDraftJob({ mode: 'create', text: text.trim(), agentId })
+      const { jobId } = await api.postDraftJob({ mode: 'create', text: request, agentId })
       startPoll(
         jobId,
-        (d) => { setRev(seedFromPayload(d, agents)); setPhase('review') },
-        (msg, detail) => setBuildErr({ msg, detail }),
-        () => setPhase('ask'),
-        (blockers, at, spec) => setBlocked({ at, blockers, spec, resolved: [] }),
+        (d) => setRev({
+          ...seedFromPayload(d, agents),
+          // §11 title: the manifest name replaces the spec-title provisional
+          name: d.name || (d.spec ?? []).find((b) => b.k === 'h1')?.text || 'New automation',
+        }),
+        (msg, detail) => setRev((r) => r && (r.specBusy
+          ? { ...r, specBusy: false, specErr: { msg, detail } }
+          : { ...r, stepsBusy: false, stepsErr: { msg, detail } })),
+        () => { setRev(null); setPhase('ask') },
+        // §11 Blockers & clarifications: a spec-call block renders editable
+        // cards inside the spec card; a steps-call block opens the repair
+        // modal over Review and leaves the workflow out of sync.
+        (blockers, at, spec) => setRev((r) => r && (at === 'spec'
+          ? { ...r, specBusy: false, stepsBusy: false, specBlockers: blockers }
+          : {
+            ...r, stepsBusy: false, spec: spec ?? r.spec, dirty: true, dirtyWhy: 'spec',
+            repair: { source: 'create', blockers },
+          })),
+        (spec) => setRev((r) => r && ({
+          ...r, specBusy: false, stepsBusy: true, spec,
+          name: spec.find((b) => b.k === 'h1')?.text || r.name,
+        })),
       )
     } catch (e) {
-      setBuildErr({ msg: (e as Error).message })
+      setRev((r) => r && ({ ...r, specBusy: false, specErr: { msg: (e as Error).message } }))
     }
   }
-  const cancelBuild = () => {
+
+  // §11 clarification case: the user answers the spec-call blockers by editing
+  // the cards; the answers are appended to the description and a new create
+  // job starts in place.
+  const answerBlockers = () => {
+    if (!rev?.specBlockers || rev.specBlockers.some((b) => !b.reason.trim() || !b.fix.trim())) return
+    const combined = `${text.trim()}\n\n${rev.specBlockers.map(blockerLine).join('\n')}`
+    setText(combined)
+    void submitAsk(combined)
+  }
+
+  // Back to Ask from a drafting-state card (clarification/failure/Start over) —
+  // the description survives for a rephrase.
+  const backToAsk = () => {
     stopPoll()
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
-    setBuildErr(null)
-    setBlocked(null)
+    jobIdRef.current = null
+    setRev(null)
     setPhase('ask')
   }
 
-  // §11 Blocker panel, steps-call case: write each card (edited text) into the
-  // spec's "Constraints & resolutions" section, then rebuild the steps against
-  // the amended spec — one §8 `sync` call; the checklist re-enters step 2.
-  const applyBlockers = async () => {
-    if (!blocked?.spec || blocked.blockers.some((b) => !b.reason.trim() || !b.fix.trim())) return
-    const spec = amendSpec(blocked.spec, blocked.blockers)
-    const resolved = [...blocked.resolved, ...blocked.blockers.map(blockerLine)]
-    setBlocked(null)
-    setBuildStage(1)
-    try {
-      const { jobId } = await api.postDraftJob({
-        mode: 'sync', agentId, current: { spec, instr: defaultBuildCache },
-      })
-      startPoll(
-        jobId,
-        (d) => {
-          const r = seedFromPayload(d, agents)
-          // sync payloads never carry the spec (or, without a manifest name, a
-          // useful one) — the amended spec and its # title are the truth here.
-          setRev({ ...r, spec, name: d.name || spec.find((b) => b.k === 'h1')?.text || r.name })
-          setPhase('review')
-        },
-        (msg, detail) => setBuildErr({ msg, detail }),
-        () => setPhase('ask'),
-        (blockers, at, sp) => setBlocked({ at, blockers, spec: sp ?? spec, resolved }),
-      )
-    } catch (e) {
-      setBuildErr({ msg: (e as Error).message })
-    }
+  // §11: any spec / instruction / agent-ask / grant change while the steps are
+  // still generating cancels the in-flight steps call — the landed spec is
+  // kept and the standard sync banner rebuilds the steps. Returns true when a
+  // steps call was cancelled (callers add stepsBusy:false + dirty to their patch).
+  const cancelStepsGen = (): boolean => {
+    if (!rev?.stepsBusy) return false
+    stopPoll()
+    if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
+    jobIdRef.current = null
+    return true
   }
 
   // ---- review: derived ----
@@ -675,13 +709,21 @@ export default function CreateFlow() {
   const secMissing = secRefs.filter((r) => !secrets.some((z) => z.name === r.name))
   const agWarn = !!rev && agentStepIdx.length > 0 && availAgents.length === 0
   const secWarn = !!rev && (secNotAllowed.length > 0 || secMissing.length > 0)
-  const specOpenEff = !!rev?.specEdit || ((rev?.specSecOpen ?? null) == null ? isEdit : !!rev?.specSecOpen)
+  // §11: the spec card defaults open (on create it is the drafting surface) and
+  // is force-open while the spec is writing, showing clarification cards, or
+  // being edited.
+  const specOpenEff = !!rev?.specEdit || !!rev?.specBusy || !!rev?.specBlockers || !!rev?.specErr
+    || ((rev?.specSecOpen ?? null) == null ? true : !!rev?.specSecOpen)
   const agSecOpenEff = ((rev?.agSecOpen ?? null) == null ? isEdit : !!rev?.agSecOpen) || agWarn
   const secSecOpenEff = ((rev?.secSecOpen ?? null) == null ? isEdit : !!rev?.secSecOpen) || secWarn
   const instrOpenEff = (rev?.instrSecOpen ?? null) == null ? isEdit : !!rev?.instrSecOpen
   const viewingOld = isEdit && !!rev && !!auto && rev.viewing !== 'draft' && rev.viewing !== auto.version
-  const saveBlocked = !!rev && (rev.dirty || rev.syncBusy || rev.askBusy || rev.specEdit)
+  const drafting = !!rev && (rev.specBusy || rev.stepsBusy)
+  const saveBlocked = !!rev && (rev.dirty || rev.syncBusy || rev.askBusy || rev.specEdit
+    || drafting || (!isEdit && rev.steps.length === 0))
   const busyRewrite = !!rev && (rev.syncBusy || rev.askBusy)
+  // Right-column skeleton label — §11 drafting stages
+  const stageLabel = rev?.specBusy ? 'Waiting for the spec…' : 'Generating the steps…'
 
   // ---- review: agent-ask + sync jobs ----
   const currentSerialized = () => (rev ? serializeDraft(rev) : null)
@@ -694,9 +736,11 @@ export default function CreateFlow() {
     if (!rev || rev.syncBusy || rev.askBusy) return
     if (!rev.ask.trim()) { showToast('Type the change you want first.'); return }
     const request = rev.ask.trim()
+    const genCancelled = cancelStepsGen()
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // one edit at a time
       ask: '', askBusy: true, askBlockers: null, touched: true,
+      ...(genCancelled ? { stepsBusy: false, dirty: true, dirtyWhy: 'spec' as const } : {}),
     })
     try {
       const { jobId } = await api.postDraftJob({
@@ -734,7 +778,7 @@ export default function CreateFlow() {
     if (!rev || rev.syncBusy || rev.askBusy) return
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // discard unsaved edits
-      syncBusy: true, touched: true,
+      syncBusy: true, touched: true, stepsErr: null,
       ...(specOverride ? { spec: specOverride } : {}),
     })
     try {
@@ -816,6 +860,11 @@ export default function CreateFlow() {
   // ---- leave / start over / save ----
   const close = async () => {
     stopPoll()
+    // Leaving create mid-generation abandons the job — kill the harness.
+    if (!isEdit && jobIdRef.current && drafting) {
+      void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
+      jobIdRef.current = null
+    }
     if (isEdit && auto) {
       if (rev && rev.viewing === 'draft' && (rev.touched || auto.draft)) {
         try { await api.putDraft(auto.id, serializeDraft(rev)) } catch { /* backend restarting */ }
@@ -840,11 +889,7 @@ export default function CreateFlow() {
       showToast(`Changes discarded — back to v${auto.version} as saved.`, 3200)
       return
     }
-    stopPoll()
-    setRev(null)
-    setBuildErr(null)
-    setBlocked(null)
-    setPhase('ask')
+    backToAsk()
   }
 
   const doSave = async () => {
@@ -893,7 +938,7 @@ export default function CreateFlow() {
 
   // ---- test (§11: create and edit mode) — executes the draft's REAL steps ----
   const runTest = async () => {
-    if (!rev || test?.status === 'executing') return
+    if (!rev || rev.steps.length === 0 || test?.status === 'executing') return
     clearTest()
     try {
       const { testId } = await api.postTest({
@@ -1005,106 +1050,6 @@ export default function CreateFlow() {
           </div>
         )}
 
-        {/* ============ BUILDING ============ */}
-        {phase === 'building' && !buildErr && blocked && (
-          <div style={{
-            maxWidth: 660, margin: '0 auto', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', gap: 18, padding: '48px 32px 60px', animation: 'adFadeUp .3s ease',
-          }}>
-            <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--amber)' }} />
-            <div style={{ font: "600 16px var(--sans)", color: 'var(--text)' }}>
-              {blocked.blockers.length > 1 ? `Your AI hit ${blocked.blockers.length} blockers` : 'Your AI hit a blocker'}
-            </div>
-            <div style={{ font: "400 13px/1.6 var(--sans)", color: 'var(--text-2)', textAlign: 'center', margin: '-8px 0 2px' }}>
-              {blocked.at === 'steps'
-                ? 'It couldn’t build the steps as the spec asks. Edit the fix below, then apply it to the spec and rebuild.'
-                : 'It couldn’t write a spec for this request. Rephrase the request with the advice below.'}
-            </div>
-            <BlockerCards
-              blockers={blocked.blockers}
-              readOnly={blocked.at === 'spec'}
-              onChange={(i, patch) => setBlocked((z) => z && ({
-                ...z, blockers: z.blockers.map((b, k) => (k === i ? { ...b, ...patch } : b)),
-              }))}
-            />
-            {blocked.resolved.length > 0 && (
-              <div style={{ width: '100%', font: "400 11.5px/1.7 var(--sans)", color: 'var(--text-faint)' }}>
-                <div style={eyebrowStyle}>PREVIOUSLY RESOLVED</div>
-                {blocked.resolved.map((s, i) => <div key={i}>– {s}</div>)}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 10 }}>
-              {blocked.at === 'steps' ? (
-                <>
-                  <BtnGhost onClick={() => { setBlocked(null); setPhase('ask') }}>Back</BtnGhost>
-                  <BtnPrimary
-                    onClick={() => void applyBlockers()}
-                    disabled={blocked.blockers.some((b) => !b.reason.trim() || !b.fix.trim())}
-                  >
-                    Apply to the spec & rebuild the steps
-                  </BtnPrimary>
-                </>
-              ) : (
-                <BtnPrimary onClick={() => { setBlocked(null); setPhase('ask') }}>Back to the request</BtnPrimary>
-              )}
-            </div>
-          </div>
-        )}
-        {phase === 'building' && !buildErr && !blocked && (
-          <div style={{
-            minHeight: 420, height: '100%', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: 28, padding: 40,
-          }}>
-            <span style={{
-              width: 30, height: 30, border: '2.5px solid rgba(255,255,255,.1)', borderTopColor: 'var(--accent)',
-              borderRadius: '50%', animation: 'adSpin .9s linear infinite',
-            }} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-              {['Writing the spec', 'Generating the steps'].map((label, i) => {
-                const done = buildStage > i
-                const cur = buildStage === i
-                return (
-                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                    <i
-                      className={done ? 'fa-solid fa-check' : cur ? 'fa-solid fa-circle' : 'fa-regular fa-circle'}
-                      style={{ width: 16, textAlign: 'center', fontSize: 12, color: done ? 'var(--green)' : cur ? 'var(--accent)' : '#4a515c' }}
-                    />
-                    <span style={{ font: "500 14px var(--sans)", color: done ? '#c6cdd6' : cur ? 'var(--text)' : 'var(--text-faint)' }}>{label}</span>
-                  </div>
-                )
-              })}
-            </div>
-            <div style={{ font: "500 11px var(--mono)", color: 'var(--text-faintest)' }}>
-              {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'No agent'}
-            </div>
-            <BtnGhost onClick={cancelBuild}>Cancel</BtnGhost>
-          </div>
-        )}
-
-        {phase === 'building' && buildErr && (
-          <div style={{
-            minHeight: 420, height: '100%', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: 18, padding: 40, animation: 'adFadeUp .3s ease',
-          }}>
-            <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--red)' }} />
-            <div style={{ font: "500 14.5px var(--sans)", color: 'var(--text)' }}>
-              {buildErr.msg || 'The draft didn’t validate — try again or rephrase.'}
-            </div>
-            {(buildErr.detail ?? []).length > 0 && (
-              <div style={{
-                maxWidth: 560, background: 'var(--bg-inset)', border: '1px solid rgba(255,255,255,.07)',
-                borderRadius: 9, padding: '10px 14px', font: "400 11.5px/1.7 var(--mono)", color: 'var(--text-muted)',
-              }}>
-                {(buildErr.detail ?? []).map((d, i) => <div key={i}>{d}</div>)}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <BtnGhost onClick={() => { setBuildErr(null); setPhase('ask') }}>Back</BtnGhost>
-              <BtnPrimary onClick={() => void submitAsk()}>Try again</BtnPrimary>
-            </div>
-          </div>
-        )}
-
         {/* ============ REVIEW ============ */}
         {phase === 'review' && !rev && (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
@@ -1122,7 +1067,11 @@ export default function CreateFlow() {
                 font: "600 20px var(--sans)", letterSpacing: '-.01em', margin: 0,
                 minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}>
-                {isEdit ? `Edit “${auto?.name ?? 'automation'}”` : 'Review before creating'}
+                {isEdit ? `Edit “${auto?.name ?? 'automation'}”`
+                  : rev.specBusy ? 'New automation…'
+                    : rev.spec.find((b) => b.k === 'h1')?.text && rev.name === 'New automation'
+                      ? rev.spec.find((b) => b.k === 'h1')!.text
+                      : rev.name}
               </h1>
               {isEdit && auto && (
                 <div ref={verRef} style={{ position: 'relative' }}>
@@ -1175,7 +1124,7 @@ export default function CreateFlow() {
               <AgentPick
                 agents={agents} selected={selAgent}
                 onPick={(g) => {
-                  if (busyRewrite) { showToast('Wait for the current rewrite to finish first.'); return }
+                  if (busyRewrite || drafting) { showToast('Wait for the current rewrite to finish first.'); return }
                   if (selAgent && selAgent.id === g.id) return
                   setAgentId(g.id)
                   if (isEdit) up({ touched: true })
@@ -1186,10 +1135,12 @@ export default function CreateFlow() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
                 {saveBlocked && (
                   <span style={{ font: "400 12px var(--sans)", color: 'var(--amber)' }}>
-                    {rev.syncBusy ? 'Syncing steps…'
-                      : rev.askBusy ? 'Rewriting the spec…'
-                        : rev.specEdit ? 'Finish editing the spec first — save or cancel your edits'
-                          : 'Sync and review the steps before saving'}
+                    {rev.specBusy ? 'Writing the spec…'
+                      : rev.stepsBusy ? 'Generating the steps…'
+                        : rev.syncBusy ? 'Syncing steps…'
+                          : rev.askBusy ? 'Rewriting the spec…'
+                            : rev.specEdit ? 'Finish editing the spec first — save or cancel your edits'
+                              : 'Sync and review the steps before saving'}
                   </span>
                 )}
                 <button className="ad-btn-text dim" onClick={() => void startOver()} style={{ font: "500 12.5px var(--sans)", padding: '6px 4px' }}>
@@ -1250,13 +1201,20 @@ export default function CreateFlow() {
                       <i className={specOpenEff ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-right'} style={{ width: 14, flex: 'none', textAlign: 'center', fontSize: 10, color: '#4a515c' }} />
                       <span style={eyebrowStyle}>SPEC</span>
                     </span>
-                    {specOpenEff && (!rev.specEdit ? (
+                    {specOpenEff && !rev.specBusy && !rev.specBlockers && !rev.specErr && (!rev.specEdit ? (
                       <button
                         className="ad-btn-soft"
                         onClick={() => {
                           if (busyRewrite) return
+                          // §11: starting a spec edit while the steps are still
+                          // generating cancels the steps call — sync rebuilds later.
+                          const genCancelled = cancelStepsGen()
                           const t = specToText(rev.spec)
-                          up({ instrDraft: null, instrEdit: false, specText: t, specTextOrig: t, specEdit: true })
+                          up({
+                            instrDraft: null, instrEdit: false, specText: t, specTextOrig: t, specEdit: true,
+                            ...(genCancelled ? { stepsBusy: false, dirty: true, dirtyWhy: 'spec' as const } : {}),
+                          })
+                          if (genCancelled) showToast('Step generation stopped — sync the steps when you finish editing.', 4200)
                         }}
                       >
                         Edit
@@ -1295,7 +1253,67 @@ export default function CreateFlow() {
                     ))}
                   </div>
                   {specOpenEff && (<>
-                  {rev.specEdit ? (
+                  {/* §11 drafting-on-Review: call 1 in flight */}
+                  {rev.specBusy ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '46px 20px 50px' }}>
+                      <span style={{
+                        width: 22, height: 22, border: '2.5px solid rgba(255,255,255,.1)', borderTopColor: 'var(--accent)',
+                        borderRadius: '50%', animation: 'adSpin .9s linear infinite',
+                      }} />
+                      <span style={{ font: "500 13px var(--sans)", color: 'var(--text-2)' }}>Writing the spec…</span>
+                      <span style={{ font: "500 11px var(--mono)", color: 'var(--text-faintest)' }}>
+                        {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'No agent'}
+                      </span>
+                    </div>
+                  ) : rev.specErr ? (
+                    /* §11: a spec-call failure renders inside the spec card */
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '30px 20px 26px' }}>
+                      <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--red)' }} />
+                      <div style={{ font: "500 13.5px var(--sans)", color: 'var(--text)', textAlign: 'center' }}>
+                        {rev.specErr.msg || 'The spec didn’t validate — try again or rephrase.'}
+                      </div>
+                      {(rev.specErr.detail ?? []).length > 0 && (
+                        <div style={{
+                          alignSelf: 'stretch', background: 'var(--bg-inset)', border: '1px solid rgba(255,255,255,.07)',
+                          borderRadius: 9, padding: '10px 14px', font: "400 11.5px/1.7 var(--mono)", color: 'var(--text-muted)',
+                        }}>
+                          {(rev.specErr.detail ?? []).map((d, i) => <div key={i}>{d}</div>)}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <BtnGhost onClick={backToAsk}>Back to the request</BtnGhost>
+                        <BtnPrimary onClick={() => void submitAsk()}>Try again</BtnPrimary>
+                      </div>
+                    </div>
+                  ) : rev.specBlockers ? (
+                    /* §11 clarification case: spec-call blockers, editable, in place of the spec body */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '18px 16px 18px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--amber)', flex: 'none' }} />
+                        <span style={{ font: "600 13.5px var(--sans)", color: 'var(--text)' }}>
+                          {rev.specBlockers.length > 1 ? `Your AI hit ${rev.specBlockers.length} blockers` : 'Your AI hit a blocker'}
+                        </span>
+                      </div>
+                      <div style={{ font: "400 12.5px/1.6 var(--sans)", color: 'var(--text-2)', margin: '-6px 0 0 17px' }}>
+                        It couldn’t write a spec for this request. Answer below — your answers are added to the request and the spec is rewritten.
+                      </div>
+                      <BlockerCards
+                        blockers={rev.specBlockers}
+                        onChange={(i, patch) => setRev((r) => r && r.specBlockers && ({
+                          ...r, specBlockers: r.specBlockers.map((b, k) => (k === i ? { ...b, ...patch } : b)),
+                        }))}
+                      />
+                      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                        <BtnGhost onClick={backToAsk}>Back to the request</BtnGhost>
+                        <BtnPrimary
+                          onClick={answerBlockers}
+                          disabled={rev.specBlockers.some((b) => !b.reason.trim() || !b.fix.trim())}
+                        >
+                          Answer & rewrite the spec
+                        </BtnPrimary>
+                      </div>
+                    </div>
+                  ) : rev.specEdit ? (
                     <>
                       <textarea
                         value={rev.specText} rows={19}
@@ -1324,7 +1342,8 @@ export default function CreateFlow() {
                       })}
                     </div>
                   )}
-                  {/* ask-the-agent box */}
+                  {/* ask-the-agent box — hidden until a spec exists to edit */}
+                  {!rev.specBusy && !rev.specErr && !rev.specBlockers && (<>
                   <div style={{ borderTop: '1px solid var(--hairline)', padding: '12px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input
                       value={rev.ask}
@@ -1369,6 +1388,7 @@ export default function CreateFlow() {
                     </div>
                   )}
                   </>)}
+                  </>)}
                 </div>
 
                 {/* AGENTS · AVAILABLE TO STEPS */}
@@ -1402,11 +1422,14 @@ export default function CreateFlow() {
                           <div
                             key={g.id}
                             onClick={() => {
+                              if (rev.specBusy) { showToast('Wait for the spec first.'); return }
+                              const genCancelled = cancelStepsGen() // §11: grant changes cancel an in-flight steps call
+                              const genPatch = genCancelled ? { stepsBusy: false as const } : {}
                               if (on) {
-                                up({ enabledAgents: rev.enabledAgents.filter((z) => z !== g.id), dirty: true, dirtyWhy: 'agents', ...(isEdit ? { touched: true } : {}) })
+                                up({ ...genPatch, enabledAgents: rev.enabledAgents.filter((z) => z !== g.id), dirty: true, dirtyWhy: 'agents', ...(isEdit ? { touched: true } : {}) })
                                 if (used.length) showToast(`Step${used.length > 1 ? 's' : ''} ${stepList(used)} ${used.length > 1 ? 'are' : 'is'} out of sync — ${agName(g)} is no longer available here. Sync the steps before saving.`, 5000)
                               } else {
-                                up({ enabledAgents: [...rev.enabledAgents, g.id], dirty: true, dirtyWhy: 'agents', ...(isEdit ? { touched: true } : {}) })
+                                up({ ...genPatch, enabledAgents: [...rev.enabledAgents, g.id], dirty: true, dirtyWhy: 'agents', ...(isEdit ? { touched: true } : {}) })
                               }
                             }}
                             style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none' }}
@@ -1465,11 +1488,14 @@ export default function CreateFlow() {
                           <div
                             key={s.name}
                             onClick={() => {
+                              if (rev.specBusy) { showToast('Wait for the spec first.'); return }
+                              const genCancelled = cancelStepsGen() // §11: grant changes cancel an in-flight steps call
+                              const genPatch = genCancelled ? { stepsBusy: false as const } : {}
                               if (on) {
-                                up({ allowedSecrets: rev.allowedSecrets.filter((z) => z !== s.name), dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })
+                                up({ ...genPatch, allowedSecrets: rev.allowedSecrets.filter((z) => z !== s.name), dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })
                                 if (ref) showToast(`Step${ref.steps.length > 1 ? 's' : ''} ${stepList(ref.steps)} use${ref.steps.length > 1 ? '' : 's'} ${s.name} — the execution would fail there until it’s allowed again.`, 4500)
                               } else {
-                                up({ allowedSecrets: [...rev.allowedSecrets, s.name], dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })
+                                up({ ...genPatch, allowedSecrets: [...rev.allowedSecrets, s.name], dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })
                               }
                             }}
                             style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none' }}
@@ -1522,7 +1548,13 @@ export default function CreateFlow() {
                         onClick={(e) => {
                           e.stopPropagation()
                           if (busyRewrite) return
-                          up({ specEdit: false, specText: '', specTextOrig: '', instrDraft: rev.instr, instrEdit: true, instrSecOpen: true })
+                          if (rev.specBusy) { showToast('Wait for the spec first.'); return }
+                          const genCancelled = cancelStepsGen() // §11: instruction edits cancel an in-flight steps call
+                          up({
+                            specEdit: false, specText: '', specTextOrig: '', instrDraft: rev.instr, instrEdit: true, instrSecOpen: true,
+                            ...(genCancelled ? { stepsBusy: false, dirty: true, dirtyWhy: 'spec' as const } : {}),
+                          })
+                          if (genCancelled) showToast('Step generation stopped — sync the steps when you finish editing.', 4200)
                         }}
                         style={{ flex: 'none' }}
                       >
@@ -1635,6 +1667,44 @@ export default function CreateFlow() {
                       </span>
                     )}
                   </div>
+                  {/* §11 drafting-on-Review: skeleton until call 2 delivers */}
+                  {drafting && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '18px 20px 20px' }}>
+                      <span style={{
+                        width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
+                        borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none',
+                      }} />
+                      <span style={{ font: "500 12.5px var(--sans)", color: 'var(--text-2)' }}>{stageLabel}</span>
+                      {rev.stepsBusy && (
+                        <span style={{ font: "500 10.5px var(--mono)", color: 'var(--text-faintest)' }}>
+                          {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : ''}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {/* §11: a steps-call failure renders here; Rebuild runs a §8 sync against the landed spec */}
+                  {rev.stepsErr && !rev.syncBusy && (
+                    <div style={{
+                      background: 'oklch(0.7 0.19 25 / .07)', border: '1px solid oklch(0.7 0.19 25 / .3)',
+                      borderRadius: 9, padding: '10px 12px', margin: '12px 14px',
+                      display: 'flex', alignItems: 'flex-start', gap: 9, animation: 'adFadeUp .3s ease both',
+                    }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', flex: 'none', marginTop: 5 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ font: "500 12.5px var(--sans)", color: 'var(--text)' }}>
+                          {rev.stepsErr.msg || 'The steps didn’t validate — try again or rephrase.'}
+                        </div>
+                        {(rev.stepsErr.detail ?? []).length > 0 && (
+                          <div style={{ font: "400 11px/1.6 var(--mono)", color: 'var(--text-muted)', marginTop: 4 }}>
+                            {(rev.stepsErr.detail ?? []).map((d, i) => <div key={i}>{d}</div>)}
+                          </div>
+                        )}
+                      </div>
+                      <button className="ad-btn-soft" onClick={() => void runSync()} style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}>
+                        Rebuild the steps
+                      </button>
+                    </div>
+                  )}
                   {rev.dirty && !rev.syncBusy && !rev.askBusy && (
                     <div style={{
                       background: 'oklch(0.8 0.13 85 / .07)', border: '1px solid oklch(0.8 0.13 85 / .28)',
@@ -1699,17 +1769,21 @@ export default function CreateFlow() {
                   <div style={{ display: 'flex', alignItems: 'center', padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
                     <span style={eyebrowStyle}>SCHEDULE</span>
                   </div>
-                  <div style={{ padding: '13px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{
-                      font: "500 12px var(--mono)", color: 'var(--accent)', background: 'oklch(0.74 0.155 52 / .12)',
-                      borderRadius: 6, padding: '3px 9px',
-                    }}>
-                      {rev.schedLabel}
-                    </span>
-                    <span style={{ font: "400 11.5px var(--sans)", color: 'var(--text-faint)' }}>
-                      {rev.sched ? 'Executes even when the app is closed.' : 'No time set — executes only when you press Execute now or use the menu bar.'}
-                    </span>
-                  </div>
+                  {drafting ? (
+                    <div style={{ padding: '13px 20px', font: "400 12px var(--sans)", color: 'var(--text-faint)' }}>{stageLabel}</div>
+                  ) : (
+                    <div style={{ padding: '13px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{
+                        font: "500 12px var(--mono)", color: 'var(--accent)', background: 'oklch(0.74 0.155 52 / .12)',
+                        borderRadius: 6, padding: '3px 9px',
+                      }}>
+                        {rev.schedLabel}
+                      </span>
+                      <span style={{ font: "400 11.5px var(--sans)", color: 'var(--text-faint)' }}>
+                        {rev.sched ? 'Executes even when the app is closed.' : 'No time set — executes only when you press Execute now or use the menu bar.'}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* PARAMETERS */}
@@ -1721,6 +1795,11 @@ export default function CreateFlow() {
                     )}
                   </div>
                   {(() => {
+                    if (drafting) {
+                      return (
+                        <div style={{ padding: '14px 20px 16px', font: "400 12px var(--sans)", color: 'var(--text-faint)' }}>{stageLabel}</div>
+                      )
+                    }
                     const params = isEdit ? auto?.params ?? [] : rev.params
                     if (params.length === 0) {
                       return (
@@ -1898,7 +1977,10 @@ export default function CreateFlow() {
                           Cancel
                         </button>
                       ) : (
-                        <button className="ad-btn-soft" onClick={() => void runTest()} style={{ padding: '4px 10px' }}>
+                        <button
+                          className="ad-btn-soft" onClick={() => void runTest()}
+                          style={{ padding: '4px 10px', ...(rev.steps.length === 0 ? { opacity: 0.45, cursor: 'default' } : {}) }}
+                        >
                           {test ? 'Execute again' : 'Execute the draft'}
                         </button>
                       )}
@@ -2003,10 +2085,11 @@ export default function CreateFlow() {
         />
       )}
 
-      {/* §11: the repair modal — one convergent loop, two entry points: a
-          blocked sync ('sync') and a failed test's issue analysis ('test').
-          Applying amends the in-editor spec and repeats the sync; closing a
-          'sync' repair leaves the workflow out of sync with the banner up. */}
+      {/* §11: the repair modal — one convergent loop, three entry points: a
+          create job blocked at the steps call ('create'), a blocked sync
+          ('sync'), and a failed test's issue analysis ('test'). Applying
+          amends the in-editor spec and runs a sync; closing a 'create'/'sync'
+          repair leaves the workflow out of sync with the banner up. */}
       {rev?.repair && (
         <Modal
           onClose={() => { if (applyBlockedRef.current) { applyBlockedRef.current = false; applyRepair() } else up({ repair: null }) }}
@@ -2022,7 +2105,9 @@ export default function CreateFlow() {
               <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)', marginBottom: 14 }}>
                 {rev.repair!.source === 'test'
                   ? 'A step failed when the draft ran. Edit the fix below, then apply it to the spec and sync the steps.'
-                  : 'It couldn’t sync the steps with the spec. Edit the fix below, then apply it to the spec and sync again.'}
+                  : rev.repair!.source === 'create'
+                    ? 'It couldn’t build the steps as the spec asks. Edit the fix below, then apply it to the spec and rebuild.'
+                    : 'It couldn’t sync the steps with the spec. Edit the fix below, then apply it to the spec and sync again.'}
               </div>
               <BlockerCards
                 blockers={rev.repair!.blockers}
@@ -2043,7 +2128,9 @@ export default function CreateFlow() {
                   onClick={() => { applyBlockedRef.current = true; close() }}
                   disabled={rev.repair!.blockers.some((b) => !b.reason.trim() || !b.fix.trim())}
                 >
-                  {rev.repair!.source === 'test' ? 'Apply to the spec & sync the steps' : 'Apply to the spec & sync again'}
+                  {rev.repair!.source === 'test' ? 'Apply to the spec & sync the steps'
+                    : rev.repair!.source === 'create' ? 'Apply to the spec & rebuild the steps'
+                      : 'Apply to the spec & sync again'}
                 </BtnPrimary>
               </div>
             </>

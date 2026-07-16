@@ -354,6 +354,11 @@ class DraftJobs:
             if errors:
                 return self._fail(job, "The spec didn't validate — try again or rephrase.", errors)
             spec_md, spec_blocks = spec["md"], spec["blocks"]
+            if mode == "create":
+                # §11 drafting-on-Review: the validated spec rides the job
+                # payload the moment call 1 lands, so the spec card can render
+                # it while the steps call is still working (§19).
+                job["draft"] = {"spec": spec_blocks}
             if mode == "edit":
                 # §8: edit stops after the spec — the Review page shows the
                 # rewritten spec out of sync and a later `sync` job rebuilds

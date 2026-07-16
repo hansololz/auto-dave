@@ -285,3 +285,32 @@ def test_fake_cli_two_phase_validates():
     draft, errors = validate_steps(parse_envelope(steps_raw))
     assert errors == []
     assert draft["steps"] and draft["name"] == "Track my packages"
+
+
+def test_create_job_payload_carries_spec_mid_job(monkeypatch):
+    # §11 drafting-on-Review / §19: on create, call 1's validated spec rides
+    # the job payload before the steps call runs, so the spec card can render
+    # it while the steps are still generating.
+    import time
+
+    from autodave import harness
+    from autodave.drafting import DraftJobs
+
+    jobs = DraftJobs()
+    seen = {}
+
+    def fake_invoke(agent, prompt, timeout=300, proc_holder=None):
+        if "TASK: update the SPEC" in prompt:
+            return GOOD_SPEC
+        seen["mid"] = next(iter(jobs.jobs.values())).get("draft")
+        return GOOD_STEPS
+
+    monkeypatch.setattr(harness, "invoke", fake_invoke)
+    job_id = jobs.start("create", {"harness": "Claude Code"}, "Say hello", None, GRANTS)
+    for _ in range(100):
+        j = jobs.get(job_id)
+        if j["status"] in ("done", "failed", "blocked"):
+            break
+        time.sleep(0.05)
+    assert j["status"] == "done", j
+    assert seen["mid"] and seen["mid"]["spec"][0] == {"k": "h1", "text": "Hello"}

@@ -157,10 +157,12 @@ export interface DraftJob {
   stage: string | null
   error: string | null
   errorDetail?: string[]
+  // On a create job, `draft.spec` carries call 1's validated spec as soon as
+  // the spec call completes (§11 drafting-on-Review renders it mid-job); a
+  // blocked steps call keeps it there so the Blocker modal can amend it.
   draft: DraftPayload | null
   mode: 'create' | 'edit' | 'sync'
-  // blocked jobs only: which call blocked; on a blocked steps call in create
-  // mode `draft.spec` carries call 1's spec so the Blocker panel can amend it.
+  // blocked jobs only: which call blocked
   blockedAt?: 'spec' | 'steps'
   blockers?: Blocker[]
 }

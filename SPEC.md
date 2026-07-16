@@ -741,16 +741,19 @@ blockers in one response, and to write plain words. A valid blocker envelope end
 its own terminal state **`blocked`** — not `failed`: there is nothing to repair, so the repair
 round below is skipped and no error is raised. A malformed blocker envelope is an invalid
 response like any other (repair round, then failure). The blockers ride the job payload (§19)
-and are logged with the invocation like any response. UI handling is §11's Blocker panel.
+and are logged with the invocation like any response. UI handling is §11's Blockers &
+clarifications.
 
 **Failure policy:** one automatic repair round **per call** — the same prompt plus the previous
 raw response and the machine-generated validation errors. A second invalid response fails the
-draft, surfaced in the Building state (spec call: "The spec didn't validate — try again or
+draft, surfaced in the §11 drafting cards (spec call: "The spec didn't validate — try again or
 rephrase."; steps call: "The steps didn't validate — …"). Per-call timeout 5 minutes; cancelling
-the Building screen kills the harness process. The job's `stage` tracks the pipeline ("Writing
-the spec" → "Generating the steps" — the §11 Building screen's two checklist rows; sync jobs
-start at the second, edit jobs end after the first). Every invocation's full prompt and raw
-response are logged to the app log
+the job (Start over, or an edit that supersedes an in-flight steps call, §11) kills the harness
+process. The job's `stage` tracks the pipeline ("Writing the spec" → "Generating the steps" —
+the §11 drafting-card labels; sync jobs start at the second, edit jobs end after the first). On
+a create job, call 1's validated spec rides the job payload as soon as the spec call completes
+(§19), so the §11 spec card can render it while the steps call is still working. Every
+invocation's full prompt and raw response are logged to the app log
 (never to execution logs) for debugging.
 
 **Issue-analysis call (§11 Test).** When a test's step fails, the backend makes one
@@ -897,28 +900,52 @@ product's price (fa-tag) / Tidy my screenshots folder (fa-broom). "Written by `<
 (footer: "Auto Dave still executes everything"), CTA "Draft the automation". Empty text blocks with
 "Describe the job first — one sentence is enough."
 
-**Building.** Spinner + staged checklist ("Writing the spec" → "Generating the steps") driven by
-the §8 job's `stage`, agent label; then Review. On failure the backend's error is the headline
-(spec vs. steps message per §8) with validation details beneath, plus Back / Try again.
+**Drafting on Review — no separate building screen.** "Draft the automation" starts the §8
+create job and navigates **straight to Review**, which renders in a drafting state and fills in
+as the pipeline delivers, driven by the job's `stage` over `draft.progress`:
 
-**Blocker panel.** When a §8 job ends `blocked`, the checklist gives way to a panel: headline
-"Your AI hit a blocker" ("… hit N blockers" when several), one card per blocker with three
-labeled, editable text fields — **Reason** / **How to fix** / **Details** — pre-filled from the
-agent's answer; the user edits any of them (usually the fix). Actions depend on which call
-blocked:
+- **Title row** — name shows the placeholder "New automation…" until the spec lands, then the
+  spec's `#` title as the provisional name; call 2's manifest `name` replaces it. The Start over
+  ghost cancels any in-flight job and returns to Ask with the description intact.
+- **Spec card** — force-open, spinner + "Writing the spec…" (agent label). The moment call 1
+  validates, the spec renders — while the steps are still generating — and is readable and
+  editable right away.
+- **Right column** (steps, schedule, parameters) — skeleton cards: "Waiting for the spec…"
+  during call 1, "Generating the steps…" during call 2.
+- **Editing while the steps generate** — any spec / build-instruction / agent-ask / grant change
+  cancels the in-flight steps call (`DELETE /drafts/{jobId}`), keeps the landed spec, and marks
+  the workflow out of sync; the standard sync banner rebuilds the steps. Catching a bad spec
+  early costs nothing.
+- **Failures** — a spec-call failure renders inside the spec card: the §8 spec headline,
+  validation details beneath, **Try again** (new create job, same description) and **Back to
+  the request** (Ask, description intact). A steps-call failure renders in the steps skeleton
+  with the §8 steps headline and **"Rebuild the steps"**, which runs a §8 `sync` against the
+  landed spec.
+- **Saving** — blocked while any §8 job is in flight (Dirty gating below); a create draft
+  cannot save until steps exist and are in sync.
 
-- **Steps call** (create): primary **"Apply to the spec & rebuild the steps"** — each card is
-  written into the draft spec under a `## Constraints & resolutions` section (created on first
-  use, extended after), one bullet per blocker — "`reason` — `fix`", using the edited text —
-  then a new steps call is made against the amended spec and the checklist re-enters "Generating
-  the steps". The resolutions live in the spec document itself, so they survive later edits and
-  syncs and version like any spec text. If the rebuild blocks again the panel returns with the
-  new blockers plus a muted "Previously resolved" list of this session's earlier resolutions,
-  so a fix that didn't take is visible. Ghost **Back** returns to Ask with the description
-  intact. No automatic loop cap — the cycle is user-driven and Back/cancel always exits.
-- **Spec call** (create): no spec exists yet to amend — the cards are read-only and the primary
-  action is **"Back to the request"**, returning to Ask with the description preserved for a
-  rephrase (the fix text is the agent's advice on what to change).
+**Blockers & clarifications.** When a §8 job ends `blocked`, the blockers render as cards —
+headline "Your AI hit a blocker" ("… hit N blockers" when several), one card per blocker with
+three labeled, editable text fields — **Reason** / **How to fix** / **Details** — pre-filled
+from the agent's answer; the user edits any of them (usually the fix). Where the cards appear
+and what the primary action does depend on which call blocked:
+
+- **Spec call** (create) — the clarification case: the cards render **in place of the spec
+  body inside the spec card**. The user answers by editing the fix text; primary **"Answer &
+  rewrite the spec"** appends the cards to the description — one line per blocker,
+  "`reason` — `fix`", using the edited text — and starts a new create job in place. Ghost
+  **"Back to the request"** returns to Ask with the description preserved.
+- **Steps call** (create) — the same Blocker modal over Review that `sync` uses (Dirty gating
+  below): primary **"Apply to the spec & rebuild the steps"** writes each card into the landed
+  draft spec under a `## Constraints & resolutions` section (created on first use, extended
+  after), one bullet per blocker — "`reason` — `fix`" — then runs a §8 `sync` against the
+  amended spec and the steps skeleton re-enters "Generating the steps". The resolutions live in
+  the spec document itself, so they survive later edits and syncs and version like any spec
+  text. If the rebuild blocks again the modal returns with the new blockers plus a muted
+  "Previously resolved" list of this session's earlier resolutions, so a fix that didn't take
+  is visible. Closing the modal leaves the workflow out of sync with the spec editable and the
+  sync banner up. No automatic loop cap — the cycle is user-driven and Start over/close always
+  exits.
 
 **Review.** 1800 px max-width page. Title row: name (single line, shrinks with ellipsis so a long name never pushes the
 buttons out of the window), version dropdown (edit mode), agent picker, Start over ghost
@@ -927,8 +954,9 @@ nothing executes until you create it." When an execution is live during an edit,
 shows: "An execution is happening right now on vN. Saving won't interrupt it — that execution finishes on vN.
 vN+1 takes over from the next execution (`<schedule>`)." Sections (left column: spec, agents,
 secrets, instructions, framework; right column: steps, schedule, parameters, test):
-- **Spec** — collapsible card (caret + `SPEC` header toggle; defaults open on the edit page,
-  collapsed on create; force-open while the spec is being edited, and the Edit/Cancel/Save
+- **Spec** — collapsible card (caret + `SPEC` header toggle; defaults open on create — it is
+  the drafting surface — and on edit; force-open while the spec is writing, showing
+  clarification cards, or being edited, and the Edit/Cancel/Save
   buttons + body + ask box hide when collapsed). Editable as markdown-ish text (`#`, `##`, `-`,
   plain ↔ h1/h2/li/p blocks). Also an
   "ask the agent" box ("Edit with agent") that starts one §8 `edit` job (spec call only) with the
@@ -951,11 +979,12 @@ secrets, instructions, framework; right column: steps, schedule, parameters, tes
 - **Dirty gating** — any spec/instruction/agent-ask/agent-enablement/secret-allowance change
   marks the workflow out of sync and **blocks saving** until the sync banner's "Sync now" button
   makes one §8 `sync` call regenerating the steps ("Steps synced with the spec — review them,
-  then save."). A `blocked` sync opens the §11 Blocker panel as a modal over Review: its
-  primary button amends the in-editor spec (same `## Constraints & resolutions` rule as the
-  Building panel) and repeats the sync; closing the modal leaves the workflow out of sync with
+  then save."). A `blocked` sync opens the Blocker modal (above): its
+  primary button amends the in-editor spec (same `## Constraints & resolutions` rule) and
+  repeats the sync; closing the modal leaves the workflow out of sync with
   the sync banner still up. Disabled Save shows an amber hint ("Sync and review the steps before saving." /
-  "Finish editing the spec first…" / "Syncing steps…" / "Rewriting the spec…"); saving is also
+  "Finish editing the spec first…" / "Syncing steps…" / "Rewriting the spec…" /
+  "Writing the spec…" / "Generating the steps…"); saving is also
   blocked while any §8 job is in flight, and the sync banner hides while one is. Picking a different agent for a single
   step does **not** dirty the workflow — it only marks the draft touched (toast "Step N now
   calls `<agent>` · `<model>`."); disabling an enabled agent that steps still call does dirty it
@@ -1001,7 +1030,7 @@ secrets, instructions, framework; right column: steps, schedule, parameters, tes
   result summary (chip + values) in the card, with no agent call. On failure the card
   shows "Analyzing the failure…" (agent label) while the backend makes the §8 issue-analysis
   call, then opens the **Issue panel** — the same cards, fields, and editing as the Blocker
-  panel, headline "The test hit an issue"; its primary button **"Apply to the spec & sync
+  modal, headline "The test hit an issue"; its primary button **"Apply to the spec & sync
   the steps"** amends the in-editor spec (same `## Constraints & resolutions` rule) and starts a
   §8 sync, and "Previously resolved" carries across rounds — build-time blockers and execution-time
   issues are one convergent repair loop with two entry points. If the analysis call itself
@@ -1307,10 +1336,12 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
   the stored automation's for the §8 grants context; progress via
-  WS; `GET /drafts/{jobId}` → state + validated §8 draft payload — a `blocked` job's state is
-  `blocked` and it carries the §8 `blockers` list plus `blockedAt: spec | steps`; a create job
-  blocked at the steps call also carries call 1's spec as its draft payload, so the §11 Blocker
-  panel can amend and rebuild it; `DELETE /drafts/{jobId}` cancels
+  WS; `GET /drafts/{jobId}` → state + validated §8 draft payload — on a create job the payload
+  carries call 1's validated spec as soon as the spec call completes (the §11 spec card renders
+  it while the steps call is still working); a `blocked` job's state is
+  `blocked` and it carries the §8 `blockers` list plus `blockedAt: spec | steps` (a create job
+  blocked at the steps call keeps call 1's spec in its payload, so the §11 Blocker modal can
+  amend and rebuild it); `DELETE /drafts/{jobId}` cancels
   (kills the harness process)
 - `GET /executions?auto=&status=` (headers) · `GET /executions/{id}` (steps + logs + result) ·
   `GET /executions/{id}/result/{name}` (raw result-dir file for the §7 file views; plain
@@ -1375,6 +1406,11 @@ didn't have to face. Do not "fix" the app to match the prototype on these points
   it simulates the pull; real `ollama pull` output may not yield one.
 - **`lastExecLabel` is always derived.** The prototype's seeds mostly omit it and the menu bar
   patches in hardcoded times; the real field is computed per §4.1 for every automation.
+- **No separate building screen.** The prototype shows a spinner + staged-checklist surface
+  between Ask and Review while the draft generates. The app navigates straight to Review, whose
+  cards carry the drafting stages (§11): the spec is readable — and editable — the moment the
+  spec call lands, clarifications happen inside the spec card, and steps-call blockers reuse
+  the sync Blocker modal.
 - **"Execution", never "run".** The prototype's copy and code say "Run now", "Running",
   "runs", `lastRunLabel`. The app uses a single term for one occurrence of an automation —
   see the §6 terminology rule ("Execute now", "Executing", `executing` status,
