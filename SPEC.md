@@ -39,7 +39,7 @@ Four components (per top-level README):
 - **Electron desktop app** — the UI. Recreates the design prototype pixel-faithfully (dark theme
   only). One window plus a menu-bar (tray) surface. Talks to the backend over a local API.
 - **Python backend** — long-lived local service: owns the data store (automations, versions,
-  executions, agents, settings), the scheduler (executes schedules even when the app window is closed),
+  executions, agents, settings), the scheduler (fires triggers even when the app window is closed),
   Keychain access for secrets, and orchestration of AI agents that draft/edit automation specs
   and step scripts.
 - **Python engine** — executes an automation's steps as scripts, streams per-step status and logs,
@@ -55,7 +55,7 @@ the full API surface is §19. Packaging is decided — see §3. Storage is decid
 ## 3. Packaging & process lifecycle (decided)
 
 **The Python backend runs as a per-user launchd LaunchAgent, independent of the Electron app.**
-Primary use case: a Mac left running unattended for days must keep executing schedules with no UI
+Primary use case: a Mac left running unattended for days must keep firing triggers with no UI
 open.
 
 **Implementation status:** the launchd/CLI/discovery half is implemented (`service.py`, `cli.py`,
@@ -132,10 +132,11 @@ The on-disk representation of these entities is §5.
 id: uuid
 name, desc: strings
 version: int (current)
-schedule: display string ("Daily at 8:00", "Mondays at 9:00"); "No schedule" when hour absent
-scheduleShort: chip string ("Daily 8:00", "Mon 9:00"); "No schedule" when hour absent
-hour: 0–23 or absent (no schedule — manual/menu bar only); min: 0–59 (default 0); dow: 0–6 (Sun=0), absent = daily
-schedOff: bool — schedule disabled (Execute now + menu bar still work)
+triggers: ordered trigger list (§4.3) — user-owned, never versioned
+triggerChip: derived chip string (§4.3): one trigger → its short label, several → "N triggers",
+  empty → "No triggers"
+triggersOff: bool — derived: the list is nonempty and every trigger is off (drives the OFF tag)
+nextAt: epoch ms of the next enabled occurrence across all triggers (§4.3) | null
 instr: optional multiline free-text user instructions to the agent
 lastStatus: succeeded | executing | failed | cancelled | interrupted | none
 live: execution id while an execution is in progress, else null
@@ -175,20 +176,59 @@ Every definition carries a default: `toggle` → off, `number` → its `min`, `t
 empty. Definitions are versioned with the automation; values live in the top-level
 `automation.yaml` and are matched by name and kind at execution/restore time (§5).
 
-### 4.3 Schedule
+### 4.3 Triggers
 
-Countdown "next in Xd Xh" / "Xh Xm": next occurrence of `hour:min` (weekly if `dow` set, else
-daily); if the target already passed today/this week, roll forward one day/week. Refresh display
-every 30 s.
+An automation carries an ordered list of **triggers** — independent conditions that each start
+an execution. Triggers are user-owned operational state (§5): editing them never mints a version
+and never involves the AI. Manual starts (Execute now, the menu bar, CLI) are not triggers in
+this list — they always work, whatever the list holds.
 
-Detail-page schedule status line:
-- executing → "`<schedule>` · executing now" / "Executing now… the schedule is unchanged." (spinner icon)
-- no schedule (hour absent) → "No schedule" / "No schedule set — executes only when you press Execute now or use
-  the menu bar." (pause icon)
-- schedOff → "`<schedule>` · schedule off" / "Off — won't execute on its own. Execute now and the menu bar
+Trigger shape: `{ id: uuid, kind, off: bool, …kind fields }` plus the backend-derived display
+strings `label` and `short`. The backend assigns `id` to entries that arrive without one. Kinds:
+
+| kind | fields | fires | label / short |
+|---|---|---|---|
+| `cron` | `expr`: 5-field cron expression, local time | at every match | humanized when simple (below), else the raw expression in mono |
+| `time` | `at`: local wall-clock ISO timestamp ("2026-07-20T15:00") | once, then the trigger is consumed | "Once at Jul 20, 3:00 PM" / "Once Jul 20 15:00" |
+| `discord` · `imessage` · `pubsub` | — | future message triggers | — |
+
+Message triggers are reserved kinds only: they appear as "coming soon" in the UI (§9.2) and the
+API rejects writing them with 422. Nothing else about them is specified yet.
+
+**Cron dialect** (implemented in `schedule.py`, no new dependency): five whitespace-separated
+fields — minute, hour, day-of-month, month, day-of-week (0–6, Sun = 0) — each `*` or a comma
+list of numbers, ranges (`a-b`), and steps (`*/n`, `a-b/n`). Numbers only: no month/day names,
+no `@daily` macros, no seconds field. Standard Vixie rule: when day-of-month and day-of-week are
+both restricted, a date matching either one fires. Times are local wall clock; an occurrence
+erased by DST (spring forward) fires at the next valid minute, and one repeated by fall-back
+fires once. Invalid expressions are rejected at the API (422), never stored.
+
+**Humanized cron labels** — exactly two shapes get words; everything else displays the raw
+expression:
+- `M H * * *` → "Daily at 8:00" / short "Daily 8:00"
+- `M H * * D` (single day) → "Mondays at 9:00" / short "Mon 9:00"
+
+**One-shot semantics** (`time`): `at` must be strictly in the future when saved (422 otherwise).
+The trigger is consumed — removed from the list — when it fires, and equally when its moment is
+skipped (backend down when it passed, or superseded mid-execution, §6). It never lingers spent.
+
+**Next occurrence:** each enabled (`off: false`) trigger computes its own next time — cron: the
+next expression match strictly after now; time: `at`. The automation's `nextAt` is the minimum
+across them, null when no enabled trigger has one. The countdown renders "next in Xd Xh" /
+"Xh Xm" and refreshes every 30 s.
+
+**Derived display:** `triggerChip` — one trigger in the list → its short label; several →
+"N triggers"; empty list → "No triggers". `triggersOff` — nonempty list, every entry off; list
+rows add an OFF tag to the chip (§9.1).
+
+Detail-page trigger status line (under the §9.2 TRIGGERS rows):
+- executing → "Executing now… the triggers are unchanged." (spinner icon)
+- no triggers → "No triggers set — executes only when you press Execute now or use the menu
+  bar." (pause icon)
+- all off → "All triggers are off — won't execute on its own. Execute now and the menu bar
   still work." (pause icon)
-- else → "`<schedule>` · next in `<countdown>`" / "Next execution in `<countdown>` · executes even when the
-  app is closed." (clock icon)
+- else → "Next execution in `<countdown>` (`<short label of the next trigger>`) · executes even
+  when the app is closed." (clock icon)
 
 ### 4.4 Versions and drafts
 
@@ -201,16 +241,18 @@ Detail-page schedule status line:
   each older vN (date · note). Loading an old version shows a banner: "Loaded vX from history.
   Saving restores it as vN+1 — your draft stays in the Version menu." with a bordered
   **Back to draft** button; Save label becomes "Restore vX as vN+1".
-- Detail page: old versions can **Execute once** without changing the schedule (toast: "Executing vX
-  once — the schedule and Execute now stay on vN."). The detail-page version menu carries a footer
-  explainer: "Executing an older version once doesn't change anything — the schedule and Execute now
+- Detail page: old versions can **Execute once** without touching the triggers (toast: "Executing vX
+  once — triggers and Execute now stay on vN."). The detail-page version menu carries a footer
+  explainer: "Executing an older version once doesn't change anything — triggers and Execute now
   always use the current version. To make an older version current, open Edit and restore it from
   the Version menu." Draft banner offers Execute draft / Resume editing / Discard.
 
 ### 4.5 Execution (the stored record of one occurrence of an automation)
 
 ```
-id: uuid, autoId: uuid, ver ("v3" or "Draft"), status, trigger: Manual | Schedule | Menu bar
+id: uuid, autoId: uuid, ver ("v3" or "Draft"), status,
+trigger: Manual | Menu bar | Cron | Once (future: Discord | iMessage | Pub/Sub) — the label of
+  what started the execution (§4.3 kinds map cron → "Cron", time → "Once")
 dur, started ("Just now, 8:00 AM"), startedMs
 steps: [{ name, status, dur }]
 logs: [{ t, k: sys|out|wrn|err, text }]
@@ -320,7 +362,8 @@ electron/                      # Electron's Chromium profile (Cache, Cookies, Lo
 automations/<slug>/
   automation.yaml              # unversioned, mutable — user/operational state: id, name,
                                # current_version (pointer: current = versions/v<N>/),
-                               # schedule, agent_id, enabled_agents, allowed_secrets,
+                               # triggers [{id, kind, off, expr | at}], agent_id,
+                               # enabled_agents, allowed_secrets,
                                # param_values {name: value} (user data, never pruned),
                                # created_at, updated_at
   memory/                      # memory directory carried between executions (engine contract, §6) — scripts
@@ -356,7 +399,7 @@ dictConfig would wipe a filter attached to its loggers beforehand) and on the ro
 
 A version folder holds **what the agent wrote** (spec, instructions, steps + scripts, param
 definitions, desc); the top-level `automation.yaml` holds **what the user owns and operates**
-(identity, schedule, param values, agent choice, permission grants). Two consequences:
+(identity, triggers, param values, agent choice, permission grants). Two consequences:
 
 - **Permissions are never versioned.** `enabled_agents` and `allowed_secrets` are grants; they
   live only in the top-level file. Restoring or executing an old version must never silently
@@ -408,13 +451,13 @@ executions/
 parses every top-level `automation.yaml` plus each `versions/vN/` folder (its `automation.yaml`
 + `spec.md` + `instructions.md` + step scripts), and serves all automation reads (lists,
 detail, scheduler, menu bar) from memory. There is no automations table: the YAML files plus the
-startup walk are the whole story. The id → path map, `has_draft`, and `next_run_at` are derived
+startup walk are the whole story. The id → path map, `has_draft`, and `nextAt` are derived
 in memory during/after the walk; execution-derived display state (`last_status`,
 `last_execution_at`, `live_execution_id`) is filled by one startup query for the latest execution
 per `automation_id` and kept current as executions complete; `resultChip`/`resultStatus` read straight
 off that latest execution's header (§4.5) — never from `result/`. `skipped` records never count as the
 "latest" execution for this display state — they never ran, and §4.1's `lastStatus` vocabulary
-excludes them (a mid-execution schedule skip must not shadow the live execution's final status/chip).
+excludes them (a mid-execution trigger skip must not shadow the live execution's final status/chip).
 
 Executions load **headers-eagerly, bodies-lazily**: startup reads every record from
 `executions.db` into an in-memory `executions` table — one record per execution with
@@ -464,16 +507,19 @@ never used for lookups.
 
 ## 6. Engine contract & framework policies (shown as reference in Review)
 
-- **Scheduling & triggers** — one execution at a time (the API answers 409; the toast copy is client
-  UI); a schedule firing mid-execution is skipped, not queued; a failed scheduled execution is retried once
-  after 5 minutes — once per failure streak, keyed on the automation: a retry that also fails is
-  not retried again until a scheduled success resets it. The retry resumes from the failed step
-  (§7 re-execute semantics: earlier steps `reused`, workspace copied), not from scratch.
-- **Missed executions** — execute when possible: if the scheduled time passes while the Mac is asleep (backend
-  alive but suspended), the execution fires on wake. If the backend itself wasn't running when the time
-  passed, that occurrence is skipped entirely — no catch-up queue at startup; the next scheduled
-  occurrence proceeds normally. At most one catch-up execution fires per wake regardless of how many
-  occurrences were slept through.
+- **Scheduling & triggers** — one execution at a time per automation (the API answers 409; the
+  toast copy is client UI). Enabled triggers fire independently; occurrences due at the same
+  moment coalesce into one execution, and a trigger firing mid-execution is skipped, not queued
+  (a one-shot `time` trigger is still consumed by that skip, §4.3). A failed trigger-fired
+  execution is retried once after 5 minutes — once per failure streak, keyed on the automation:
+  a retry that also fails is not retried again until a trigger-fired success resets it. The
+  retry resumes from the failed step (§7 re-execute semantics: earlier steps `reused`, workspace
+  copied), not from scratch.
+- **Missed executions** — execute when possible: if a trigger's moment passes while the Mac is
+  asleep (backend alive but suspended), the execution fires on wake. If the backend itself wasn't
+  running when the moment passed, that occurrence is skipped entirely — no catch-up queue at
+  startup; the next occurrence proceeds normally. At most one catch-up execution fires per wake
+  regardless of how many occurrences — across all triggers — were slept through.
 - **Reading web pages** — 10 s timeout; ≥ 2 s between requests to the same site; retry twice;
   respect robots.txt; user agent "AutoDave/1.0".
 - **Workspace per execution** — every step executes with its cwd set to the execution's `workspace/`
@@ -518,7 +564,7 @@ The engine's executor injects these globals — scripts may also `import autodav
   `memory.save(name, obj)` YAML helpers.
 - `execution` — read-only execution metadata: `execution.automation_id`, `execution.automation_name`,
   `execution.id`, `execution.step_index` (1-based), `execution.step_name`, `execution.trigger` (the execution's trigger label,
-  e.g. `Manual` / `Schedule`). Assigning to any field raises.
+  e.g. `Manual` / `Cron`, §4.5). Assigning to any field raises.
 - `log` — `log(text)` / `log.warn(text)` / `log.error(text)` → `out`/`wrn`/`err` NDJSON lines
   (`log.info` is an alias of `log`).
 - `result` — builder used by the last step (any step may add): `result.chip(text)` (optional —
@@ -560,7 +606,7 @@ through drafting.
 ## 7. Execution lifecycle
 
 - One execution at a time per automation. Starting while live: toast "Already executing — one execution
-  at a time. A schedule firing now would be skipped."
+  at a time. A trigger firing now would be skipped."
 - Start: execution record created with all steps queued; automation gets live id, lastStatus
   executing, lastExecLabel "executing…"; the execution appears at top of Executions; sidebar counts
   and menu-bar rows update live.
@@ -575,7 +621,7 @@ through drafting.
   failed step onward re-executes; the re-execution copies the source execution's workspace so reused
   steps' outputs remain available. Other terminal executions get a quiet bordered "Execute again"
   (tooltip "Executes the automation again from the start") — a plain fresh execution.
-- Triggers: Manual, Schedule, Menu bar. `interrupted` covers e.g. "Mac went to sleep" — applied
+- Trigger labels: Manual, Menu bar, Cron, Once (§4.5). `interrupted` covers e.g. "Mac went to sleep" — applied
   by startup recovery when a restarted backend finds stale `executing` executions; a sleep the
   backend process survives simply resumes the execution. `skipped`/`cancelled` executions may carry a
   note ("previous execution still in progress").
@@ -614,7 +660,7 @@ execution page.
 ## 8. Agent drafting pipeline (decided)
 
 Drafting is a **two-call pipeline**: the backend first asks the agent to write the **spec**,
-then — in a second, independent call — to build the **steps, parameters, and schedule** from
+then — in a second, independent call — to build the **steps, parameters, and triggers** from
 that spec. Each mode makes the calls it needs (see Modes below); `edit` stops after the spec
 call and `sync` makes only the steps call. Both calls carry the same two
 instruction files, invoke the chosen agent harness headless through a per-harness adapter
@@ -635,7 +681,7 @@ also served to the create/edit page via §19 `GET /instructions`):
   needed, its prompt kept small enough for a local model — narrow question, strict output
   format, reply validated in code), the `autodave` SDK reference with worked examples (a typical
   memory-diff last step; a validated `agent.ask` call), the curated package list, the parameter
-  kinds table (§4.2), schedule- and step-design duties, and all five §6 policy sections. The §11
+  kinds table (§4.2), trigger- and step-design duties, and all five §6 policy sections. The §11
   Framework-instructions card renders this file as markdown.
 - `backend/autodave/instructions/default-build-instructions.md` — the default best-practice
   build instructions (never delete files, write only to memory/workspace, small single-purpose
@@ -675,7 +721,7 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
 `spec` in the §19 body wins over the stored version's). Prompt sections in order:
 
 1. `framework-instructions.md` (verbatim).
-2. **TASK directive** — build the automation that implements the SPEC: derive the schedule,
+2. **TASK directive** — build the automation that implements the SPEC: derive the triggers,
    every parameter (each with a default), and the steps from the spec; return `manifest.yaml`
    plus one file block per step, no `spec.md`. Includes the manifest shape:
 
@@ -684,7 +730,8 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    name: Suggested automation name   # create only (ignored on sync)
    desc: One-line description
    note: Version note for the history menu (§4.4)
-   schedule: { hour: 8, min: 0 }     # add dow: 0–6 (Sun=0) for weekly; omit the whole key if the spec names no time (no schedule — manual/menu bar only)
+   triggers:                         # cron entries only (§4.3 dialect); omit the whole key if
+     - cron: "0 8 * * *"             # the spec names no time (no triggers — manual/menu bar only)
    params:                           # full definitions per §4.2, each with a default
      - { name: sources, kind: list, label: Manga URLs, help: ..., validate: true }
    steps:                            # ordered; file names NN-name.py, two-digit, gapless
@@ -715,11 +762,12 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    (§11). Unknown or un-allowed secret references are Review warnings, not validation failures.
 6. Steps carry only `agent: true` as the query-only marker (§6); the backend assigns `agent_id`
    from the automation's enabled agents. `why` is required when `agent` is true.
-7. `schedule` is optional and, when present, validated (hour 0–23, min 0–59, dow 0–6); the agent
-   picks the time from the spec's words, and when the spec names no time it omits the key (no
-   schedule — the automation executes only via Execute now / menu bar). It is applied only when creating
-   (v1's schedule, pre-filled on Review); on sync the saved schedule is user-owned (§5) and never
-   changed by a draft.
+7. `triggers` is optional and cron-only: a list of `{ cron: expr }` entries, each expression
+   valid per the §4.3 dialect. The agent derives them from the spec's words and omits the key
+   when the spec names no time (no triggers — the automation executes only via Execute now /
+   menu bar). Applied only when creating (v1's triggers, each `off: false`, shown on Review); on
+   sync the saved triggers are user-owned (§5) and never changed by a draft. One-shot and
+   message triggers are never drafted — the user adds those on the automation page (§9.2).
 
 **Blocker response (either call).** When the task cannot be built as asked — a needed
 capability, grant, or framework policy makes it impossible — the agent returns, instead of its
@@ -802,7 +850,7 @@ attempt has failed; boot retries every 1.2 s). Fast boots therefore show no spla
 ### 9.1 Automations list
 
 1200 px page, "Automations" title + New button. One card per automation: name, description,
-status badge, schedule chip (plus an OFF tag when the schedule is off), result-summary chip when
+status badge, trigger chip (`triggerChip`, plus an OFF tag when `triggersOff`), result-summary chip when
 the last execution set one (tinted by `resultStatus` with the §7 chip colors — same tint as the detail
 and execution pages), and
 an **inline execute button** per card (disabled while that automation is executing, tooltip explains
@@ -822,10 +870,16 @@ Sections top to bottom:
   measure, file views, FILES footer — same collapsible behavior and chip rules). No-executions empty
   state (dashed
   card): "No executions yet / Press Execute now — the first result will appear right here."
-- **WAYS TO RUN** card — schedule row (schedule chip + §4.3 status line) with an on/off toggle
-  switch (drives `schedOff`), and a second row: bordered mono Execute-now button, copy "Manual executions
-  are always available — even when the schedule is off.", plus a disabled dashed chip "Message
-  triggers (Discord, iMessage) — coming soon".
+- **WAYS TO RUN** card — a **TRIGGERS** list: one row per trigger (kind icon — fa-clock for
+  cron, fa-calendar-day for time; §4.3 `label`; per-row on/off toggle; remove ×), the §4.3
+  status line beneath the rows, and an **"+ Add trigger"** button opening an inline editor:
+  kind picker (Cron / One time; Discord, iMessage, and Pub/Sub render as disabled "coming soon"
+  options) then either a cron-expression input with a live preview line (the humanized label
+  when simple, plus "next: `<time>`"; an invalid expression gets the red input border and
+  blocks Add) or a native date+time input that must be in the future. Empty list renders a
+  dashed "No triggers" row. Trigger edits apply immediately (§19 PATCH) — no version, no AI.
+  Below the list, the manual row: bordered mono Execute-now button, copy "Manual executions
+  are always available — even when every trigger is off."
 - **PARAMETERS** — directly editable here per the §4.2 edit behaviors; caption "Changes apply on
   the next execution — no new version, no AI involved."
 - **RECENT EXECUTIONS** — execution history rows (status, trigger·version, time, duration, note text when
@@ -837,8 +891,8 @@ Sections top to bottom:
   document when you edit it. Every change mints a new version — older ones live in the Version
   menu on the edit page."
 
-**Delete confirm modal** — "Delete this automation?" / "`<name>` will be deleted — the schedule
-stops, and its versions and memory go with it. Past results stay in Executions." When an execution is
+**Delete confirm modal** — "Delete this automation?" / "`<name>` will be deleted — its triggers
+stop, and its versions and memory go with it. Past results stay in Executions." When an execution is
 live an amber line is added: "An execution is in progress — deleting cancels it." (confirming cancels
 the execution, then deletes). Buttons Cancel / red "Delete automation".
 
@@ -910,7 +964,7 @@ as the pipeline delivers, driven by the job's `stage` over `draft.progress`:
 - **Spec card** — force-open, spinner + "Writing the spec…" (agent label). The moment call 1
   validates, the spec renders — while the steps are still generating — and is readable and
   editable right away.
-- **Right column** (steps, schedule, parameters) — skeleton cards: "Waiting for the spec…"
+- **Right column** (steps, triggers, parameters) — skeleton cards: "Waiting for the spec…"
   during call 1, "Generating the steps…" during call 2.
 - **Editing while the steps generate** — any spec / build-instruction / agent-ask / grant change
   cancels the in-flight steps call (`DELETE /drafts/{jobId}`), keeps the landed spec, and marks
@@ -952,8 +1006,8 @@ buttons out of the window), version dropdown (edit mode), agent picker, Start ov
 (edit: "Discard draft"), primary Create/Save. Lede: "Read what your AI wrote. Change anything —
 nothing executes until you create it." When an execution is live during an edit, a cyan pulsing banner
 shows: "An execution is happening right now on vN. Saving won't interrupt it — that execution finishes on vN.
-vN+1 takes over from the next execution (`<schedule>`)." Sections (left column: spec, agents,
-secrets, instructions, framework; right column: steps, schedule, parameters, test):
+vN+1 takes over from the next execution (`<short label of the next trigger>`)." Sections (left column: spec, agents,
+secrets, instructions, framework; right column: steps, triggers, parameters, test):
 - **Spec** — collapsible card (caret + `SPEC` header toggle; defaults open on create — it is
   the drafting surface — and on edit; force-open while the spec is writing, showing
   clarification cards, or being edited, and the Edit/Cancel/Save
@@ -990,7 +1044,11 @@ secrets, instructions, framework; right column: steps, schedule, parameters, tes
   calls `<agent>` · `<model>`."); disabling an enabled agent that steps still call does dirty it
   (toast "Steps X, Y are out of sync — `<agent>` is no longer available here. Sync the steps
   before saving.").
-- **SCHEDULE** card — schedule chip + "Executes even when the app is closed."
+- **TRIGGERS** card — the draft's cron triggers as §4.3 short-label chips + "Executes even when
+  the app is closed. Add or change triggers anytime on the automation page." Display-only: in
+  create mode it shows call 2's drafted triggers (the ones v1 gets); in edit mode the saved
+  triggers (user-owned, §5 — a draft never changes them). Empty: "No triggers — executes only
+  via Execute now and the menu bar."
 - **PARAMETERS · YOUR AI ASKED FOR THESE** card — in create mode the definitions are editable
   inline (per-line URL rows with "NOT A VALID LINK" chips, toggle rows, "+ Add line"); in edit
   mode (when the automation has params) the card is read-only with a "READ-ONLY HERE" tag,
@@ -1189,10 +1247,10 @@ no CLI or API to populate demo data. The seed fixture lives in `tests/seed_data.
 applied only by tests calling `seed(store)` (it refuses to seed when any automations exist).
 
 The prototype ships four demo automations useful for tests: "Track manga
-chapters" (daily 8:00, list/toggle/number/text/kv params, result.md markdown table with a READ
+chapters" (cron `0 8 * * *`, list/toggle/number/text/kv params, result.md markdown table with a READ
 column),
-"Nightly folder backup" (daily 2:00), "Weekly report email" (Mondays 9:00, failed, uses
-`SMTP_PASSWORD`, retry-from-step), "Clean screenshots folder" (Sundays 21:00). Demo secrets:
+"Nightly folder backup" (cron `0 2 * * *`), "Weekly report email" (cron `0 9 * * 1`, failed, uses
+`SMTP_PASSWORD`, retry-from-step), "Clean screenshots folder" (cron `0 21 * * 0`). Demo secrets:
 `SMTP_PASSWORD`, `VAULT_DRIVE_KEY`. Twelve seed executions cover every terminal status including
 skipped, reused, cancelled ("previous execution still in progress") and interrupted ("Mac went to
 sleep"); `executing` is inherently live and is not seeded.
@@ -1311,8 +1369,10 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `GET /instructions` → `{ framework, defaultBuild }` — the two §8 instruction files verbatim
   (backs the §11 Framework-instructions and Build-instructions cards)
 - `GET /automations` · `GET /automations/{id}` · `DELETE /automations/{id}`
-- `PATCH /automations/{id}` — user-owned fields only: name, schedule (hour/min/dow/schedOff),
-  param values, agentId, stepAgents, allowedSecrets
+- `PATCH /automations/{id}` — user-owned fields only: name, triggers (the §4.3 list, replaced
+  whole; entries keep their `id`, new entries get one assigned; cron/time kinds only — a message
+  kind, an invalid cron expression, or a past `time` answers 422 and nothing is stored), param
+  values, agentId, stepAgents, allowedSecrets
 - `POST /automations/{id}/execute` `{ version?: "vN" | "draft" (case-insensitive), trigger? }` →
   `{ execId }` (409 while live)
 - `POST /automations` `{ draft }` — create v1 from a validated draft
@@ -1406,6 +1466,11 @@ didn't have to face. Do not "fix" the app to match the prototype on these points
   it simulates the pull; real `ollama pull` output may not yield one.
 - **`lastExecLabel` is always derived.** The prototype's seeds mostly omit it and the menu bar
   patches in hardcoded times; the real field is computed per §4.1 for every automation.
+- **Multiple triggers.** The prototype models one daily/weekly schedule per automation
+  (hour/min/dow plus a single on/off). §4.3 replaces it with a trigger list — cron expressions,
+  one-shot times, reserved message kinds — so the schedule chips, the WAYS TO RUN card, and the
+  Review-page card diverge accordingly (the prototype's "Message triggers — coming soon" chip
+  becomes disabled kinds in the Add-trigger picker).
 - **No separate building screen.** The prototype shows a spinner + staged-checklist surface
   between Ask and Review while the draft generates. The app navigates straight to Review, whose
   cards carry the drafting stages (§11): the spec is readable — and editable — the moment the
