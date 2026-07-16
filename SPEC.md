@@ -1040,7 +1040,9 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
 - **Dirty gating** — any spec/instruction/agent-ask/agent-enablement/secret-allowance change
   marks the workflow out of sync and **blocks saving** until the sync banner's "Sync now" button
   makes one §8 `sync` call regenerating the steps ("Steps synced with the spec — review them,
-  then save."). A `blocked` sync opens the Blocker modal (above): its
+  then save."). The sync banner — and the in-flight sync spinner that takes its place — sits at
+  the top of the right column, **above** the Steps card rather than inside it, because a sync
+  rewrites the steps and the parameter definitions, not just the step list. A `blocked` sync opens the Blocker modal (above): its
   primary button amends the in-editor spec (same `## Constraints & resolutions` rule) and
   repeats the sync; closing the modal leaves the workflow out of sync with
   the sync banner still up. Disabled Save shows an amber hint ("Sync and review the steps before saving." /

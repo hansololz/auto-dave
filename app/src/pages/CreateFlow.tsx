@@ -1653,6 +1653,45 @@ export default function CreateFlow() {
 
               {/* ===== right column ===== */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {/* Sync banner — above the cards, not inside Steps: a sync rewrites the steps AND the param definitions */}
+                {rev.dirty && !rev.syncBusy && !rev.askBusy && (
+                  <div style={{
+                    background: 'oklch(0.8 0.13 85 / .07)', border: '1px solid oklch(0.8 0.13 85 / .28)',
+                    borderRadius: 9, padding: '10px 12px',
+                    display: 'flex', alignItems: 'flex-start', gap: 9, animation: 'adFadeUp .3s ease both',
+                  }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)', flex: 'none', marginTop: 5 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ font: "500 12.5px var(--sans)", color: 'var(--text)' }}>
+                        {rev.dirtyWhy === 'agents' ? 'The workflow is out of sync — the agents available to this automation changed.'
+                          : rev.dirtyWhy === 'secrets' ? 'The workflow is out of sync — the secrets allowed for this automation changed.'
+                            : 'The workflow is out of sync — these steps still match the old spec.'}
+                      </div>
+                      <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>
+                        {rev.dirtyWhy === 'agents' ? 'Sync the steps so they use the agents available to this automation, then review them. Saving is locked until you do.'
+                          : rev.dirtyWhy === 'secrets' ? 'Sync the steps so they only use the secrets allowed here, then review them. Saving is locked until you do.'
+                            : 'Sync the steps to the new spec, then review them. Saving is locked until you do — nothing ships unreviewed.'}
+                      </div>
+                    </div>
+                    <button className="ad-btn-soft" onClick={() => void runSync()} style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}>
+                      Sync now
+                    </button>
+                  </div>
+                )}
+                {rev.syncBusy && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-inset)',
+                    border: '1px solid var(--border-card)', borderRadius: 9, padding: '10px 12px',
+                  }}>
+                    <span style={{
+                      width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
+                      borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none',
+                    }} />
+                    <span style={{ font: "500 12.5px var(--sans)", color: 'var(--text-2)' }}>
+                      {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'Your agent'} is rewriting the steps from your spec…
+                    </span>
+                  </div>
+                )}
                 {/* STEPS */}
                 <div style={cardStyle}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
@@ -1699,44 +1738,6 @@ export default function CreateFlow() {
                       <button className="ad-btn-soft" onClick={() => void runSync()} style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}>
                         Rebuild the steps
                       </button>
-                    </div>
-                  )}
-                  {rev.dirty && !rev.syncBusy && !rev.askBusy && (
-                    <div style={{
-                      background: 'oklch(0.8 0.13 85 / .07)', border: '1px solid oklch(0.8 0.13 85 / .28)',
-                      borderRadius: 9, padding: '10px 12px', margin: '12px 14px',
-                      display: 'flex', alignItems: 'flex-start', gap: 9, animation: 'adFadeUp .3s ease both',
-                    }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)', flex: 'none', marginTop: 5 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ font: "500 12.5px var(--sans)", color: 'var(--text)' }}>
-                          {rev.dirtyWhy === 'agents' ? 'The workflow is out of sync — the agents available to this automation changed.'
-                            : rev.dirtyWhy === 'secrets' ? 'The workflow is out of sync — the secrets allowed for this automation changed.'
-                              : 'The workflow is out of sync — these steps still match the old spec.'}
-                        </div>
-                        <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>
-                          {rev.dirtyWhy === 'agents' ? 'Sync the steps so they use the agents available to this automation, then review them. Saving is locked until you do.'
-                            : rev.dirtyWhy === 'secrets' ? 'Sync the steps so they only use the secrets allowed here, then review them. Saving is locked until you do.'
-                              : 'Sync the steps to the new spec, then review them. Saving is locked until you do — nothing ships unreviewed.'}
-                        </div>
-                      </div>
-                      <button className="ad-btn-soft" onClick={() => void runSync()} style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}>
-                        Sync now
-                      </button>
-                    </div>
-                  )}
-                  {rev.syncBusy && (
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-inset)',
-                      border: '1px solid var(--border-card)', borderRadius: 9, padding: '10px 12px', margin: '12px 14px',
-                    }}>
-                      <span style={{
-                        width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
-                        borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none',
-                      }} />
-                      <span style={{ font: "500 12.5px var(--sans)", color: 'var(--text-2)' }}>
-                        {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'Your agent'} is rewriting the steps from your spec…
-                      </span>
                     </div>
                   )}
                   <div style={{ display: 'flex', flexDirection: 'column', opacity: rev.dirty || rev.syncBusy ? 0.45 : 1, transition: 'opacity .2s', marginBottom: -1 }}>
