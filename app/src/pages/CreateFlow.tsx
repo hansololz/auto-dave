@@ -730,6 +730,7 @@ export default function CreateFlow() {
     if (!rev || rev.syncBusy || rev.askBusy) return
     if (!rev.ask.trim()) { showToast('Type the change you want first.'); return }
     const request = rev.ask.trim()
+    askReqRef.current = request
     const genCancelled = cancelStepsGen()
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // one edit at a time
@@ -810,6 +811,29 @@ export default function CreateFlow() {
       up({ syncBusy: false })
       showToast((e as Error).message)
     }
+  }
+
+  // §11: Cancel on the in-flight agent-ask spinner — kill the job; the draft
+  // is untouched and the request text returns to the ask box for editing.
+  const askReqRef = useRef('')
+  const cancelAsk = () => {
+    if (!rev?.askBusy) return
+    stopPoll()
+    if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
+    jobIdRef.current = null
+    setRev((r) => r && ({ ...r, askBusy: false, ask: r.ask || askReqRef.current }))
+    showToast('Edit stopped — the spec is unchanged.', 4200)
+  }
+
+  // §11: Cancel on the in-flight sync spinner — kill the job, keep the steps
+  // and spec untouched, return to the out-of-sync banner.
+  const cancelSync = () => {
+    if (!rev?.syncBusy) return
+    stopPoll()
+    if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
+    jobIdRef.current = null
+    setRev((r) => r && ({ ...r, syncBusy: false, dirty: true, dirtyWhy: r.dirtyWhy ?? 'spec' }))
+    showToast('Sync stopped — the workflow is still out of sync.', 4200)
   }
 
   // §11 repair modal apply — same door for both sources: write the edited cards
@@ -1351,12 +1375,17 @@ export default function CreateFlow() {
                         resize: 'none', overflow: 'hidden', display: 'block',
                       }}
                     />
-                    {rev.syncBusy || rev.askBusy ? (
+                    {rev.syncBusy || rev.askBusy ? (<>
                       <span style={{
                         width: 14, height: 14, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
-                        borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none', margin: '0 8px',
+                        borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none', margin: '0 8px 9px',
                       }} />
-                    ) : (
+                      {rev.askBusy && (
+                        <button className="ad-btn-ghost" onClick={cancelAsk} style={{ borderRadius: 8, padding: '8px 12px', font: "500 12px var(--sans)", whiteSpace: 'nowrap', flex: 'none' }}>
+                          Cancel
+                        </button>
+                      )}
+                    </>) : (
                       <button className="ad-btn-soft" onClick={() => void sendAsk()} style={{ borderRadius: 8, padding: '8px 12px', font: "500 12px var(--sans)", whiteSpace: 'nowrap' }}>
                         Edit with agent
                       </button>
@@ -1687,9 +1716,12 @@ export default function CreateFlow() {
                       width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
                       borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none',
                     }} />
-                    <span style={{ font: "500 12.5px var(--sans)", color: 'var(--text-2)' }}>
+                    <span style={{ flex: 1, minWidth: 0, font: "500 12.5px var(--sans)", color: 'var(--text-2)' }}>
                       {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'Your agent'} is rewriting the steps from your spec…
                     </span>
+                    <button className="ad-btn-ghost" onClick={cancelSync} style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}>
+                      Cancel
+                    </button>
                   </div>
                 )}
                 {/* STEPS */}

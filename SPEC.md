@@ -1031,7 +1031,9 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   touched: on success the spec is replaced and marked out of sync exactly like a manual spec
   edit (toast "Spec updated — the workflow is out of sync. Sync the steps before saving."), and
   the sync banner's "Sync now" rebuilds the steps later. While the job is in flight the ask box shows a
-  spinner and the Save hint reads "Rewriting the spec…"; on failure the backend's §8 error shows
+  spinner plus a ghost **Cancel** button that cancels the job (`DELETE /drafts/{jobId}`) — the
+  draft is untouched and the request text returns to the ask box for editing (toast "Edit
+  stopped — the spec is unchanged."); the Save hint reads "Rewriting the spec…"; on failure the backend's §8 error shows
   as a toast and the draft is untouched. A `blocked` outcome (§8) instead shows a persistent
   amber notice under the ask box — "Your AI hit a blocker: `<reason>` — `<fix>`" (one line per
   blocker, dismissible) — and the draft is untouched; the user rephrases the request. Spec/
@@ -1046,7 +1048,11 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   makes one §8 `sync` call regenerating the steps ("Steps synced with the spec — review them,
   then save."). The sync banner — and the in-flight sync spinner that takes its place — sits at
   the top of the right column, **above** the Steps card rather than inside it, because a sync
-  rewrites the steps and the parameter definitions, not just the step list. A `blocked` sync opens the Blocker modal (above): its
+  rewrites the steps and the parameter definitions, not just the step list. The spinner carries
+  a ghost **Cancel** button that cancels the in-flight sync (`DELETE /drafts/{jobId}`) no matter
+  how it was started (sync banner, Blocker-modal apply, "Rebuild the steps"): the steps and spec
+  are left untouched, the workflow stays out of sync, and the sync banner returns (toast "Sync
+  stopped — the workflow is still out of sync."). A `blocked` sync opens the Blocker modal (above): its
   primary button amends the in-editor spec (same `## Constraints & resolutions` rule) and
   repeats the sync; closing the modal leaves the workflow out of sync with
   the sync banner still up. Disabled Save shows an amber hint ("Sync and review the steps before saving." /
