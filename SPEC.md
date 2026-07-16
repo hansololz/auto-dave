@@ -1285,6 +1285,7 @@ sleep"); `executing` is inherently live and is not seeded.
   `claude --model claude-opus-4-8 -p` from the staged diff, and commits).
 - `tests/` — pytest suite for the backend (storage, drafting, engine, schedule, API), plus the
   test doubles: `tests/bin/claude` (fake agent CLI) and `tests/seed_data.py` (§16 fixture).
+- `LICENSE` — MIT, copyright David Zhang (also `"license": "MIT"` in `app/package.json`).
 
 ## 18. Commands
 
