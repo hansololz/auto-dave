@@ -1,11 +1,11 @@
 // Automation detail (§4.3/§4.4/§7, prototype "Automation detail" screen).
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto, ParamDef, Step, Trigger } from '../types'
 import {
   Badge, BtnPrimary, ConfirmModal, Eyebrow, PyCode, Toggle,
-  nextIn, paramSummary, usePopover, validUrl,
+  nextIn, usePopover, validUrl,
 } from '../ui'
 import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, triggerShort } from '../cron'
 import { ResultSection } from '../result'
@@ -165,14 +165,18 @@ function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: stri
 function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: boolean }) {
   const showToast = useStore((s) => s.showToast)
   const loadAuto = useStore((s) => s.loadAuto)
-  const [open, setOpen] = useState(false)
-  const [lines, setLines] = useState<string[]>([])
-  const [rows, setRows] = useState<{ k: string; v: string }[]>([])
+  const [lines, setLines] = useState<string[]>(() => [...(p.lines ?? [])])
+  const [rows, setRows] = useState<{ k: string; v: string }[]>(() => (p.rows ?? []).map((r) => ({ ...r })))
   const [text, setText] = useState<string | null>(null)
   const [num, setNum] = useState<string | null>(null)
   const [foc, setFoc] = useState(false)
 
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pending = useRef<unknown>(undefined)
+
   const commit = (value: unknown) => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    pending.current = undefined
     void (async () => {
       try {
         await api.patchAuto(autoId, { paramValues: { [p.name]: value } })
@@ -182,30 +186,17 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
       }
     })()
   }
-
-  const openEditor = () => {
-    if (p.kind === 'list') setLines([...(p.lines ?? [])])
-    if (p.kind === 'kv') setRows((p.rows ?? []).map((r) => ({ ...r })))
-    setOpen(true)
+  // Debounced commit: saves as the user types, without one PATCH per keystroke.
+  const commitSoon = (value: unknown) => {
+    pending.current = value
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => { timer.current = null; commit(pending.current) }, 600)
   }
-  const closeEditor = () => {
-    setOpen(false)
-    if (p.kind === 'list' && JSON.stringify(lines) !== JSON.stringify(p.lines ?? [])) commit(lines)
-    if (p.kind === 'kv' && JSON.stringify(rows) !== JSON.stringify(p.rows ?? [])) commit(rows)
-  }
+  const flush = () => { if (timer.current) commit(pending.current) }
+  useEffect(() => () => { if (timer.current) { clearTimeout(timer.current); commit(pending.current) } }, [])
 
-  const expandToggle = (
-    <HoverBtn
-      onClick={open ? closeEditor : openEditor}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'none', padding: 0, alignSelf: 'flex-end' }}
-      hoverStyle={{}}
-    >
-      {!open && <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-2)' }}>{paramSummary(p)}</span>}
-      <span style={{ color: '#4a515c', fontSize: 11, fontWeight: 400 }}>
-        <i className={open ? 'fa-solid fa-caret-up' : 'fa-solid fa-caret-down'} style={{ fontSize: 9 }} /> {open ? 'done' : 'edit'}
-      </span>
-    </HoverBtn>
-  )
+  const setLinesSaved = (next: string[], now = false) => { setLines(next); now ? commit(next) : commitSoon(next) }
+  const setRowsSaved = (next: { k: string; v: string }[], now = false) => { setRows(next); now ? commit(next) : commitSoon(next) }
 
   let good = 0
   let bad = 0
@@ -240,16 +231,18 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
           <input
             value={num ?? String(p.value ?? '')}
             inputMode="numeric"
-            onChange={(e) => setNum(e.target.value.replace(/[^0-9]/g, ''))}
+            onChange={(e) => {
+              const s = e.target.value.replace(/[^0-9]/g, '')
+              setNum(s)
+              const min = p.min ?? 0
+              const v = s === '' ? min : Math.max(min, parseInt(s, 10))
+              commitSoon(v)
+            }}
             onFocus={() => setFoc(true)}
             onBlur={() => {
               setFoc(false)
-              if (num === null) return
-              const min = p.min ?? 0
-              let v = num === '' ? min : parseInt(num, 10)
-              if (v < min) v = min
+              flush()
               setNum(null)
-              if (v !== p.value) commit(v)
             }}
             style={{
               ...inputBase, width: 70,
@@ -262,13 +255,12 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
           <input
             value={text ?? String(p.value ?? '')}
             placeholder={p.placeholder ?? ''}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => { setText(e.target.value); commitSoon(e.target.value) }}
             onFocus={() => setFoc(true)}
             onBlur={() => {
               setFoc(false)
-              if (text === null) return
+              flush()
               setText(null)
-              if (text !== String(p.value ?? '')) commit(text)
             }}
             style={{
               ...inputBase, width: '100%', maxWidth: 340,
@@ -278,15 +270,15 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
           />
         )}
         {p.kind === 'list' && (
-          <div style={{ width: open ? '100%' : 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {expandToggle}
-            {open && lines.map((l, j) => {
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {lines.map((l, j) => {
               const inv = !!p.validate && !!l.trim() && !validUrl(l)
               return (
                 <div key={j} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input
                     value={l}
-                    onChange={(e) => setLines(lines.map((x, i) => (i === j ? e.target.value : x)))}
+                    onChange={(e) => setLinesSaved(lines.map((x, i) => (i === j ? e.target.value : x)))}
+                    onBlur={flush}
                     style={{
                       ...inputBase, flex: 1, minWidth: 0, borderRadius: 7,
                       border: `1px solid ${inv ? 'oklch(0.7 0.19 25 / .45)' : 'rgba(255,255,255,.09)'}`,
@@ -304,7 +296,7 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
                     </span>
                   )}
                   <HoverBtn
-                    onClick={() => setLines(lines.filter((_, i) => i !== j))}
+                    onClick={() => setLinesSaved(lines.filter((_, i) => i !== j), true)}
                     style={{ background: 'none', border: 'none', color: '#4a515c', width: 24, flex: 'none' }}
                     hoverStyle={{ color: 'oklch(0.74 0.17 25)' }}
                   >
@@ -313,33 +305,31 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
                 </div>
               )
             })}
-            {open && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <HoverBtn
-                  onClick={() => setLines([...lines, ''])}
-                  style={{
-                    background: 'none', border: '1px dashed rgba(255,255,255,.14)', borderRadius: 7,
-                    color: 'var(--text-muted)', fontWeight: 500, fontSize: 11.5, padding: '5px 11px',
-                  }}
-                  hoverStyle={{ color: 'var(--text)' }}
-                >
-                  + Add line
-                </HoverBtn>
-                <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11, color: 'var(--text-faint)' }}>
-                  {lines.length}{p.validate ? ` lines · ${good} valid links${bad ? ` · ${bad} needs attention` : ''}` : ' entries'}
-                </span>
-              </div>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <HoverBtn
+                onClick={() => setLinesSaved([...lines, ''])}
+                style={{
+                  background: 'none', border: '1px dashed rgba(255,255,255,.14)', borderRadius: 7,
+                  color: 'var(--text-muted)', fontWeight: 500, fontSize: 11.5, padding: '5px 11px',
+                }}
+                hoverStyle={{ color: 'var(--text)' }}
+              >
+                + Add line
+              </HoverBtn>
+              <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11, color: 'var(--text-faint)' }}>
+                {lines.length}{p.validate ? ` lines · ${good} valid links${bad ? ` · ${bad} needs attention` : ''}` : ' entries'}
+              </span>
+            </div>
           </div>
         )}
         {p.kind === 'kv' && (
-          <div style={{ width: open ? '100%' : 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {expandToggle}
-            {open && rows.map((r, j) => (
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {rows.map((r, j) => (
               <div key={j} style={{ display: 'flex', gap: 6 }}>
                 <input
                   value={r.k}
-                  onChange={(e) => setRows(rows.map((x, i) => (i === j ? { ...x, k: e.target.value } : x)))}
+                  onChange={(e) => setRowsSaved(rows.map((x, i) => (i === j ? { ...x, k: e.target.value } : x)))}
+                  onBlur={flush}
                   style={{
                     ...inputBase, flex: 1.3, minWidth: 0, borderRadius: 7,
                     border: '1px solid rgba(255,255,255,.09)', color: 'var(--text-2)',
@@ -348,14 +338,15 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
                 />
                 <input
                   value={r.v}
-                  onChange={(e) => setRows(rows.map((x, i) => (i === j ? { ...x, v: e.target.value } : x)))}
+                  onChange={(e) => setRowsSaved(rows.map((x, i) => (i === j ? { ...x, v: e.target.value } : x)))}
+                  onBlur={flush}
                   style={{
                     ...inputBase, flex: 1, minWidth: 0, borderRadius: 7,
                     border: '1px solid rgba(255,255,255,.09)', fontSize: 12, padding: '7px 10px',
                   }}
                 />
                 <HoverBtn
-                  onClick={() => setRows(rows.filter((_, i) => i !== j))}
+                  onClick={() => setRowsSaved(rows.filter((_, i) => i !== j), true)}
                   style={{ background: 'none', border: 'none', color: '#4a515c', width: 24 }}
                   hoverStyle={{ color: 'oklch(0.74 0.17 25)' }}
                 >
@@ -363,18 +354,16 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
                 </HoverBtn>
               </div>
             ))}
-            {open && (
-              <HoverBtn
-                onClick={() => setRows([...rows, { k: '', v: '' }])}
-                style={{
-                  alignSelf: 'flex-start', background: 'none', border: '1px dashed rgba(255,255,255,.14)',
-                  borderRadius: 7, color: 'var(--text-muted)', fontWeight: 500, fontSize: 11.5, padding: '5px 11px',
-                }}
-                hoverStyle={{ color: 'var(--text)' }}
-              >
-                + Add row
-              </HoverBtn>
-            )}
+            <HoverBtn
+              onClick={() => setRowsSaved([...rows, { k: '', v: '' }])}
+              style={{
+                alignSelf: 'flex-start', background: 'none', border: '1px dashed rgba(255,255,255,.14)',
+                borderRadius: 7, color: 'var(--text-muted)', fontWeight: 500, fontSize: 11.5, padding: '5px 11px',
+              }}
+              hoverStyle={{ color: 'var(--text)' }}
+            >
+              + Add row
+            </HoverBtn>
           </div>
         )}
       </div>
@@ -449,7 +438,7 @@ export default function AutomationDetail() {
   const [actOpen, setActOpen, actRef] = usePopover()
   const [delAsk, setDelAsk] = useState(false)
   const [stepOpen, setStepOpen] = useState<number | null>(null)
-  const [specOpen, setSpecOpen] = useState(false)
+  const [specOpen, setSpecOpen] = useState(true)
   const [confirmClear, setConfirmClear] = useState(false)
   const [, setTick] = useState(0)
 

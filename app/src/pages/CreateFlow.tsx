@@ -703,13 +703,13 @@ export default function CreateFlow() {
   const secMissing = secRefs.filter((r) => !secrets.some((z) => z.name === r.name))
   const agWarn = !!rev && agentStepIdx.length > 0 && availAgents.length === 0
   const secWarn = !!rev && (secNotAllowed.length > 0 || secMissing.length > 0)
-  // §11: the spec card defaults open (on create it is the drafting surface) and
-  // is force-open while the spec is writing, showing clarification cards, or
+  // §11: the spec, agents, and secrets cards default open; the spec card is
+  // force-open while the spec is writing, showing clarification cards, or
   // being edited.
   const specOpenEff = !!rev?.specEdit || !!rev?.specBusy || !!rev?.specBlockers || !!rev?.specErr
     || ((rev?.specSecOpen ?? null) == null ? true : !!rev?.specSecOpen)
-  const agSecOpenEff = ((rev?.agSecOpen ?? null) == null ? isEdit : !!rev?.agSecOpen) || agWarn
-  const secSecOpenEff = ((rev?.secSecOpen ?? null) == null ? isEdit : !!rev?.secSecOpen) || secWarn
+  const agSecOpenEff = ((rev?.agSecOpen ?? null) == null ? true : !!rev?.agSecOpen) || agWarn
+  const secSecOpenEff = ((rev?.secSecOpen ?? null) == null ? true : !!rev?.secSecOpen) || secWarn
   const instrOpenEff = (rev?.instrSecOpen ?? null) == null ? isEdit : !!rev?.instrSecOpen
   const viewingOld = isEdit && !!rev && !!auto && rev.viewing !== 'draft' && rev.viewing !== auto.version
   const drafting = !!rev && (rev.specBusy || rev.stepsBusy)

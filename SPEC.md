@@ -167,8 +167,14 @@ stepAgents, allowedSecrets: string[] — per-automation enablement (set on save)
 | `toggle` | label, help, on | "On"/"Off" | switch |
 | `list` | label, help, validate, lines[] | validate → "N links" (valid-URL count), else "N entries" | one input per line, add/remove; per-line URL validation (red border on invalid non-empty when validate); info line "N lines · G valid links[ · B needs attention]" |
 | `kv` | label, help, rows[{k,v}] | "N entries" | key/value pairs, add/remove |
-| `number` | label, help, value, min | value | digits-only; blur clamps empty/below-min to min |
+| `number` | label, help, value, min | value | digits-only; empty/below-min clamps to min |
 | `text` | label, help, value, placeholder? | value or "Not set" | plain input |
+
+Every edit saves automatically — there is no save or done action. Typing commits on a short
+debounce (and on blur); toggle flips, row/line removals, and additions commit immediately. On
+the automation detail page the `list`/`kv` editors are always fully shown — no
+collapse/expand toggle (the one-line summary column still serves compact contexts like the
+execution page and review step).
 
 URL validity: `/^https?:\/\/\S+\.\S+/`.
 
@@ -887,7 +893,7 @@ Sections top to bottom:
 - **MEMORY** card — mono size/updated info line, "Show in Finder" and "Clear memory" buttons;
   Clear swaps to an inline confirm: "Next execution starts fresh, like the first time." with red
   Clear / quiet Keep.
-- **SPEC panel** — the automation's spec blocks, footer: "The AI regenerates the steps from this
+- **SPEC panel** — collapsible (expand/collapse header toggle), expanded by default; the automation's spec blocks, footer: "The AI regenerates the steps from this
   document when you edit it. Every change mints a new version — older ones live in the Version
   menu on the edit page."
 
@@ -1064,9 +1070,11 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   Python (§15); the same `PyCode` renders the detail page and the draft/create step editor. Agent steps without any enabled agent
   show a red warning ("Step N needs an agent, but none is enabled — the execution would fail there.
   Enable one below."). Per-automation agent enablement list with "X of Y enabled"; enabled
-  agents called by steps show a "called by step N" note.
+  agents called by steps show a "called by step N" note. The agents card is collapsible,
+  defaults open, and is forced open while its warning shows.
 - **Secrets** — step code is scanned for `secrets.NAME`; secrets in Keychain but not allowed, and
   secrets missing from Keychain, each produce warnings with fix affordances. "X of Y allowed".
+  Collapsible card, defaults open, forced open while a warning shows.
 - **Framework instructions** — read-only card showing `framework-instructions.md` **rendered
   as markdown** (the shared result-view Markdown component: headings, fenced code blocks,
   tables, lists; max-height 420 px with inner scroll). The file content itself is untouched —
