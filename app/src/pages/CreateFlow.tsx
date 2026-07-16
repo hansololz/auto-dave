@@ -1775,7 +1775,7 @@ export default function CreateFlow() {
                     <div style={{ padding: '13px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
                       <span style={{
                         font: "500 12px var(--mono)", color: 'var(--accent)', background: 'oklch(0.74 0.155 52 / .12)',
-                        borderRadius: 6, padding: '3px 9px',
+                        borderRadius: 6, padding: '3px 9px', whiteSpace: 'nowrap',
                       }}>
                         {rev.schedLabel}
                       </span>
