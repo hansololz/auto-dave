@@ -18,6 +18,7 @@ from .drafting import draft_jobs
 from .engine import Engine
 from .events import hub
 from .storage import SECRET_REF_RE, Store, param_default, resolve_param_value, store
+from .testrun import test_runs
 
 AUTH_TOKEN = pysecrets.token_hex(24)
 SECRET_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -246,6 +247,33 @@ def execute_auto(auto_id: str, body: dict | None = None) -> dict:
     except RuntimeError as e:
         raise HTTPException(409, str(e)) from e
     return {"execId": h["id"]}
+
+
+# ---------- tests (§11 Test — §19 POST /tests) ----------
+@app.post("/tests", dependencies=[Depends(auth)])
+def post_test(body: dict) -> dict:
+    d = body.get("draft")
+    if not d or not d.get("steps"):
+        raise HTTPException(422, "draft with steps required")
+    auto = store.autos.get(body.get("autoId", "")) if body.get("autoId") else None
+    # The agent serves the §8 issue-analysis call only — a test without any
+    # agent still executes; a failure then opens with the raw error instead.
+    aid = body.get("agentId") or next((a["id"] for a in store.agents if a.get("default")),
+                                      store.agents[0]["id"] if store.agents else "")
+    agent = next((a for a in store.agents if a["id"] == aid), None)
+    enabled = body.get("enabledAgents")
+    if enabled is None:
+        enabled = auto["enabled_agents"] if auto else []
+    allowed = body.get("allowedSecrets")
+    if allowed is None:
+        allowed = auto["allowed_secrets"] if auto else []
+    test_id = test_runs.start(d, auto, agent, enabled, allowed, body.get("paramValues") or {})
+    return {"testId": test_id}
+
+
+@app.delete("/tests/{test_id}", dependencies=[Depends(auth)])
+def cancel_test(test_id: str) -> dict:
+    return {"ok": test_runs.cancel(test_id)}
 
 
 # ---------- review checks (§11 decided semantics) ----------

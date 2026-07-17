@@ -241,6 +241,94 @@ def test_run_and_execution_pages(client):
     assert me["resultStatus"] == "ok"  # §4: tints the list-row chip like the detail page
 
 
+# ---------- §11 Test — §19 POST /tests ----------
+
+def _echo_draft(**over):
+    d = {
+        "name": "Param echo",
+        "spec": [{"k": "h1", "text": "Param echo"}],
+        "params": [
+            {"name": "greeting", "kind": "text", "label": "Greeting", "help": "", "default": "hello"},
+        ],
+        "steps": [{"file": "01-echo.py", "name": "Echo", "desc": "",
+                   "code": "log(f\"greeting={params['greeting']}\")\n"
+                           "result.status('ok')\nresult.chip(params['greeting'])\n"}],
+        "triggers": [],
+    }
+    d.update(over)
+    return d
+
+
+def _capture_events(monkeypatch):
+    from autodave import api
+
+    events: list[dict] = []
+    monkeypatch.setattr(api.hub, "publish", lambda ev, **kw: events.append({"ev": ev, **kw}))
+    return events
+
+
+def _until(events, ev, timeout=30):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if any(e["ev"] == ev for e in events):
+            return next(e for e in events if e["ev"] == ev)
+        time.sleep(0.05)
+    raise AssertionError(f"{ev} never arrived (got {[e['ev'] for e in events]})")
+
+
+def test_test_run_param_values_override(client, monkeypatch):
+    # §19: paramValues override the defaults for this test only.
+    events = _capture_events(monkeypatch)
+    r = client.post("/tests", json={"draft": _echo_draft(), "paramValues": {"greeting": "bonjour"}})
+    assert r.status_code == 200
+    done = _until(events, "test.done")
+    assert done["status"] == "succeeded"
+    assert done["result"]["chip"] == "bonjour"
+    logs = [e["line"]["text"] for e in events if e["ev"] == "test.log"]
+    assert any("greeting=bonjour" in t for t in logs)
+
+
+def test_test_run_stored_values_and_no_record(client, monkeypatch):
+    # §19: with autoId (edit mode) the stored values are the base; a test writes
+    # no execution record.
+    from autodave.storage import store
+
+    events = _capture_events(monkeypatch)
+    auto = client.post("/automations", json={"draft": _echo_draft()}).json()
+    client.patch(f"/automations/{auto['id']}", json={"paramValues": {"greeting": "stored-hi"}})
+    events.clear()
+    assert client.post("/tests", json={"draft": _echo_draft(), "autoId": auto["id"]}).status_code == 200
+    _until(events, "test.done")
+    logs = [e["line"]["text"] for e in events if e["ev"] == "test.log"]
+    assert any("greeting=stored-hi" in t for t in logs)
+    assert store.execs == {}
+
+
+def test_test_run_failure_emits_issue(client, monkeypatch):
+    # §11: a failed step → test.done failed → §8 issue-analysis blockers in test.issue.
+    events = _capture_events(monkeypatch)
+    d = _echo_draft(steps=[{"file": "01-boom.py", "name": "Boom", "desc": "",
+                            "code": "raise KeyError('missing')\n"}])
+    assert client.post("/tests", json={"draft": d, "agentId": "mock"}).status_code == 200
+    assert _until(events, "test.done")["status"] == "failed"
+    issue = _until(events, "test.issue")
+    assert issue["blockers"][0]["reason"] == "The task needs access to physical mail."
+
+
+def test_test_cancel(client, monkeypatch):
+    events = _capture_events(monkeypatch)
+    d = _echo_draft(steps=[{"file": "01-slow.py", "name": "Slow", "desc": "",
+                            "code": "import time\nlog('sleeping')\ntime.sleep(60)\n"}])
+    tid = client.post("/tests", json={"draft": d}).json()["testId"]
+    t0 = time.time()
+    while time.time() - t0 < 10:  # wait until the step subprocess is live
+        if any(e["ev"] == "test.log" and e["line"]["text"] == "sleeping" for e in events):
+            break
+        time.sleep(0.05)
+    assert client.delete(f"/tests/{tid}").json()["ok"]
+    assert _until(events, "test.done")["status"] == "cancelled"
+
+
 def test_patch_automation_triggers_and_grants(client):
     from autodave.storage import store
 

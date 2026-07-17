@@ -1217,7 +1217,13 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   execution (there is no simulation mode): in-editor param values and grants, a throwaway workspace, and
   **scratch memory** — edit mode copies the automation's memory dir, create mode starts empty —
   all discarded when the test ends, so a test can never poison the memory the deployed version
-  reads (§4.1). Side effects outside memory are real (emails send, files move, notifications
+  reads (§4.1). **Test parameter values (edit mode):** when the draft has params, the card
+  offers a collapsed "Set parameter values for this test" affordance; expanding it shows one
+  editor per param (§4.2 kinds), prefilled with the automation's current values (draft default
+  when a param is new). The edited values ride the §19 `paramValues` body field and apply to
+  this test only — nothing is stored, and the read-only Parameters card is untouched. Left
+  collapsed, the test uses the automation's stored values, exactly like executing the draft.
+  Create mode has no extra inputs — the editable Parameters card's values are the test's values. Side effects outside memory are real (emails send, files move, notifications
   post per settings) and the card says so plainly. Step statuses (§4.6 vocabulary) and log
   lines (secret values redacted, §6) stream into the card live over the §19 `test.*` WS
   events; the test stops at the first failed step and is cancellable from the card. A test
@@ -1526,13 +1532,15 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `POST /automations/{id}/restore` `{ v }` — copy vX to vN+1 (§5)
 - `POST /automations/{id}/memory/clear` — empty the §4.1 memory directory (backs §9.2 "Clear
   memory")
-- `POST /tests` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets? }` → `{ testId }`
-  — the §11 Test: executes the sent draft's steps ephemerally (scratch memory copied from
-  `autoId`'s memory dir when given, else empty; no execution record); grant arrays as in
-  `/drafts`; progress via the `test.*` WS events; on failure the backend makes the §8
-  issue-analysis call with `agentId` (default-agent fallback) and emits its blockers in
-  `test.issue`. `DELETE /tests/{testId}` cancels (kills the live step subprocess or the
-  analysis harness process)
+- `POST /tests` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets?, paramValues? }`
+  → `{ testId }` — the §11 Test: executes the sent draft's steps ephemerally (scratch memory
+  copied from `autoId`'s memory dir when given, else empty; no execution record); grant arrays
+  as in `/drafts`; param resolution uses the automation's stored values when `autoId` is given
+  (else the draft's defaults), with `paramValues` (name → value, §5 matching rules) overriding
+  on top for this test only — never stored; progress via the `test.*` WS events; on failure the
+  backend makes the §8 issue-analysis call with `agentId` (default-agent fallback) and emits its
+  blockers in `test.issue`. `DELETE /tests/{testId}` cancels (kills the live step subprocess or
+  the analysis harness process)
 - `POST /automations/{id}/checks` `{ draft?, allowedSecrets?, enabledAgents? }` ·
   `POST /checks` `{ draft, allowedSecrets?, enabledAgents? }` — the §11 review checks
   (param sanity, URL reachability, secret allow/Keychain state, agent availability, memory

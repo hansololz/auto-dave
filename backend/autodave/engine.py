@@ -60,6 +60,84 @@ def failure_reason(rc: int, err: dict | None) -> str | None:
     return None
 
 
+def run_step_process(script: Path, ctx: dict, state: dict, log, result: dict,
+                     holder: dict) -> int:
+    """One step as a §6.1 executor subprocess — shared by real executions and
+    §11 tests. Streams control lines: `log(k, text)` gets every log line,
+    `result` collects §4.5 result ops, `holder` gets error/notify/result_touched.
+    `state['proc']` holds the live Popen so a caller can cancel."""
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "autodave.executor", str(script)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    state["proc"] = proc
+    try:
+        proc.stdin.write(json.dumps(ctx))
+        proc.stdin.close()
+    except BrokenPipeError:
+        pass
+    # Watchdog enforces the per-step timeout even when the step produces no
+    # output at all (a bare read loop would block forever on a silent hang).
+    timeout_s = _step_timeout()
+    timed_out = threading.Event()
+
+    def _on_timeout() -> None:
+        timed_out.set()
+        if proc.poll() is None:
+            proc.kill()
+
+    watchdog = threading.Timer(timeout_s, _on_timeout)
+    watchdog.daemon = True
+    watchdog.start()
+    for raw in proc.stdout:  # type: ignore[union-attr]
+        if timed_out.is_set():
+            break
+        line = raw.rstrip("\n")
+        if line.startswith(CTRL):
+            try:
+                msg = json.loads(line[len(CTRL):])
+            except ValueError:
+                continue
+            op = msg.get("op")
+            if op == "log":
+                log(msg.get("k", "out"), msg.get("text", ""))
+            elif op == "result":
+                holder["result_touched"] = True
+                f, v = msg.get("field"), msg.get("value")
+                if f == "status":
+                    result["status"] = v
+                elif f == "chip":
+                    result["chip"] = v
+                elif f == "chips":
+                    result["chips"] = v
+                elif f == "value":
+                    result["values"].append(v)
+            elif op == "notify":
+                holder["text"] = msg.get("text")
+            elif op == "error":
+                # §7 failure diagnostics — the executor's structured report
+                # of the exception that failed the step.
+                holder["error"] = {"type": msg.get("type"),
+                                   "message": msg.get("message")}
+            elif op == "agent_audit":
+                # §6: the FULL redacted prompt/response go to logs for audit
+                # (the 200k prompt/reply size caps already apply upstream).
+                log("sys", f"agent prompt: {msg.get('prompt', '')}")
+                log("sys", f"agent reply: {msg.get('reply', '')}")
+        elif line.strip():
+            log("out", line)
+    proc.wait()
+    watchdog.cancel()
+    state["proc"] = None
+    if timed_out.is_set() and proc.returncode != 0:
+        msg = f"step timed out after {int(timeout_s)}s"
+        log("err", msg)
+        holder["error"] = {"type": "StepTimeout", "message": msg,
+                           "reason": f"The step hit its {int(timeout_s)} s time limit."}
+        return proc.returncode or 1
+    return proc.returncode or 0
+
+
 class Engine:
     def __init__(self, store: Store):
         self.store = store
@@ -365,76 +443,9 @@ class Engine:
                 "trigger": h["trigger"],
             },
         }
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "autodave.executor", str(script)],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-        state["proc"] = proc
-        try:
-            proc.stdin.write(json.dumps(ctx))
-            proc.stdin.close()
-        except BrokenPipeError:
-            pass
-        # Watchdog enforces the per-step timeout even when the step produces no
-        # output at all (a bare read loop would block forever on a silent hang).
-        timeout_s = _step_timeout()
-        timed_out = threading.Event()
-
-        def _on_timeout() -> None:
-            timed_out.set()
-            if proc.poll() is None:
-                proc.kill()
-
-        watchdog = threading.Timer(timeout_s, _on_timeout)
-        watchdog.daemon = True
-        watchdog.start()
-        for raw in proc.stdout:  # type: ignore[union-attr]
-            if timed_out.is_set():
-                break
-            line = raw.rstrip("\n")
-            if line.startswith(CTRL):
-                try:
-                    msg = json.loads(line[len(CTRL):])
-                except ValueError:
-                    continue
-                op = msg.get("op")
-                if op == "log":
-                    self._log(h, msg.get("k", "out"), msg.get("text", ""), redactions)
-                elif op == "result":
-                    notify_holder["result_touched"] = True
-                    f, v = msg.get("field"), msg.get("value")
-                    if f == "status":
-                        result["status"] = v
-                    elif f == "chip":
-                        result["chip"] = v
-                    elif f == "chips":
-                        result["chips"] = v
-                    elif f == "value":
-                        result["values"].append(v)
-                elif op == "notify":
-                    notify_holder["text"] = msg.get("text")
-                elif op == "error":
-                    # §7 failure diagnostics — the executor's structured report
-                    # of the exception that failed the step.
-                    notify_holder["error"] = {"type": msg.get("type"),
-                                              "message": msg.get("message")}
-                elif op == "agent_audit":
-                    # §6: the FULL redacted prompt/response go to logs for audit
-                    # (the 200k prompt/reply size caps already apply upstream).
-                    self._log(h, "sys", f"agent prompt: {msg.get('prompt', '')}", redactions)
-                    self._log(h, "sys", f"agent reply: {msg.get('reply', '')}", redactions)
-            elif line.strip():
-                self._log(h, "out", line, redactions)
-        proc.wait()
-        watchdog.cancel()
-        state["proc"] = None
-        if timed_out.is_set() and proc.returncode != 0:
-            msg = f"step timed out after {int(timeout_s)}s"
-            self._log(h, "err", msg, redactions)
-            notify_holder["error"] = {"type": "StepTimeout", "message": msg,
-                                      "reason": f"The step hit its {int(timeout_s)} s time limit."}
-            return proc.returncode or 1
-        return proc.returncode or 0
+        return run_step_process(script, ctx, state,
+                                lambda k, text: self._log(h, k, text, redactions),
+                                result, notify_holder)
 
     def _notify_end(self, auto: dict, h: dict, result: dict | None, notify_text: str | None) -> None:
         """§6: at most one notification, at the end, per the §4.9 setting."""

@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, SpecBlock, Step, VersionInfo } from '../types'
+import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
 import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, resultChipColors, usePopover, validUrl } from '../ui'
 import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown } from '../result'
@@ -493,6 +493,140 @@ function MissingSecretRow({ name, sub, onAdded }: { name: string; sub: string; o
   )
 }
 
+// ---------- param value editor (§4.2 kinds — create-mode card + §11 test values) ----------
+
+function ParamEditor({ p, upd }: { p: ParamDef; upd: (patch: Record<string, unknown>) => void }) {
+  const inputStyle: React.CSSProperties = {
+    flex: 1, minWidth: 0, background: 'var(--bg-inset)', border: '1px solid rgba(255,255,255,.09)',
+    borderRadius: 7, color: 'var(--text)', font: "400 12px var(--mono)", padding: '7px 10px', outline: 'none',
+  }
+  if (p.kind === 'toggle') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '13px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+        <div>
+          <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
+          <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 3 }}>{p.help}</div>
+        </div>
+        <Toggle on={!!p.on} onChange={(v) => upd({ on: v, default: v })} />
+      </div>
+    )
+  }
+  if (p.kind === 'list') {
+    const lines = p.lines ?? []
+    const setLines = (next: string[]) => upd({ lines: next, default: next })
+    const good = lines.filter((l) => l.trim() && validUrl(l)).length
+    const bad = lines.filter((l) => l.trim() && !validUrl(l)).length
+    return (
+      <div style={{ padding: '14px 20px 15px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+        <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
+        <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '3px 0 9px' }}>{p.help}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {lines.map((ln, li) => {
+            const invalid = !!p.validate && ln.trim() !== '' && !validUrl(ln)
+            return (
+              <div key={li} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  value={ln}
+                  onChange={(e) => setLines(lines.map((z, j) => (j === li ? e.target.value : z)))}
+                  style={{ ...inputStyle, borderColor: invalid ? 'oklch(0.7 0.19 25 / .65)' : 'rgba(255,255,255,.09)', color: invalid ? 'oklch(0.78 0.15 25)' : 'var(--text)' }}
+                />
+                {invalid && (
+                  <span style={{
+                    display: 'inline-flex', padding: '2px 7px', borderRadius: 5, font: "600 9.5px var(--mono)",
+                    letterSpacing: '.06em', background: 'oklch(0.7 0.19 25 / .14)', color: 'oklch(0.74 0.17 25)', flex: 'none',
+                  }}>
+                    NOT A VALID LINK
+                  </span>
+                )}
+                <button className="ad-btn-x" onClick={() => setLines(lines.filter((_, j) => j !== li))}>
+                  <i className="fa-solid fa-xmark" style={{ fontSize: 12 }} />
+                </button>
+              </div>
+            )
+          })}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <button className="ad-btn-dashed" onClick={() => setLines([...lines, ''])}>
+              + Add line
+            </button>
+            {p.validate && (
+              <span style={{ font: "500 11px var(--mono)", color: 'var(--text-faint)' }}>
+                {lines.length} lines · {good} valid links{bad > 0 ? ` · ${bad} needs attention` : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  if (p.kind === 'kv') {
+    const rows = p.rows ?? []
+    const setRows = (next: { k: string; v: string }[]) => upd({ rows: next, default: next })
+    return (
+      <div style={{ padding: '14px 20px 15px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+        <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
+        <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '3px 0 9px' }}>{p.help}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {rows.map((r, ri) => (
+            <div key={ri} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                value={r.k} placeholder="Key"
+                onChange={(e) => setRows(rows.map((z, j) => (j === ri ? { ...z, k: e.target.value } : z)))}
+                style={{ ...inputStyle, flex: '0 1 38%' }}
+              />
+              <input
+                value={r.v} placeholder="Value"
+                onChange={(e) => setRows(rows.map((z, j) => (j === ri ? { ...z, v: e.target.value } : z)))}
+                style={inputStyle}
+              />
+              <button className="ad-btn-x" onClick={() => setRows(rows.filter((_, j) => j !== ri))}>
+                <i className="fa-solid fa-xmark" style={{ fontSize: 12 }} />
+              </button>
+            </div>
+          ))}
+          <button className="ad-btn-dashed" onClick={() => setRows([...rows, { k: '', v: '' }])}>
+            + Add pair
+          </button>
+        </div>
+      </div>
+    )
+  }
+  if (p.kind === 'number') {
+    const mn = p.min ?? 0
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '13px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
+          <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 3 }}>{p.help}</div>
+        </div>
+        <input
+          value={String(p.value ?? '')}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, '')
+            upd({ value: digits === '' ? '' : Number(digits), default: digits === '' ? mn : Number(digits) })
+          }}
+          onBlur={() => {
+            const n = typeof p.value === 'number' ? p.value : NaN
+            if (Number.isNaN(n) || n < mn) upd({ value: mn, default: mn })
+          }}
+          style={{ ...inputStyle, flex: 'none', width: 84, textAlign: 'right' }}
+        />
+      </div>
+    )
+  }
+  // text
+  return (
+    <div style={{ padding: '14px 20px 15px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+      <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
+      <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '3px 0 9px' }}>{p.help}</div>
+      <input
+        value={String(p.value ?? '')} placeholder={p.placeholder}
+        onChange={(e) => upd({ value: e.target.value, default: e.target.value })}
+        style={{ ...inputStyle, width: '100%' }}
+      />
+    </div>
+  )
+}
+
 // ---------- the page ----------
 
 export default function CreateFlow() {
@@ -512,6 +646,9 @@ export default function CreateFlow() {
   const jobIdRef = useRef<string | null>(null)
 
   const [rev, setRev] = useState<Rev | null>(null)
+  // §11 test parameter values (edit mode): null = collapsed — the test uses the
+  // automation's stored values; non-null = the per-test overrides being edited.
+  const [testParams, setTestParams] = useState<ParamDef[] | null>(null)
   const [confirmSpecCancel, setConfirmSpecCancel] = useState(false)
   // Blocker-modal apply travels through Modal's animated close (ConfirmModal pattern).
   const applyBlockedRef = useRef(false)
@@ -970,6 +1107,24 @@ export default function CreateFlow() {
   }
 
   // ---- test (§11: create and edit mode) — executes the draft's REAL steps ----
+  // §11 test values: seed from the automation's current values (draft default when
+  // a param is new to the draft) — edited copies live only in this card.
+  const seedTestParams = (): ParamDef[] => (rev?.params ?? []).map((d) => {
+    const cur = (auto?.params ?? []).find((p) => p.name === d.name && p.kind === d.kind)
+    if (d.kind === 'toggle') return { ...d, on: cur ? !!cur.on : !!d.default }
+    if (d.kind === 'list') return { ...d, lines: cur?.lines ?? (Array.isArray(d.default) ? d.default as string[] : []) }
+    if (d.kind === 'kv') return { ...d, rows: cur?.rows ?? (Array.isArray(d.default) ? d.default as { k: string; v: string }[] : []) }
+    return { ...d, value: cur?.value ?? (d.default as string | number | undefined) }
+  })
+  // A synced/reloaded draft may rename or retype params — collapse back to stored values.
+  useEffect(() => { setTestParams(null) }, [rev?.params])
+  const testParamValues = (ps: ParamDef[]) => Object.fromEntries(ps.map((p) => [p.name,
+    p.kind === 'toggle' ? !!p.on
+    : p.kind === 'list' ? (p.lines ?? [])
+    : p.kind === 'kv' ? (p.rows ?? [])
+    : p.kind === 'number' ? (typeof p.value === 'number' ? p.value : (p.min ?? 0))
+    : String(p.value ?? ''),
+  ]))
   const runTest = async () => {
     if (!rev || rev.steps.length === 0 || test?.status === 'executing' || busyRewrite) return
     clearTest()
@@ -977,6 +1132,7 @@ export default function CreateFlow() {
       const { testId } = await api.postTest({
         draft: serializeDraft(rev),
         ...(isEdit && auto ? { autoId: auto.id } : {}), // edit: scratch memory copies the automation's
+        ...(isEdit && testParams ? { paramValues: testParamValues(testParams) } : {}), // §11 test-only values
         agentId, // the drafting agent also handles the §8 issue analysis on failure
         enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
@@ -1884,139 +2040,11 @@ export default function CreateFlow() {
                       )
                     }
                     // create mode: definitions editable inline (§4.2 edit behaviors)
-                    const inputStyle: React.CSSProperties = {
-                      flex: 1, minWidth: 0, background: 'var(--bg-inset)', border: '1px solid rgba(255,255,255,.09)',
-                      borderRadius: 7, color: 'var(--text)', font: "400 12px var(--mono)", padding: '7px 10px', outline: 'none',
-                    }
                     return (
                       <div style={lockStyle}>
-                        {params.map((p) => {
-                          if (p.kind === 'toggle') {
-                            return (
-                              <div key={p.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '13px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                                <div>
-                                  <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
-                                  <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 3 }}>{p.help}</div>
-                                </div>
-                                <Toggle on={!!p.on} onChange={(v) => updParam(p.name, { on: v, default: v })} />
-                              </div>
-                            )
-                          }
-                          if (p.kind === 'list') {
-                            const lines = p.lines ?? []
-                            const setLines = (next: string[]) => updParam(p.name, { lines: next, default: next })
-                            const good = lines.filter((l) => l.trim() && validUrl(l)).length
-                            const bad = lines.filter((l) => l.trim() && !validUrl(l)).length
-                            return (
-                              <div key={p.name} style={{ padding: '14px 20px 15px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                                <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
-                                <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '3px 0 9px' }}>{p.help}</div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                  {lines.map((ln, li) => {
-                                    const invalid = !!p.validate && ln.trim() !== '' && !validUrl(ln)
-                                    return (
-                                      <div key={li} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <input
-                                          value={ln}
-                                          onChange={(e) => setLines(lines.map((z, j) => (j === li ? e.target.value : z)))}
-                                          style={{ ...inputStyle, borderColor: invalid ? 'oklch(0.7 0.19 25 / .65)' : 'rgba(255,255,255,.09)', color: invalid ? 'oklch(0.78 0.15 25)' : 'var(--text)' }}
-                                        />
-                                        {invalid && (
-                                          <span style={{
-                                            display: 'inline-flex', padding: '2px 7px', borderRadius: 5, font: "600 9.5px var(--mono)",
-                                            letterSpacing: '.06em', background: 'oklch(0.7 0.19 25 / .14)', color: 'oklch(0.74 0.17 25)', flex: 'none',
-                                          }}>
-                                            NOT A VALID LINK
-                                          </span>
-                                        )}
-                                        <button className="ad-btn-x" onClick={() => setLines(lines.filter((_, j) => j !== li))}>
-                                          <i className="fa-solid fa-xmark" style={{ fontSize: 12 }} />
-                                        </button>
-                                      </div>
-                                    )
-                                  })}
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <button className="ad-btn-dashed" onClick={() => setLines([...lines, ''])}>
-                                      + Add line
-                                    </button>
-                                    {p.validate && (
-                                      <span style={{ font: "500 11px var(--mono)", color: 'var(--text-faint)' }}>
-                                        {lines.length} lines · {good} valid links{bad > 0 ? ` · ${bad} needs attention` : ''}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          }
-                          if (p.kind === 'kv') {
-                            const rows = p.rows ?? []
-                            const setRows = (next: { k: string; v: string }[]) => updParam(p.name, { rows: next, default: next })
-                            return (
-                              <div key={p.name} style={{ padding: '14px 20px 15px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                                <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
-                                <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '3px 0 9px' }}>{p.help}</div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                  {rows.map((r, ri) => (
-                                    <div key={ri} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                      <input
-                                        value={r.k} placeholder="Key"
-                                        onChange={(e) => setRows(rows.map((z, j) => (j === ri ? { ...z, k: e.target.value } : z)))}
-                                        style={{ ...inputStyle, flex: '0 1 38%' }}
-                                      />
-                                      <input
-                                        value={r.v} placeholder="Value"
-                                        onChange={(e) => setRows(rows.map((z, j) => (j === ri ? { ...z, v: e.target.value } : z)))}
-                                        style={inputStyle}
-                                      />
-                                      <button className="ad-btn-x" onClick={() => setRows(rows.filter((_, j) => j !== ri))}>
-                                        <i className="fa-solid fa-xmark" style={{ fontSize: 12 }} />
-                                      </button>
-                                    </div>
-                                  ))}
-                                  <button className="ad-btn-dashed" onClick={() => setRows([...rows, { k: '', v: '' }])}>
-                                    + Add pair
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          }
-                          if (p.kind === 'number') {
-                            const mn = p.min ?? 0
-                            return (
-                              <div key={p.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '13px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                                <div style={{ minWidth: 0 }}>
-                                  <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
-                                  <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 3 }}>{p.help}</div>
-                                </div>
-                                <input
-                                  value={String(p.value ?? '')}
-                                  onChange={(e) => {
-                                    const digits = e.target.value.replace(/\D/g, '')
-                                    updParam(p.name, { value: digits === '' ? '' : Number(digits), default: digits === '' ? mn : Number(digits) })
-                                  }}
-                                  onBlur={() => {
-                                    const n = typeof p.value === 'number' ? p.value : NaN
-                                    if (Number.isNaN(n) || n < mn) updParam(p.name, { value: mn, default: mn })
-                                  }}
-                                  style={{ ...inputStyle, flex: 'none', width: 84, textAlign: 'right' }}
-                                />
-                              </div>
-                            )
-                          }
-                          // text
-                          return (
-                            <div key={p.name} style={{ padding: '14px 20px 15px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                              <div style={{ font: "600 13px var(--sans)" }}>{p.label}</div>
-                              <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '3px 0 9px' }}>{p.help}</div>
-                              <input
-                                value={String(p.value ?? '')} placeholder={p.placeholder}
-                                onChange={(e) => updParam(p.name, { value: e.target.value, default: e.target.value })}
-                                style={{ ...inputStyle, width: '100%' }}
-                              />
-                            </div>
-                          )
-                        })}
+                        {params.map((p) => (
+                          <ParamEditor key={p.name} p={p} upd={(patch) => updParam(p.name, patch)} />
+                        ))}
                         <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
                           After creation these move to the automation page — changes there apply on the next execution, no new version.
                         </div>
@@ -2043,6 +2071,36 @@ export default function CreateFlow() {
                         </button>
                       )}
                     </div>
+                    {/* §11 test parameter values (edit mode) — collapsed: the test uses the automation's stored values */}
+                    {isEdit && rev.params.length > 0 && (
+                      testParams === null ? (
+                        <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--hairline)' }}>
+                          <button className="ad-btn-dashed" onClick={() => setTestParams(seedTestParams())}>
+                            <i className="fa-solid fa-sliders" style={{ fontSize: 10 }} /> Set parameter values for this test
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ borderBottom: '1px solid var(--hairline)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                            <span style={{ font: "500 10px var(--mono)", letterSpacing: '.06em', color: 'var(--text-faintest)' }}>
+                              PARAMETER VALUES · THIS TEST ONLY
+                            </span>
+                            <button className="ad-btn-soft" onClick={() => setTestParams(null)} style={{ padding: '3px 9px' }}>
+                              Use current values
+                            </button>
+                          </div>
+                          {testParams.map((p) => (
+                            <ParamEditor
+                              key={p.name} p={p}
+                              upd={(patch) => setTestParams((ps) => ps && ps.map((x) => (x.name === p.name ? { ...x, ...patch } : x)))}
+                            />
+                          ))}
+                          <div style={{ padding: '10px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
+                            These values apply to this test only — nothing is saved.
+                          </div>
+                        </div>
+                      )
+                    )}
                     {test ? (
                       <>
                         {test.steps.length > 0 && (
