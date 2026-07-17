@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import { Badge, badgeOf, paramSummary, Spinner } from '../ui'
+import { Badge, badgeOf, FailureNotice, paramSummary, Spinner } from '../ui'
 import { ResultSection } from '../result'
 import type { Exec } from '../types'
 
@@ -260,6 +260,9 @@ export default function ExecutionPage() {
 
         {/* Right column: Results / Logs */}
         <div style={{ minWidth: 0 }}>
+          {e.status === 'failed' && e.error && (
+            <FailureNotice error={e.error} style={{ marginBottom: 12 }} />
+          )}
           <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
             {(['results', 'logs'] as const).map((t) => (
               <button

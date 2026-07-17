@@ -35,6 +35,11 @@ class MissingSecret(Exception):
     pass
 
 
+class AgentCallError(Exception):
+    """A runtime agent.ask call failed — kept distinct so the engine can name
+    the likely cause in the execution's failure diagnostics (§7)."""
+
+
 class Secrets:
     def __init__(self, values: dict[str, str], allowed: list[str]):
         self._values = values
@@ -173,7 +178,10 @@ class Agent:
         emit("log", k="sys", text=f"agent query → {cfg.get('harness')} ({len(full)} chars)")
         if len(full) > 200_000:
             raise RuntimeError("agent prompt too large (200k char cap)")
-        reply = _harness.invoke(cfg, full, timeout=self._ctx.get("agent_timeout", 120))
+        try:
+            reply = _harness.invoke(cfg, full, timeout=self._ctx.get("agent_timeout", 120))
+        except Exception as e:  # noqa: BLE001
+            raise AgentCallError(f"agent call failed ({cfg.get('harness')}): {e}") from e
         if len(reply) > 200_000:
             raise RuntimeError("agent reply too large (200k char cap)")
         # §6: the FULL prompt/reply go to logs for audit (already size-capped above).
@@ -305,9 +313,10 @@ def main() -> int:
         # draft-time check alone doesn't cover hand-edited or stale scripts.
         bad = disallowed_imports(source)
         if bad:
-            emit("log", k="err",
-                 text=f"import {', '.join(bad)} isn't allowed — steps may only import "
-                      f"the Python stdlib and the curated packages (§6.2)")
+            msg = (f"import {', '.join(bad)} isn't allowed — steps may only import "
+                   f"the Python stdlib and the curated packages (§6.2)")
+            emit("error", type="DisallowedImport", message=msg)
+            emit("log", k="err", text=msg)
             return 4
         code = compile(source, script, "exec")
         exec(code, g)  # noqa: S102 — this is the engine's job
@@ -315,9 +324,14 @@ def main() -> int:
         sys.stderr.flush()
         return 0
     except MissingSecret as e:
+        emit("error", type="MissingSecret", message=str(e))
         emit("log", k="err", text=str(e))
         return 3
-    except BaseException:  # noqa: BLE001
+    except BaseException as e:  # noqa: BLE001
+        # §7 failure diagnostics: the engine stores this structured event as the
+        # execution's error; the traceback still goes to the logs line by line.
+        emit("error", type=type(e).__name__,
+             message=f"{type(e).__name__}: {e}" if str(e) else type(e).__name__)
         for ln in traceback.format_exc().strip().splitlines():
             emit("log", k="err", text=ln)
         return 1

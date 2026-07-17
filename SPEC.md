@@ -265,6 +265,9 @@ logs: [{ t, k: sys|out|wrn|err, text }]
 result: result object | null
 redact: secret names redacted in logs (joined string) | null
 note: optional note ("previous execution still in progress", "Mac went to sleep") | null
+error: { step, message, reason | null } | null — failed executions only: the failing step's
+  name, its error message (redacted), and a plain-word possible reason when the engine can
+  classify the failure (§7 failure diagnostics)
 ```
 
 Result object:
@@ -447,7 +450,9 @@ executions/
                                #     version ("v3"/"Draft"), status, trigger, started_at /
                                #     finished_at (epoch ms; finished_at NULL while executing),
                                #     dur_ms, note, chip / chip_status (§4.5 — NULL when the
-                               #     execution set no chip), redacted_secrets (JSON), params (JSON)
+                               #     execution set no chip), error_step / error_message /
+                               #     error_reason (§4.5 — NULL unless failed),
+                               #     redacted_secrets (JSON), params (JSON)
                                #   execution_steps: execution_id, idx, name, status, dur_ms
                                #   indexes: (started_at DESC, id), (automation_id, started_at),
                                #     (status, started_at)
@@ -481,8 +486,8 @@ excludes them (a mid-execution trigger skip must not shadow the live execution's
 Executions load **headers-eagerly, bodies-lazily**: startup reads every record from
 `executions.db` into an in-memory `executions` table — one record per execution with
 `id, automation_id, status, trigger, version_label, started_at, finished_at, dur_ms`, plus the
-light display fields (`automation_name`, `note`, `chip`/`chip_status`, redacted names, the step
-list) — kept queryable
+light display fields (`automation_name`, `note`, `chip`/`chip_status`, the §4.5 `error` fields,
+redacted names, the step list) — kept queryable
 by `trigger`, `status`, `automation_id`, and `started_at`; paths resolve on demand from the id.
 `result/` and `logs.ndjson` are read only when an execution is opened. The in-memory table is
 rebuilt from the DB at every launch. An automation folder whose `versions/` is
@@ -634,6 +639,21 @@ through drafting.
   object; automation gets latest/resultChip/lastExecLabel "just now"; toast summarizes.
 - Cancel: kills timers/processes; execution cancelled, all executing/queued steps cancelled, sys
   log "execution cancelled by you — nothing else will happen".
+- **Failure diagnostics:** when a step fails, the executor reports the exception as a structured
+  control event (exception type + message) alongside the traceback err lines; the engine stores
+  §4.5 `error` on the record — the failing step's name, the message ("`ExcType: message`",
+  redacted like any log line), and a plain-word **possible reason** when the failure matches a
+  known category, null otherwise. Categories (deterministic, from exit code / exception type /
+  message — never an agent call): step timed out ("The step hit its `N` s time limit.") ·
+  disallowed import ("The step imports a package outside the allowed list.") · missing secret
+  ("The script references a secret that doesn't exist.") · agent call failed ("The step's agent
+  call failed — the agent may be unreachable or misconfigured.") · network failure —
+  connection, DNS, timeout ("A network request failed — the site may be down, blocking, or
+  unreachable.") · HTTP error status ("The site answered with an error (HTTP `nnn`).") ·
+  unexpected data shape — KeyError/IndexError/AttributeError ("The data didn't have the
+  expected shape — a page or file layout may have changed."). Engine-level failures (missing
+  script file, agent step with no agent) set `error` the same way. Shown on the automation
+  detail page (§9.2) and the execution page.
 - **Execute again** has two variants on the execution page. Failed executions get a primary accent
   "Execute again" (tooltip "Executes the automation again. Steps that already succeeded are reused
   automatically.") starting from the failed step: earlier steps get status `reused`, only the
@@ -649,7 +669,9 @@ through drafting.
 Cancel / Execute-again actions; below the title a mono metadata line: full execution id (copyable) ·
 trigger · version · started · duration. Body is a two-column layout: a **STEPS sidebar** (per-step status
 dot, name, duration — compact, no inline log expansion) plus a parameters block ("Values as used
-by this execution."), and a main pane with **Results / Logs tabs** (auto-select Logs when no result).
+by this execution."), and a main pane with **Results / Logs tabs** (auto-select Logs when no result). On a failed
+execution a **failure notice** sits above the tabs: red-tinted card, "Failed at step
+`<name>`", the §4.5 possible reason as plain text when present, and the error message in mono.
 The Logs tab is one unified color-coded log pane (kinds sys/out/wrn/err, live auto-scroll) with
 a redaction note ("secrets redacted: `<name>`") and empty state "No logs — this execution never
 started." The Results tab is a collapsible **Results section** holding a stack of individually
@@ -700,12 +722,18 @@ also served to the create/edit page via §19 `GET /instructions`):
   needed, its prompt kept small enough for a local model — narrow question, strict output
   format, reply validated in code), the `autodave` SDK reference with worked examples (a typical
   memory-diff last step; a validated `agent.ask` call), the curated package list, the parameter
-  kinds table (§4.2), trigger- and step-design duties, and all five §6 policy sections. The §11
+  kinds table (§4.2), trigger- and step-design duties, the **failure-diagnostics duty** (a step
+  that can't proceed raises an exception whose message names what it was doing, the exact input
+  involved — URL, file, param — and what it expected vs found; HTTP failures include the status
+  code; progress is logged as work proceeds so a failure's log tail shows the lead-up; never
+  swallow exceptions or exit silently — the engine records the exception and shows it to the
+  user, §7), and all five §6 policy sections. The §11
   Framework-instructions card renders this file as markdown.
 - `backend/autodave/instructions/default-build-instructions.md` — the default best-practice
   build instructions, written as a markdown bullet list (never delete files, write only to
   memory/workspace, small single-purpose steps, prefer existing libraries over hand-written
-  code, prefer deterministic code over agent steps, fail loudly, quiet executions stay quiet,
+  code, prefer deterministic code over agent steps, fail loudly naming what was expected and
+  what was found, quiet executions stay quiet,
   track seen items in memory). In `create` mode, when
   the user gave none, the backend seeds `instr` from this file; the validated create draft
   carries `instr` back so the Review card arrives pre-filled — the user edits or deletes the
@@ -901,7 +929,10 @@ Sections top to bottom:
 
 - Optional **Draft banner** (§4.4), then **LATEST RESULT** card — the execution's chip (if it set one)
   + metadata chips, then the full §7 result view stack for the latest execution (Summary view at 640 px
-  measure, file views, FILES footer — same collapsible behavior and chip rules). No-executions empty
+  measure, file views, FILES footer — same collapsible behavior and chip rules). When the latest
+  execution **failed**, the card opens with a red-tinted **failure notice** ahead of any result
+  views: "Failed at step `<name>`", the §4.5 possible reason as plain text when present, the
+  error message in mono, and a "View execution" link to the execution page. No-executions empty
   state (dashed
   card): "No executions yet / Press Execute now — the first result will appear right here."
 - **WAYS TO RUN** card — a **TRIGGERS** list: one row per trigger (kind icon — fa-clock for

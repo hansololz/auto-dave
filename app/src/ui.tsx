@@ -65,6 +65,54 @@ export function resultChipColors(status: 'changes' | 'ok' | 'attention' | null |
   return { c: P.green, bg: P.greenBg }
 }
 
+// §7 failure diagnostics — red-tinted notice for a failed execution: the failing
+// step, a possible reason when the engine classified one, and the error message.
+// Shown on the automation detail page (§9.2) and the execution page (§7).
+export function FailureNotice({ error, onView, style }: {
+  error: { step: string | null; message: string; reason: string | null }
+  onView?: () => void
+  style?: React.CSSProperties
+}) {
+  const [hov, setHov] = useState(false)
+  return (
+    <div style={{
+      background: 'oklch(0.7 0.19 25 / .07)', border: '1px solid oklch(0.7 0.19 25 / .3)',
+      borderRadius: 12, padding: '14px 18px', ...style,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <i className="fa-solid fa-circle-exclamation" style={{ color: 'var(--red)', fontSize: 12 }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--red)' }}>
+          {error.step ? `Failed at step “${error.step}”` : 'Execution failed'}
+        </span>
+        <div style={{ flex: 1 }} />
+        {onView && (
+          <button
+            onClick={onView}
+            onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+            style={{
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              fontSize: 12, fontWeight: 500, color: hov ? 'var(--text)' : 'var(--text-muted)',
+            }}
+          >
+            View execution <i className="fa-solid fa-chevron-right" style={{ fontSize: 9 }} />
+          </button>
+        )}
+      </div>
+      {error.reason && (
+        <div style={{ fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2em)', marginTop: 7 }}>
+          {error.reason}
+        </div>
+      )}
+      <div className="ad-copy" style={{
+        fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.6, color: 'var(--text-muted)',
+        marginTop: error.reason ? 5 : 7, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+      }}>
+        {error.message}
+      </div>
+    </div>
+  )
+}
+
 export function Eyebrow({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div style={{

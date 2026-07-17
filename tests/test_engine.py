@@ -433,3 +433,118 @@ def test_agent_step_without_enabled_agent_fails(store):
     wait_done(engine, h["id"])
     assert h["status"] == "failed"
     assert any("needs an agent" in l["text"] for l in store.read_logs(h["id"]))
+
+
+def test_failure_diagnostics_on_execution_record(store):
+    """§7: a failed step's exception becomes §4.5 `error` — step, message, reason."""
+    from autodave.engine import Engine
+    from autodave.storage import Store
+
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"][0]["code"] = 'd = {}\nprint(d["missing"])\n'
+    a = store.create_automation(ver, "Diag", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "failed"
+    err = h["error"]
+    assert err["step"] == "Say hello"
+    assert err["message"].startswith("KeyError")
+    assert "expected shape" in err["reason"]
+    assert store.exec_json(h)["error"] == err
+    # survives the DB round-trip at the next startup
+    s2 = Store()
+    s2.load_all()
+    assert s2.execs[h["id"]]["error"] == err
+
+
+def test_failure_reason_null_when_unclassified(store):
+    """§7: a failure that fits no known category keeps message, reason null."""
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"][0]["code"] = 'raise RuntimeError("the page had no rows")\n'
+    a = store.create_automation(ver, "Plain fail", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["error"]["message"] == "RuntimeError: the page had no rows"
+    assert h["error"]["reason"] is None
+
+
+def test_failure_error_absent_on_success(store):
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    a = store.create_automation(make_version(), "Fine", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "succeeded"
+    assert h["error"] is None
+    assert store.exec_json(h)["error"] is None
+
+
+def test_failure_error_message_redacted(store):
+    """§7: the error message is redacted like any log line."""
+    from autodave import keychain
+    from autodave.engine import Engine
+
+    keychain.set_secret("API_KEY", "sekret-42")
+    store.secret_names.append("API_KEY")
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"][0]["code"] = 'k = secrets.API_KEY\nraise RuntimeError(f"bad key {k}")\n'
+    a = store.create_automation(ver, "Leaky fail", None)
+    store.patch_automation(a, {"allowedSecrets": ["API_KEY"]})
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert "sekret-42" not in h["error"]["message"]
+    assert "•••" in h["error"]["message"]
+
+
+def test_failure_reason_timeout(store, monkeypatch):
+    """§7: a timed-out step gets the time-limit reason."""
+    from autodave.engine import Engine
+
+    monkeypatch.setenv("AUTODAVE_STEP_TIMEOUT", "1")
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"] = [
+        {"file": "01-hang.py", "name": "Hang", "desc": "",
+         "code": "import time\ntime.sleep(30)\n"},
+    ]
+    a = store.create_automation(ver, "Slow", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"], timeout=15)
+    assert h["error"]["step"] == "Hang"
+    assert "timed out" in h["error"]["message"]
+    assert "time limit" in h["error"]["reason"]
+
+
+def test_failure_reason_disallowed_import(store):
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"][0]["code"] = "import numpy\n"
+    a = store.create_automation(ver, "Bad import", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert "isn't allowed" in h["error"]["message"]
+    assert h["error"]["reason"] == "The step imports a package outside the allowed list."
+
+
+def test_failure_reason_missing_secret_before_step_one(store):
+    """§7: the pre-step secret check sets `error` with a null step."""
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"][0]["code"] = "x = secrets.NOT_THERE\n"
+    a = store.create_automation(ver, "No secret", None)
+    store.patch_automation(a, {"allowedSecrets": ["NOT_THERE"]})
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["error"]["step"] is None
+    assert "isn't in your Keychain" in h["error"]["message"]
+    assert "Keychain" in h["error"]["reason"]

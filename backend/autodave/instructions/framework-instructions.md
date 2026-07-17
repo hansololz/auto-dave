@@ -116,6 +116,33 @@ Notes:
   the whole execution and is discarded after. Only `memory` survives between
   executions; only `result.path` reaches the user.
 
+## When a step fails
+
+Write every script so a failure explains itself. The engine records the exception
+and shows it to the user as the execution's error — make that message worth
+reading:
+
+- When something is off — an unexpected page shape, a missing file, a bad HTTP
+  status — raise an exception whose message names what the step was doing, the
+  exact input involved (URL, file, param name), and what was expected vs found:
+
+  ```python
+  price = soup.select_one(".price")
+  if price is None:
+      raise RuntimeError(f"No .price element on {url} — page layout may have changed")
+  ```
+
+- For HTTP failures include the status code and a short snippet of the body:
+  `resp.raise_for_status()` is fine; a hand-rolled check should say
+  `f"GET {url} returned {resp.status_code}: {resp.text[:200]}"`.
+- Log progress as work proceeds (`log(f"fetching {url}")`, counts, decisions) so
+  the log tail before a failure shows what led up to it. Use `log.warn` for
+  odd-but-survivable findings.
+- Never swallow exceptions: no `except: pass`, no bare `sys.exit(1)`, no
+  catching an error just to continue past a broken precondition. Let the
+  exception propagate — an honest crash with a clear message beats a quiet
+  wrong result.
+
 ## Allowed imports
 
 Python stdlib, `autodave`, `requests`, `httpx`, `bs4`, `lxml`, `feedparser`,

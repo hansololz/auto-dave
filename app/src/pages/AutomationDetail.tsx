@@ -4,7 +4,7 @@ import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto, ParamDef, Step, Trigger } from '../types'
 import {
-  Badge, BtnPrimary, ConfirmModal, Eyebrow, PyCode, Toggle,
+  Badge, BtnPrimary, ConfirmModal, Eyebrow, FailureNotice, PyCode, Toggle,
   nextIn, usePopover, validUrl,
 } from '../ui'
 import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, triggerShort } from '../cron'
@@ -553,6 +553,10 @@ export default function AutomationDetail() {
   }
 
   const lr = auto.latest
+  // §9.2 failure notice: latest execution (skipped ones never count as latest)
+  // failed → its §4.5 error leads the LATEST RESULT card.
+  const latestExec = execs.find((e) => e.autoId === auto.id && e.status !== 'skipped')
+  const failedExec = latestExec?.status === 'failed' && latestExec.error ? latestExec : null
   const params = auto.params ?? []
   const steps = auto.steps ?? []
   const spec = auto.spec ?? []
@@ -761,9 +765,16 @@ export default function AutomationDetail() {
       )}
 
       {/* latest result */}
-      {lr ? (
+      {(lr || failedExec) ? (
         <div style={{ marginBottom: 26 }}>
-          <ResultSection label="LATEST RESULT" result={lr} execId={lr.execId} measure={640} />
+          {failedExec && (
+            <FailureNotice
+              error={failedExec.error!}
+              onView={() => go('execution', { execId: failedExec.id })}
+              style={{ marginBottom: lr ? 10 : 0 }}
+            />
+          )}
+          {lr && <ResultSection label="LATEST RESULT" result={lr} execId={lr.execId} measure={640} />}
         </div>
       ) : (
         <div style={{

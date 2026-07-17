@@ -117,6 +117,8 @@ export interface Exec {
   started: string
   startedMs: number
   note: string | null
+  // §4.5 failure diagnostics — failed executions only
+  error: { step: string | null; message: string; reason: string | null } | null
   steps: ExecStep[]
   logs?: { t: string; k: 'sys' | 'out' | 'wrn' | 'err'; text: string }[]
   result?: ExecResult | null

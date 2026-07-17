@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -25,6 +26,38 @@ def _step_timeout() -> float:
         return float(os.environ.get("AUTODAVE_STEP_TIMEOUT", "") or STEP_TIMEOUT)
     except ValueError:
         return STEP_TIMEOUT
+
+
+# §7 failure diagnostics: exception types that read as "the network failed".
+_NET_TYPES = {
+    "ConnectionError", "ConnectionRefusedError", "ConnectionResetError",
+    "ConnectError", "ConnectTimeout", "ReadTimeout", "Timeout", "TimeoutError",
+    "timeout", "gaierror", "URLError", "NewConnectionError", "MaxRetryError",
+    "SSLError", "ProxyError", "ChunkedEncodingError", "RemoteDisconnected",
+}
+
+
+def failure_reason(rc: int, err: dict | None) -> str | None:
+    """Classify a failed step into a plain-word possible reason (§7) —
+    deterministic, from exit code + the executor's structured error event;
+    None when the failure fits no known category."""
+    if rc == 4:
+        return "The step imports a package outside the allowed list."
+    if rc == 3:
+        return "The script references a secret that doesn't exist."
+    t = (err or {}).get("type") or ""
+    m = (err or {}).get("message") or ""
+    if t == "AgentCallError":
+        return "The step's agent call failed — the agent may be unreachable or misconfigured."
+    if t in ("HTTPError", "HTTPStatusError") or "Client Error" in m or "Server Error" in m:
+        code = re.search(r"\b([45]\d\d)\b", m)
+        return (f"The site answered with an error (HTTP {code.group(1)})." if code
+                else "The site answered with an error.")
+    if t in _NET_TYPES or "couldn't fetch" in m or "robots.txt disallows" in m:
+        return "A network request failed — the site may be down, blocking, or unreachable."
+    if t in ("KeyError", "IndexError", "AttributeError"):
+        return "The data didn't have the expected shape — a page or file layout may have changed."
+    return None
 
 
 class Engine:
@@ -107,12 +140,16 @@ class Engine:
         base = self.store.auto_dir(auto)
         return base / "draft" if label.lower() == "draft" else base / "versions" / label
 
-    def _log(self, h: dict, k: str, text: str, redactions: dict[str, str]) -> None:
+    def _redact(self, h: dict, text: str, redactions: dict[str, str]) -> str:
         for val, name in redactions.items():
             if val and val in text:
                 text = text.replace(val, "•••")
                 if name not in h["redacted"]:
                     h["redacted"].append(name)
+        return text
+
+    def _log(self, h: dict, k: str, text: str, redactions: dict[str, str]) -> None:
+        text = self._redact(h, text, redactions)
         # On-disk shape (§5): {ts, t, step, k, text} — step is the current step
         # name or null for execution-level lines. API/UI shape stays {t, k, text}.
         line = {"ts": datetime.now().isoformat(timespec="seconds"),
@@ -151,12 +188,20 @@ class Engine:
             secret_values: dict[str, str] = {}
             for name in sorted(needed):
                 if name not in auto["allowed_secrets"]:
-                    self._log(h, "err", f"secret {name} isn't allowed for this automation — the execution can't start", {})
+                    msg = f"secret {name} isn't allowed for this automation — the execution can't start"
+                    self._log(h, "err", msg, {})
+                    if not h.get("error"):
+                        h["error"] = {"step": None, "message": msg,
+                                      "reason": "A step references a secret this automation isn't allowed to use."}
                     failed = True
                 else:
                     v = keychain.get_secret(name)
                     if v is None:
-                        self._log(h, "err", f"secret {name} isn't in your Keychain — the execution can't start", {})
+                        msg = f"secret {name} isn't in your Keychain — the execution can't start"
+                        self._log(h, "err", msg, {})
+                        if not h.get("error"):
+                            h["error"] = {"step": None, "message": msg,
+                                          "reason": "A step references a secret that isn't in your Keychain."}
                         failed = True
                     else:
                         secret_values[name] = v
@@ -194,7 +239,10 @@ class Engine:
                 if s.get("agent"):
                     agent_cfg = self._agent_for_step(auto, s)
                     if agent_cfg is None:
-                        self._log(h, "err", f"Step {i + 1} needs an agent, but none is enabled — the execution fails here.", redactions)
+                        msg = f"Step {i + 1} needs an agent, but none is enabled — the execution fails here."
+                        self._log(h, "err", msg, redactions)
+                        h["error"] = {"step": s["name"], "message": msg,
+                                      "reason": "No enabled agent can serve this step — enable one for this automation."}
                         h["steps"][i]["status"] = "failed"
                         h["steps"][i]["dur_ms"] = int((time.time() - t0) * 1000)
                         self._step_event(h, i)
@@ -216,6 +264,16 @@ class Engine:
                 else:
                     h["steps"][i]["status"] = "failed"
                     failed = True
+                    # §7 failure diagnostics: the executor's structured error
+                    # event (or the engine's own, e.g. a timeout) becomes the
+                    # execution's error — message redacted like any log line.
+                    err = notify_holder.get("error")
+                    h["error"] = {
+                        "step": s["name"],
+                        "message": self._redact(h, (err or {}).get("message")
+                                                or f"step failed (exit code {rc})", redactions),
+                        "reason": (err or {}).get("reason") or failure_reason(rc, err),
+                    }
                 self._step_event(h, i)
                 h["_cur_step"] = None
             # ---- finalize ----
@@ -244,6 +302,10 @@ class Engine:
             h["status"] = "failed"
             h["finished_at"] = datetime.now().isoformat(timespec="seconds")
             self._log(h, "err", f"engine error: {e}", redactions)
+            if not h.get("error"):
+                h["error"] = {"step": h.get("_cur_step"),
+                              "message": self._redact(h, f"engine error: {e}", redactions),
+                              "reason": None}
             self.store.update_execution(h)
         finally:
             if caffeinate:
@@ -275,7 +337,9 @@ class Engine:
                   state: dict, redactions: dict, result: dict, notify_holder: dict) -> int:
         script = vdir / (s.get("file") or "")
         if not script.exists():
-            self._log(h, "err", f"step script {s.get('file')} is missing", redactions)
+            msg = f"step script {s.get('file')} is missing"
+            self._log(h, "err", msg, redactions)
+            notify_holder["error"] = {"type": "MissingScript", "message": msg}
             return 1
         # §6 secret scoping: a step only receives the secrets its own source
         # references. The full value map stays engine-side for log redaction;
@@ -349,6 +413,11 @@ class Engine:
                         result["values"].append(v)
                 elif op == "notify":
                     notify_holder["text"] = msg.get("text")
+                elif op == "error":
+                    # §7 failure diagnostics — the executor's structured report
+                    # of the exception that failed the step.
+                    notify_holder["error"] = {"type": msg.get("type"),
+                                              "message": msg.get("message")}
                 elif op == "agent_audit":
                     # §6: the FULL redacted prompt/response go to logs for audit
                     # (the 200k prompt/reply size caps already apply upstream).
@@ -360,7 +429,10 @@ class Engine:
         watchdog.cancel()
         state["proc"] = None
         if timed_out.is_set() and proc.returncode != 0:
-            self._log(h, "err", f"step timed out after {int(timeout_s)}s", redactions)
+            msg = f"step timed out after {int(timeout_s)}s"
+            self._log(h, "err", msg, redactions)
+            notify_holder["error"] = {"type": "StepTimeout", "message": msg,
+                                      "reason": f"The step hit its {int(timeout_s)} s time limit."}
             return proc.returncode or 1
         return proc.returncode or 0
 

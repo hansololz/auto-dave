@@ -388,7 +388,8 @@ class Store:
                 "params": params or [],
                 "started_at": datetime.now().isoformat(timespec="seconds"),
                 "finished_at": None,
-                "dur_ms": None, "note": note, "chip": None, "chip_status": None, "redacted": [],
+                "dur_ms": None, "note": note, "chip": None, "chip_status": None,
+                "error": None, "redacted": [],
                 "steps": [{"name": s["name"], "status": s.get("status", "queued"), "dur_ms": s.get("dur_ms")} for s in steps],
             }
             d = self.exec_dir(h["id"])
@@ -639,6 +640,7 @@ class Store:
             "started": timefmt.started_label(dt) if dt else "",
             "startedMs": int(dt.timestamp() * 1000) if dt else 0,
             "note": h["note"],
+            "error": h.get("error"),
             "steps": [{"name": s["name"], "status": s["status"], "dur": timefmt.dur_label(s["dur_ms"]) if s.get("dur_ms") else ""}
                       for s in h["steps"]],
         }
