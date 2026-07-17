@@ -1714,34 +1714,40 @@ export default function CreateFlow() {
               {/* ===== right column ===== */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {/* Sync panel — persistent, above the cards, not inside Steps: a sync rewrites the steps AND the param definitions */}
-                <div style={{ ...cardStyle, padding: '10px 12px', display: 'flex', alignItems: 'flex-start', gap: 9 }}>
-                  {rev.syncBusy ? (
-                    <span style={{
-                      width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
-                      borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none', marginTop: 3,
-                    }} />
-                  ) : (
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: rev.dirty ? 'var(--amber)' : 'var(--green)', flex: 'none', marginTop: 5 }} />
-                  )}
+                <div style={{ ...cardStyle, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    {rev.syncBusy ? (
-                      <div style={{ font: "500 12.5px var(--sans)", color: 'var(--text-2)', marginTop: 2 }}>
-                        {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'Your agent'} is rewriting the steps from your spec…
-                      </div>
-                    ) : rev.dirty ? (<>
-                      <div style={{ font: "500 12.5px var(--sans)", color: 'var(--text)' }}>
-                        {rev.dirtyWhy === 'agents' ? 'The workflow is out of sync — the agents available to this automation changed.'
-                          : rev.dirtyWhy === 'secrets' ? 'The workflow is out of sync — the secrets allowed for this automation changed.'
-                            : 'The workflow is out of sync — these steps still match the old spec.'}
-                      </div>
-                      <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>
+                    {/* the indicator sits in an 18px box matching the title's line-height,
+                        so it stays centered on the first line even when the text wraps */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+                      <span style={{ height: 18, display: 'flex', alignItems: 'center', flex: 'none' }}>
+                        {rev.syncBusy ? (
+                          <span style={{
+                            width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
+                            borderRadius: '50%', animation: 'adSpin .8s linear infinite',
+                          }} />
+                        ) : (
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: rev.dirty ? 'var(--amber)' : 'var(--green)' }} />
+                        )}
+                      </span>
+                      <span style={{
+                        minWidth: 0,
+                        font: rev.syncBusy ? "500 12.5px/18px var(--sans)" : rev.dirty ? "500 12.5px/18px var(--sans)" : "400 12.5px/18px var(--sans)",
+                        color: rev.syncBusy ? 'var(--text-2)' : rev.dirty ? 'var(--text)' : 'var(--text-muted)',
+                      }}>
+                        {rev.syncBusy
+                          ? `${selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'Your agent'} is rewriting the steps from your spec…`
+                          : rev.dirty
+                            ? (rev.dirtyWhy === 'agents' ? 'The workflow is out of sync — the agents available to this automation changed.'
+                              : rev.dirtyWhy === 'secrets' ? 'The workflow is out of sync — the secrets allowed for this automation changed.'
+                                : 'The workflow is out of sync — these steps still match the old spec.')
+                            : 'Steps are generated from the spec.'}
+                      </span>
+                    </div>
+                    {!rev.syncBusy && rev.dirty && (
+                      <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '2px 0 0 16px' }}>
                         {rev.dirtyWhy === 'agents' ? 'Sync the steps so they use the agents available to this automation, then review them. Saving is locked until you do.'
                           : rev.dirtyWhy === 'secrets' ? 'Sync the steps so they only use the secrets allowed here, then review them. Saving is locked until you do.'
                             : 'Sync the steps to the new spec, then review them. Saving is locked until you do — nothing ships unreviewed.'}
-                      </div>
-                    </>) : (
-                      <div style={{ font: "400 12.5px var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>
-                        Steps are generated from the spec.
                       </div>
                     )}
                   </div>
