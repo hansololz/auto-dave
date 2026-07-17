@@ -62,6 +62,18 @@ function secretRefsOf(steps: Step[]): SecretRef[] {
 
 const stepList = (idx: number[]) => idx.map((i) => i + 1).join(', ')
 
+// §11 Build-instructions card: bare lines (no markdown block syntax, outside code fences)
+// become bullets so plain one-rule-per-line text renders as a list, not one paragraph.
+function instrToMd(text: string): string {
+  let fence = false
+  return text.split('\n').map((raw) => {
+    const l = raw.trim()
+    if (l.startsWith('```')) { fence = !fence; return raw }
+    if (fence || !l || /^(#{1,3}\s|[-*]\s|\d+\.\s|\|)/.test(l)) return raw
+    return `- ${l}`
+  }).join('\n')
+}
+
 // The two §8 instruction files (framework-instructions.md, shown verbatim in the read-only
 // Framework-instructions card, and default-build-instructions.md, the Build-instructions
 // pre-fill). Loaded from the backend (GET /instructions) so both cards always show exactly
@@ -1624,14 +1636,12 @@ export default function CreateFlow() {
                     </div>
                   )}
                   {instrOpenEff && !rev.instrEdit && (
-                    <div className="ad-copy" style={{ borderTop: '1px solid var(--hairline)', padding: '10px 20px 16px' }}>
-                      {rev.instr.split('\n').map((s) => s.trim()).filter(Boolean).map((t, i) => (
-                        <div key={i} style={{ display: 'flex', gap: 8, margin: '3px 0' }}>
-                          <span style={{ color: 'var(--text-faint)' }}>–</span>
-                          <span style={{ font: "400 13px/1.55 var(--sans)", color: '#c6cdd6' }}>{t}</span>
+                    <div style={{ borderTop: '1px solid var(--hairline)', padding: '10px 20px 16px' }}>
+                      {rev.instr.trim() ? (
+                        <div style={{ padding: '0 18px', margin: '0 -18px' }}>
+                          <Markdown text={instrToMd(rev.instr)} />
                         </div>
-                      ))}
-                      {!rev.instr.trim() && (
+                      ) : (
                         <div style={{ margin: '3px 0', font: "400 13px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
                           No instructions yet — press Edit to add standing rules.
                         </div>
@@ -1642,7 +1652,7 @@ export default function CreateFlow() {
                     <textarea
                       value={rev.instrDraft ?? rev.instr} rows={6}
                       onChange={(e) => up({ instrDraft: e.target.value })}
-                      placeholder="One rule per line — “Prefer Python.” “Never delete files — move them to the Trash.”"
+                      placeholder="Markdown — one rule per line: “Prefer Python.” “Never delete files — move them to the Trash.”"
                       style={{
                         width: '100%', background: 'var(--bg-inset)', border: 'none', borderTop: '1px solid var(--hairline)',
                         color: '#c6cdd6', font: "400 12.5px/1.7 var(--mono)", padding: '14px 20px',

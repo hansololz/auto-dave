@@ -703,9 +703,10 @@ also served to the create/edit page via §19 `GET /instructions`):
   kinds table (§4.2), trigger- and step-design duties, and all five §6 policy sections. The §11
   Framework-instructions card renders this file as markdown.
 - `backend/autodave/instructions/default-build-instructions.md` — the default best-practice
-  build instructions (never delete files, write only to memory/workspace, small single-purpose
-  steps, prefer existing libraries over hand-written code, prefer deterministic code over agent
-  steps, fail loudly, quiet executions stay quiet, track seen items in memory). In `create` mode, when
+  build instructions, written as a markdown bullet list (never delete files, write only to
+  memory/workspace, small single-purpose steps, prefer existing libraries over hand-written
+  code, prefer deterministic code over agent steps, fail loudly, quiet executions stay quiet,
+  track seen items in memory). In `create` mode, when
   the user gave none, the backend seeds `instr` from this file; the validated create draft
   carries `instr` back so the Review card arrives pre-filled — the user edits or deletes the
   rules freely, and they version like any instructions.
@@ -1065,8 +1066,13 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   blocker, dismissible) — and the draft is untouched; the user rephrases the request. Spec/
   instructions/agent-ask edits are mutually exclusive (one edit at a time).
 - **BUILD INSTRUCTIONS** — collapsible card holding the §4.1 `instr` free text, with view/edit
-  states; edit placeholder "One rule per line — 'Prefer Python.' 'Never delete files — move them
-  to the Trash.'", empty state "No instructions yet — press Edit to add standing rules." In
+  states; the view state renders the text as markdown (same renderer as the Spec and
+  Framework-instructions cards), first prefixing every bare line — one that starts no markdown
+  block (heading, list item, table row, code fence) and sits outside any fence — with "- " so
+  plain one-rule-per-line text still renders as a bullet list instead of collapsing into one
+  paragraph; edit placeholder "Markdown — one rule per line: 'Prefer
+  Python.' 'Never delete files — move them to the Trash.'", empty state "No instructions yet —
+  press Edit to add standing rules." In
   create mode the card arrives pre-filled with the app's default best-practice rules (§8) —
   edit or delete them freely before saving.
 - **Dirty gating** — any spec/instruction/agent-ask/agent-enablement/secret-allowance change
