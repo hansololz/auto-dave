@@ -360,14 +360,14 @@ export default function Onboarding() {
 
   // ----- commit.sh connected providers as real agent records -----
   const commitOnboardAgents = async (): Promise<void> => {
-    type Spec = { key: 'claude' | 'codex' | 'gemini' | 'opencode' | 'found-ollama' | 'local'; body: { name: string | null; harness: string; mode: string; model: string } }
+    type Spec = { key: 'claude' | 'codex' | 'gemini' | 'opencode' | 'found-ollama' | 'local'; body: { name: string | null; harness: string; mode: string; model: string | null } }
     const specs: Spec[] = []
-    if (foundConn && ob.fuId === 'claude') specs.push({ key: 'claude', body: { name: null, harness: 'Claude Code', mode: 'default', model: 'Claude Sonnet 4.5' } })
-    if (foundConn && ob.fuId === 'codex') specs.push({ key: 'codex', body: { name: null, harness: 'Codex', mode: 'default', model: 'GPT-5 Codex' } })
-    if (foundConn && ob.fuId === 'gemini') specs.push({ key: 'gemini', body: { name: null, harness: 'Gemini CLI', mode: 'default', model: 'Gemini 2.5 Pro' } })
-    if (foundConn && ob.fuId === 'opencode') specs.push({ key: 'opencode', body: { name: null, harness: 'OpenCode', mode: 'default', model: 'Configured default' } })
-    if (foundConn && ob.fuId === 'ollama') specs.push({ key: 'found-ollama', body: { name: 'Ollama', harness: 'Ollama', mode: 'default', model: 'Configured default' } })
-    if (ob.cl === 'connected' && !specs.some((s) => s.key === 'claude')) specs.push({ key: 'claude', body: { name: null, harness: 'Claude Code', mode: 'default', model: 'Claude Sonnet 4.5' } })
+    if (foundConn && ob.fuId === 'claude') specs.push({ key: 'claude', body: { name: null, harness: 'Claude Code', mode: 'default', model: null } })
+    if (foundConn && ob.fuId === 'codex') specs.push({ key: 'codex', body: { name: null, harness: 'Codex', mode: 'default', model: null } })
+    if (foundConn && ob.fuId === 'gemini') specs.push({ key: 'gemini', body: { name: null, harness: 'Gemini CLI', mode: 'default', model: null } })
+    if (foundConn && ob.fuId === 'opencode') specs.push({ key: 'opencode', body: { name: null, harness: 'OpenCode', mode: 'default', model: null } })
+    if (foundConn && ob.fuId === 'ollama') specs.push({ key: 'found-ollama', body: { name: 'Ollama', harness: 'Ollama', mode: 'default', model: null } })
+    if (ob.cl === 'connected' && !specs.some((s) => s.key === 'claude')) specs.push({ key: 'claude', body: { name: null, harness: 'Claude Code', mode: 'default', model: null } })
     if (ob.lo === 'ready') specs.push({ key: 'local', body: { name: 'Qwen3 8B', harness: 'Ollama', mode: 'ollama', model: 'qwen3:8b' } })
     if (specs.length === 0) return
     const foundKey: Spec['key'] = ob.fuId === 'claude' ? 'claude'

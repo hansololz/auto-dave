@@ -452,8 +452,10 @@ def add_agent(body: dict) -> dict:
     if harness_name not in ("Claude Code", "Gemini CLI", "Codex", "OpenCode", "Ollama"):
         raise HTTPException(422, "unknown harness")
     mode = body.get("mode", "default")
-    model = body.get("model") or harness.HARNESS_DEFAULT_MODEL.get(harness_name, "Configured default")
-    if mode == "ollama" and not body.get("model"):
+    # §4.7: model is null unless mode is ollama — a null model means the
+    # harness uses whatever it is already configured with.
+    model = (body.get("model") or None) if mode == "ollama" else None
+    if mode == "ollama" and not model:
         raise HTTPException(422, "Ollama mode needs a model")
     import uuid
 
@@ -478,6 +480,8 @@ def patch_agent(agent_id: str, body: dict) -> dict:
     for k in ("name", "model", "mode", "desc"):
         if k in body:
             ag[k] = body[k]
+    if ag.get("mode") != "ollama":
+        ag["model"] = None
     store.save_agents()
     hub.publish("agents.changed")
     return ag

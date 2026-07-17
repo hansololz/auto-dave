@@ -7,40 +7,22 @@ import type { Agent } from '../types'
 import { ConfirmModal, MenuRow, menuStyle, P, Spinner, usePopover } from '../ui'
 import { openAgentEdit } from './AgentNewPage'
 
-const HARNESS_DEFAULT: Record<string, string> = {
-  'Claude Code': 'Claude Sonnet 4.5',
-  'Gemini CLI': 'Gemini 2.5 Pro',
-  'Codex': 'GPT-5 Codex',
-}
-
-/** Display label for an agent's model — hides the concrete name when the
- *  agent just uses the harness's default configured model. */
+/** Display label for an agent's model — a null model means the harness's
+ *  own configured default (§4.7). */
 function dispModel(ag: Agent): string {
-  const def = HARNESS_DEFAULT[ag.harness] ?? 'Configured default'
-  return ag.model === def ? 'Default configured model' : ag.model
+  return ag.model ?? 'Default configured model'
 }
 
 function detailOf(ag: Agent, ready: boolean): string {
   const local = `Serves ${ag.model} on this Mac through Ollama. Private, works offline.`
-  if (ag.harness === 'OpenCode') {
-    return ag.model === 'Configured default' ? 'Uses whatever OpenCode is already configured with.' : local
-  }
-  if (ag.harness === 'Gemini CLI') {
-    return ag.model === 'Gemini 2.5 Pro' ? 'Uses your Google account through Gemini CLI.' : local
-  }
-  if (ag.harness === 'Codex') {
-    return ag.model === 'GPT-5 Codex' ? 'Uses your ChatGPT account through Codex.' : local
-  }
-  if (ag.harness === 'Ollama') {
-    return ag.model === 'Configured default'
-      ? 'Uses whatever model Ollama is already configured with. Private, works offline.'
-      : local
-  }
+  if (ag.model) return local
+  if (ag.harness === 'OpenCode') return 'Uses whatever OpenCode is already configured with.'
+  if (ag.harness === 'Gemini CLI') return 'Uses your Google account through Gemini CLI.'
+  if (ag.harness === 'Codex') return 'Uses your ChatGPT account through Codex.'
+  if (ag.harness === 'Ollama') return 'Uses whatever model Ollama is already configured with. Private, works offline.'
   // Claude Code
   if (!ready) return 'Signed out. Reconnect to create or edit automations — existing ones still execute on schedule.'
-  return ['Claude Sonnet 4.5', 'Claude Opus 4.5', 'Claude Haiku 4.5'].includes(ag.model)
-    ? 'Signed in with your Claude account. Uses your existing subscription — nothing extra to pay here.'
-    : local
+  return 'Signed in with your Claude account. Uses your existing subscription — nothing extra to pay here.'
 }
 
 type CheckState = 'checking' | 'connecting' | 'ready' | 'needs'

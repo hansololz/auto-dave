@@ -14,8 +14,7 @@ import { Markdown } from '../result'
 // ---------- helpers ----------
 
 function dispModel(ag: Agent): string {
-  const def = ({ 'Claude Code': 'Claude Sonnet 4.5', 'Gemini CLI': 'Gemini 2.5 Pro', 'Codex': 'GPT-5 Codex' } as Record<string, string>)[ag.harness] || 'Configured default'
-  return ag.model === def ? 'Default configured model' : ag.model
+  return ag.model ?? 'Default configured model'
 }
 const agName = (ag: Agent) => ag.name || ag.harness
 

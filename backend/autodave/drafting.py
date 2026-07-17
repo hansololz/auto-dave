@@ -413,9 +413,7 @@ class DraftJobs:
                           validator) -> tuple[dict, list[str], list[dict] | None]:
         """One harness call + one automatic repair round against `validator`.
         A valid §8 blocker envelope is terminal — returned as-is, no repair."""
-        self._log_app(f"draft {job['id']} prompt:\n{prompt}")
         raw = harness.invoke(agent, prompt, timeout=300, proc_holder=job["_proc"])
-        self._log_app(f"draft {job['id']} response:\n{raw}")
         if job["_cancel"]:
             return {}, [], None
         result, errors, blockers = self._parse_validate(raw, validator)
@@ -424,7 +422,6 @@ class DraftJobs:
                       + "\n\n=== VALIDATION ERRORS — fix these and resend the full envelope ===\n- "
                       + "\n- ".join(errors))
             raw2 = harness.invoke(agent, repair, timeout=300, proc_holder=job["_proc"])
-            self._log_app(f"draft {job['id']} repair response:\n{raw2}")
             if job["_cancel"]:
                 return {}, [], None
             result, errors, blockers = self._parse_validate(raw2, validator)
@@ -461,16 +458,6 @@ class DraftJobs:
             return {}, [str(e)], None
         result, errors = validator(files)
         return result, errors, None
-
-    @staticmethod
-    def _log_app(text: str) -> None:
-        from . import paths
-
-        try:
-            with open(paths.app_log(), "a", encoding="utf-8") as f:
-                f.write(text[:100_000] + "\n\n")
-        except OSError:
-            pass
 
 
 draft_jobs = DraftJobs()

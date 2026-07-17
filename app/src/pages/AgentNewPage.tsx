@@ -27,10 +27,6 @@ const HARNESS_NAME: Record<HarnessId, string> = {
   claude: 'Claude Code', gemini: 'Gemini CLI', codex: 'Codex', opencode: 'OpenCode', ollama: 'Ollama',
 }
 
-const DEFAULT_MODEL: Partial<Record<HarnessId, string>> = {
-  claude: 'Claude Sonnet 4.5', gemini: 'Gemini 2.5 Pro', codex: 'GPT-5 Codex',
-}
-
 const DEFAULT_NOTE: Record<HarnessId, string> = {
   claude: 'Whatever Claude Code is already configured with',
   gemini: 'Whatever Gemini CLI is already configured with',
@@ -63,13 +59,10 @@ export default function AgentNewPage() {
   useEffect(() => { pendingEdit = null }, [])
   const editAgent = editing?.agent ?? null
   const editHid = editAgent ? (HARNESS_ID[editAgent.harness] ?? 'claude') : null
-  const editIsDefModel = editAgent
-    ? editAgent.model === (DEFAULT_MODEL[editHid!] ?? 'Configured default')
-    : false
   const [harness, setHarness] = useState<HarnessId | null>(editHid)
   const [mode, setMode] = useState<'default' | 'ollama' | null>(
-    editAgent ? (editIsDefModel ? 'default' : 'ollama') : null)
-  const [model, setModel] = useState<string | null>(editAgent && !editIsDefModel ? editAgent.model : null)
+    editAgent ? (editAgent.model ? 'ollama' : 'default') : null)
+  const [model, setModel] = useState<string | null>(editAgent?.model ?? null)
   const [name, setName] = useState(editAgent ? (editAgent.name || editAgent.harness) : '')
   const [desc, setDesc] = useState(editAgent?.desc ?? '')
   const [nameErr, setNameErr] = useState(false)
@@ -207,7 +200,7 @@ export default function AgentNewPage() {
     const payload = {
       harness: HARNESS_NAME[h],
       mode,
-      model: mode === 'ollama' ? model : (DEFAULT_MODEL[h] ?? 'Configured default'),
+      model: mode === 'ollama' ? model : null,
       name: name.trim(),
       desc: desc.trim(),
     }

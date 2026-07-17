@@ -16,7 +16,7 @@ def client(home):
     store.autos.clear()
     store.execs.clear()
     store.agents = [{"id": "mock", "harness": "Claude Code", "mode": "default",
-                     "model": "Claude Sonnet 4.5", "default": True}]
+                     "model": None, "default": True}]
     c = TestClient(api.app)
     c.headers["Authorization"] = f"Bearer {api.AUTH_TOKEN}"
     return c

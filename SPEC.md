@@ -309,10 +309,10 @@ skipped (gray) · reused (gray) · interrupted (magenta) · none → "Not execut
 page and given to the drafting agent"), rendered as the detail line on the agent card and
 carried into the §8 drafting prompts next to the agent's name so the drafting agent knows what
 each enabled agent is for.
-Default models per harness: Claude Code → "Claude Sonnet 4.5", Gemini CLI → "Gemini 2.5 Pro",
-Codex → "GPT-5 Codex", else "Configured default". Display shows "Default configured model" when
-the model equals the harness default. One agent is the app default; deleting an agent reassigns
-the default and warns which automations use it.
+`model` is null unless `mode` is `ollama`, where it names the local Ollama model. A null model
+means the app never picks or passes a model — the harness uses whatever model it is already
+configured with. Display shows "Default configured model" when the model is null. One agent is
+the app default; deleting an agent reassigns the default and warns which automations use it.
 
 ### 4.8 Secret
 
@@ -394,11 +394,22 @@ Console.app picks them up): `app.log` (backend application log), `backend.out.lo
 `backend.err.log` (launchd stdout/stderr), and dev.sh's `vite.log`. With `AUTODAVE_HOME` set
 (§15) logs go to `<home>/logs/` instead, keeping dev/test sessions fully isolated.
 
+**Agent-request framing in `app.log`:** every agent request (each `harness.invoke()` call —
+drafting calls, repair rounds, and runtime agent steps alike) is written to `app.log` as one
+framed block: a header line `>>>>> BEGIN YYYY-MM-DD HH:MM:SS TZ UUID <<<<<` when the request
+is sent, then the request info (harness, model, prompt size) and the full prompt, then the
+raw response (or the error, on failure/timeout), closed by a footer line
+`>>>>> END YYYY-MM-DD HH:MM:SS TZ UUID <<<<<` when the request ends. `UUID` is one random
+UUID (v4) per request, identical in a request's header and footer, so the pair can be matched
+when concurrent requests interleave. Timestamps are US Pacific time (`America/Los_Angeles`,
+so `PST`/`PDT` per season). The framing lives in `harness.invoke()` itself so no call site
+can miss it.
+
 **Request logging (behind the §4.9 `devMode` setting):** while Developer mode is on, the
 backend logs to its console every HTTP request it serves (uvicorn access log at `info` level —
 stdout, so `backend.out.log` under launchd) and every agent request — one `autodave.harness`
-INFO line per `harness.invoke()` with the harness, the model (agent's, else the harness
-default), and the full prompt (stderr, so `backend.err.log`). `./scripts/logs.sh` (§18)
+INFO line per `harness.invoke()` with the harness, the model (agent's, else the literal
+"configured default"), and the full prompt (stderr, so `backend.err.log`). `./scripts/logs.sh` (§18)
 follows both plus `app.log`/`vite.log`. Implemented as a logging filter that reads the live setting on
 every record, so flipping the toggle applies immediately with no backend restart; while off,
 only WARNING+ prints. The filter rides in on uvicorn's `log_config` handlers (uvicorn's own
@@ -811,8 +822,8 @@ process. The job's `stage` tracks the pipeline ("Writing the spec" → "Generati
 the §11 drafting-card labels; sync jobs start at the second, edit jobs end after the first). On
 a create job, call 1's validated spec rides the job payload as soon as the spec call completes
 (§19), so the §11 spec card can render it while the steps call is still working. Every
-invocation's full prompt and raw response are logged to the app log
-(never to execution logs) for debugging.
+invocation's full prompt and raw response are logged to the app log as a §5 BEGIN/END-framed
+block (never to execution logs) for debugging.
 
 **Issue-analysis call (§11 Test).** When a test's step fails, the backend makes one
 more call with the same drafting agent: `framework-instructions.md` + the spec + the failing

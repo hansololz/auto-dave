@@ -34,7 +34,7 @@ def seed(store: Store) -> None:
     # ---------- agents ----------
     if not store.agents:
         store.agents = [{"id": "claude", "name": None, "harness": "Claude Code",
-                         "mode": "default", "model": "Claude Sonnet 4.5", "default": True}]
+                         "mode": "default", "model": None, "default": True}]
         store.save_agents()
     agent_id = next((a["id"] for a in store.agents if a.get("default")), store.agents[0]["id"])
 

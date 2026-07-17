@@ -130,7 +130,8 @@ export interface Agent {
   desc?: string
   harness: 'Claude Code' | 'Gemini CLI' | 'Codex' | 'OpenCode' | 'Ollama'
   mode: 'default' | 'ollama'
-  model: string
+  // null unless mode is 'ollama' — the harness uses its own configured model
+  model: string | null
   default?: boolean
   usedBy?: string[]
 }

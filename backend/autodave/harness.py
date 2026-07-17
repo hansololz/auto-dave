@@ -11,14 +11,28 @@ import shutil
 import subprocess
 import time
 import urllib.request
+import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+# Top-level import (not lazy): the executor subprocess replaces
+# sys.modules["autodave"] with the step SDK shim, which breaks late
+# `from . import paths` resolution inside _app_log.
+from . import paths
 
 log = logging.getLogger("autodave.harness")
 
-HARNESS_DEFAULT_MODEL = {
-    "Claude Code": "Claude Sonnet 4.5",
-    "Gemini CLI": "Gemini 2.5 Pro",
-    "Codex": "GPT-5 Codex",
-}
+
+def _stamp() -> str:
+    return datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def _app_log(text: str) -> None:
+    try:
+        with open(paths.app_log(), "a", encoding="utf-8") as f:
+            f.write(text[:100_000] + "\n")
+    except OSError:
+        pass
 
 OLLAMA_URL = os.environ.get("AUTODAVE_OLLAMA_URL", "http://localhost:11434")
 
@@ -54,11 +68,28 @@ def invoke(agent: dict, prompt: str, timeout: int = 300,
     """Invoke the harness once with `prompt`, return its text reply.
 
     proc_holder, when given, receives {'proc': Popen} so a caller can cancel.
+    Every request is framed in app.log (§5): BEGIN header + prompt on send,
+    response (or error) + END footer when the request ends.
     """
     harness = agent.get("harness")
-    model = agent.get("model") or HARNESS_DEFAULT_MODEL.get(harness or "?", "harness default")
+    model = agent.get("model") or "configured default"
     log.info("agent request · harness=%s · model=%s · prompt (%d chars):\n%s",
              harness or "?", model, len(prompt), prompt)
+    req_id = str(uuid.uuid4())
+    _app_log(f">>>>> BEGIN {_stamp()} {req_id} <<<<<\n"
+             f"agent request · harness={harness or '?'} · model={model}"
+             f" · prompt ({len(prompt)} chars):\n{prompt}")
+    try:
+        out = _invoke(harness, agent, prompt, timeout, proc_holder)
+    except Exception as e:  # noqa: BLE001 — log, close the frame, re-raise
+        _app_log(f"request failed: {e}\n>>>>> END {_stamp()} {req_id} <<<<<\n")
+        raise
+    _app_log(f"response ({len(out)} chars):\n{out}\n>>>>> END {_stamp()} {req_id} <<<<<\n")
+    return out
+
+
+def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
+            proc_holder: dict | None) -> str:
     if harness == "Ollama":
         return _ollama(agent.get("model") or "qwen3:8b", prompt, timeout)
     # §6: query-only runtime calls — invoke each harness with the strongest
