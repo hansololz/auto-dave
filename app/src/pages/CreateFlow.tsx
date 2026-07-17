@@ -156,14 +156,14 @@ function BlockerCards({ blockers, onChange }: {
 }
 
 /** "Written by <agent>" / Review agent picker — prototype agpick menu. */
-function AgentPick({ agents, selected, onPick }: {
-  agents: Agent[]; selected: Agent | null; onPick: (g: Agent) => void
+function AgentPick({ agents, selected, onPick, disabled }: {
+  agents: Agent[]; selected: Agent | null; onPick: (g: Agent) => void; disabled?: boolean
 }) {
   const [open, setOpen, ref] = usePopover()
   return (
     <div ref={ref} style={{ position: 'relative', flex: 'none' }}>
       <button
-        className="ad-btn-pill"
+        className="ad-btn-pill" disabled={disabled}
         onClick={() => setOpen(!open)}
         title="The agent that writes the spec and generates the steps"
       >
@@ -250,7 +250,6 @@ interface Rev {
   repair: { source: 'create' | 'sync' | 'test'; blockers: Blocker[] } | null
   resolved: string[]
   askBlockers: Blocker[] | null
-  stepsMeta: string | null
   stepOpen: number | null
   viewing: 'draft' | number
   specSecOpen: boolean | null
@@ -269,7 +268,7 @@ const revDefaults = {
   specBusy: false, stepsBusy: false,
   specBlockers: null as Rev['specBlockers'], specErr: null as Rev['specErr'], stepsErr: null as Rev['stepsErr'],
   repair: null as Rev['repair'], resolved: [] as string[], askBlockers: null as Rev['askBlockers'],
-  stepsMeta: null as string | null, stepOpen: null as number | null,
+  stepOpen: null as number | null,
   viewing: 'draft' as Rev['viewing'],
   specSecOpen: null as boolean | null, agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
 }
@@ -331,7 +330,7 @@ function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr
     instr: snap.instr || '',
     specEdit: false, specText: '', specTextOrig: '', specUndo: null, instrEdit: false, instrDraft: null,
     dirty: false, dirtyWhy: null, syncBusy: false, askBusy: false,
-    repair: null, resolved: [], askBlockers: null, stepsMeta: null, stepOpen: null, ask: '',
+    repair: null, resolved: [], askBlockers: null, stepOpen: null, ask: '',
     viewing,
   }
 }
@@ -673,7 +672,7 @@ export default function CreateFlow() {
 
   // §11: any spec / instruction / agent-ask / grant change while the steps are
   // still generating cancels the in-flight steps call — the landed spec is
-  // kept and the standard sync banner rebuilds the steps. Returns true when a
+  // kept and the standard sync panel rebuilds the steps. Returns true when a
   // steps call was cancelled (callers add stepsBusy:false + dirty to their patch).
   const cancelStepsGen = (): boolean => {
     if (!rev?.stepsBusy) return false
@@ -706,6 +705,12 @@ export default function CreateFlow() {
   const saveBlocked = !!rev && (rev.dirty || rev.syncBusy || rev.askBusy || rev.specEdit
     || drafting || (!isEdit && rev.steps.length === 0))
   const busyRewrite = !!rev && (rev.syncBusy || rev.askBusy)
+  // Sync panel: the button disables (never hides) while any §8 job runs, while
+  // drafting, while viewing an old version, and while there are no steps yet.
+  const syncDisabled = !rev || busyRewrite || drafting || viewingOld || rev.steps.length === 0
+  // §11 inputs-lock: while a sync or spec rewrite runs, every input disables —
+  // buttons get `disabled`, non-button rows get this style. One shared look.
+  const lockStyle: React.CSSProperties | undefined = busyRewrite ? { opacity: 0.45, pointerEvents: 'none' } : undefined
   // Right-column skeleton label — §11 drafting stages
   const stageLabel = rev?.specBusy ? 'Waiting for the spec…' : 'Generating the steps…'
 
@@ -715,7 +720,7 @@ export default function CreateFlow() {
   // §11: the ask box starts one §8 `edit` job (spec call only) — the drafting
   // agent gets the in-editor draft (spec + steps + build instructions) and
   // grants context and returns the rewritten spec. The steps stay untouched:
-  // the new spec lands out of sync and the sync banner rebuilds them later.
+  // the new spec lands out of sync and the sync panel rebuilds them later.
   const sendAsk = async () => {
     if (!rev || rev.syncBusy || rev.askBusy) return
     if (!rev.ask.trim()) { showToast('Type the change you want first.'); return }
@@ -803,7 +808,7 @@ export default function CreateFlow() {
             }))
             return {
               ...r, syncBusy: false, dirty: false, dirtyWhy: null, specUndo: null,
-              steps, params: d.params ?? r.params, stepsMeta: 'synced just now', stepOpen: null,
+              steps, params: d.params ?? r.params, stepOpen: null,
             }
           })
           showToast('Steps synced with the spec — review them, then save.', 3600)
@@ -836,7 +841,7 @@ export default function CreateFlow() {
   }
 
   // §11: Cancel on the in-flight sync spinner — kill the job, keep the steps
-  // and spec untouched, return to the out-of-sync banner.
+  // and spec untouched, return the panel to its out-of-sync state.
   const cancelSync = () => {
     if (!rev?.syncBusy) return
     stopPoll()
@@ -966,7 +971,7 @@ export default function CreateFlow() {
 
   // ---- test (§11: create and edit mode) — executes the draft's REAL steps ----
   const runTest = async () => {
-    if (!rev || rev.steps.length === 0 || test?.status === 'executing') return
+    if (!rev || rev.steps.length === 0 || test?.status === 'executing' || busyRewrite) return
     clearTest()
     try {
       const { testId } = await api.postTest({
@@ -1103,7 +1108,7 @@ export default function CreateFlow() {
               </h1>
               {isEdit && auto && (
                 <div ref={verRef} style={{ position: 'relative' }}>
-                  <button className="ad-btn-pill" onClick={() => setVerOpen(!verOpen)}>
+                  <button className="ad-btn-pill" disabled={busyRewrite} onClick={() => setVerOpen(!verOpen)}>
                     <span>{rev.viewing === 'draft' ? 'Draft' : `v${rev.viewing}${rev.viewing === auto.version ? ' · current' : ''}`}</span>
                     <i className="fa-solid fa-caret-down" style={{ color: 'var(--text-faint)', fontSize: 9 }} />
                   </button>
@@ -1150,7 +1155,7 @@ export default function CreateFlow() {
                 </div>
               )}
               <AgentPick
-                agents={agents} selected={selAgent}
+                agents={agents} selected={selAgent} disabled={busyRewrite}
                 onPick={(g) => {
                   if (busyRewrite || drafting) { showToast('Wait for the current rewrite to finish first.'); return }
                   if (selAgent && selAgent.id === g.id) return
@@ -1171,7 +1176,7 @@ export default function CreateFlow() {
                               : 'Sync and review the steps before saving'}
                   </span>
                 )}
-                <button className="ad-btn-text dim" onClick={() => void startOver()} style={{ font: "500 12.5px var(--sans)", padding: '6px 4px' }}>
+                <button className="ad-btn-text dim" disabled={busyRewrite} onClick={() => void startOver()} style={{ font: "500 12.5px var(--sans)", padding: '6px 4px' }}>
                   {isEdit ? 'Discard draft' : 'Start over'}
                 </button>
                 <BtnPrimary onClick={() => void doSave()} disabled={saveBlocked} style={{ padding: '9px 16px' }}>
@@ -1196,7 +1201,7 @@ export default function CreateFlow() {
                 <span style={{ flex: 1, font: "400 12.5px/1.5 var(--sans)", color: 'var(--text)' }}>
                   {`Loaded v${rev.viewing} from history. Saving restores it as v${auto.version + 1} — your draft stays in the Version menu.`}
                 </span>
-                <button className="ad-btn-soft" onClick={() => pickVersion('draft')} style={{ borderRadius: 7, font: "500 12px var(--sans)", padding: '6px 12px', flex: 'none' }}>
+                <button className="ad-btn-soft" disabled={busyRewrite} onClick={() => pickVersion('draft')} style={{ borderRadius: 7, font: "500 12px var(--sans)", padding: '6px 12px', flex: 'none' }}>
                   Back to draft
                 </button>
               </div>
@@ -1231,9 +1236,9 @@ export default function CreateFlow() {
                     </span>
                     {specOpenEff && !rev.specBusy && !rev.specBlockers && !rev.specErr && (!rev.specEdit ? (
                       <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
-                      {rev.specUndo && !busyRewrite && (
+                      {rev.specUndo && (
                         <button
-                          className="ad-btn-text dim"
+                          className="ad-btn-text dim" disabled={busyRewrite}
                           onClick={undoSpec}
                           style={{ font: "500 11.5px var(--sans)", padding: '4px 4px' }}
                         >
@@ -1241,7 +1246,7 @@ export default function CreateFlow() {
                         </button>
                       )}
                       <button
-                        className="ad-btn-soft"
+                        className="ad-btn-soft" disabled={busyRewrite}
                         onClick={() => {
                           if (busyRewrite) return
                           // §11: starting a spec edit while the steps are still
@@ -1391,7 +1396,7 @@ export default function CreateFlow() {
                   {!rev.specBusy && !rev.specErr && !rev.specBlockers && (<>
                   <div style={{ borderTop: '1px solid var(--hairline)', padding: '12px 14px', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                     <textarea
-                      value={rev.ask} rows={1}
+                      value={rev.ask} rows={1} disabled={busyRewrite}
                       ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` } }}
                       onChange={(e) => up({ ask: e.target.value })}
                       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendAsk() } }}
@@ -1402,18 +1407,16 @@ export default function CreateFlow() {
                         resize: 'none', overflow: 'hidden', display: 'block',
                       }}
                     />
-                    {rev.syncBusy || rev.askBusy ? (<>
+                    {rev.askBusy ? (<>
                       <span style={{
                         width: 14, height: 14, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
                         borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none', margin: '0 8px 9px',
                       }} />
-                      {rev.askBusy && (
-                        <button className="ad-btn-ghost" onClick={cancelAsk} style={{ borderRadius: 8, padding: '8px 12px', font: "500 12px var(--sans)", whiteSpace: 'nowrap', flex: 'none' }}>
-                          Cancel
-                        </button>
-                      )}
+                      <button className="ad-btn-ghost" onClick={cancelAsk} style={{ borderRadius: 8, padding: '8px 12px', font: "500 12px var(--sans)", whiteSpace: 'nowrap', flex: 'none' }}>
+                        Cancel
+                      </button>
                     </>) : (
-                      <button className="ad-btn-soft" onClick={() => void sendAsk()} style={{ borderRadius: 8, padding: '8px 12px', font: "500 12px var(--sans)", whiteSpace: 'nowrap' }}>
+                      <button className="ad-btn-soft" disabled={rev.syncBusy} onClick={() => void sendAsk()} style={{ borderRadius: 8, padding: '8px 12px', font: "500 12px var(--sans)", whiteSpace: 'nowrap' }}>
                         Edit with agent
                       </button>
                     )}
@@ -1474,6 +1477,7 @@ export default function CreateFlow() {
                           <div
                             key={g.id}
                             onClick={() => {
+                              if (busyRewrite) return
                               if (rev.specBusy) { showToast('Wait for the spec first.'); return }
                               const genCancelled = cancelStepsGen() // §11: grant changes cancel an in-flight steps call
                               const genPatch = genCancelled ? { stepsBusy: false as const } : {}
@@ -1484,7 +1488,7 @@ export default function CreateFlow() {
                                 up({ ...genPatch, enabledAgents: [...rev.enabledAgents, g.id], dirty: true, dirtyWhy: 'agents', ...(isEdit ? { touched: true } : {}) })
                               }
                             }}
-                            style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none', ...lockStyle }}
                           >
                             <CheckBox on={on} />
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -1540,6 +1544,7 @@ export default function CreateFlow() {
                           <div
                             key={s.name}
                             onClick={() => {
+                              if (busyRewrite) return
                               if (rev.specBusy) { showToast('Wait for the spec first.'); return }
                               const genCancelled = cancelStepsGen() // §11: grant changes cancel an in-flight steps call
                               const genPatch = genCancelled ? { stepsBusy: false as const } : {}
@@ -1550,7 +1555,7 @@ export default function CreateFlow() {
                                 up({ ...genPatch, allowedSecrets: [...rev.allowedSecrets, s.name], dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })
                               }
                             }}
-                            style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none', ...lockStyle }}
                           >
                             <CheckBox on={on} />
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -1565,12 +1570,13 @@ export default function CreateFlow() {
                         )
                       })}
                       {secMissing.map((r) => (
-                        <MissingSecretRow
-                          key={r.name}
-                          name={r.name}
-                          sub={`used by step${r.steps.length > 1 ? 's' : ''} ${stepList(r.steps)} — not in your Keychain`}
-                          onAdded={() => up({ allowedSecrets: [...rev.allowedSecrets, r.name], dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })}
-                        />
+                        <div key={r.name} style={lockStyle}>
+                          <MissingSecretRow
+                            name={r.name}
+                            sub={`used by step${r.steps.length > 1 ? 's' : ''} ${stepList(r.steps)} — not in your Keychain`}
+                            onAdded={() => up({ allowedSecrets: [...rev.allowedSecrets, r.name], dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })}
+                          />
+                        </div>
                       ))}
                       {secrets.length === 0 && secRefs.length === 0 && (
                         <div style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', font: "400 12px var(--sans)", color: 'var(--text-faintest)' }}>
@@ -1596,7 +1602,7 @@ export default function CreateFlow() {
                     </span>
                     {instrOpenEff && !rev.instrEdit && (
                       <button
-                        className="ad-btn-soft"
+                        className="ad-btn-soft" disabled={busyRewrite}
                         onClick={(e) => {
                           e.stopPropagation()
                           if (busyRewrite) return
@@ -1707,15 +1713,22 @@ export default function CreateFlow() {
 
               {/* ===== right column ===== */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {/* Sync banner — above the cards, not inside Steps: a sync rewrites the steps AND the param definitions */}
-                {rev.dirty && !rev.syncBusy && !rev.askBusy && (
-                  <div style={{
-                    background: 'oklch(0.8 0.13 85 / .07)', border: '1px solid oklch(0.8 0.13 85 / .28)',
-                    borderRadius: 9, padding: '10px 12px',
-                    display: 'flex', alignItems: 'flex-start', gap: 9, animation: 'adFadeUp .3s ease both',
-                  }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)', flex: 'none', marginTop: 5 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                {/* Sync panel — persistent, above the cards, not inside Steps: a sync rewrites the steps AND the param definitions */}
+                <div style={{ ...cardStyle, padding: '10px 12px', display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+                  {rev.syncBusy ? (
+                    <span style={{
+                      width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
+                      borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none', marginTop: 3,
+                    }} />
+                  ) : (
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: rev.dirty ? 'var(--amber)' : 'var(--green)', flex: 'none', marginTop: 5 }} />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {rev.syncBusy ? (
+                      <div style={{ font: "500 12.5px var(--sans)", color: 'var(--text-2)', marginTop: 2 }}>
+                        {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'Your agent'} is rewriting the steps from your spec…
+                      </div>
+                    ) : rev.dirty ? (<>
                       <div style={{ font: "500 12.5px var(--sans)", color: 'var(--text)' }}>
                         {rev.dirtyWhy === 'agents' ? 'The workflow is out of sync — the agents available to this automation changed.'
                           : rev.dirtyWhy === 'secrets' ? 'The workflow is out of sync — the secrets allowed for this automation changed.'
@@ -1726,38 +1739,30 @@ export default function CreateFlow() {
                           : rev.dirtyWhy === 'secrets' ? 'Sync the steps so they only use the secrets allowed here, then review them. Saving is locked until you do.'
                             : 'Sync the steps to the new spec, then review them. Saving is locked until you do — nothing ships unreviewed.'}
                       </div>
-                    </div>
-                    <button className="ad-btn-soft" onClick={() => void runSync()} style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}>
-                      Sync now
-                    </button>
+                    </>) : (
+                      <div style={{ font: "400 12.5px var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>
+                        Steps are generated from the spec.
+                      </div>
+                    )}
                   </div>
-                )}
-                {rev.syncBusy && (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-inset)',
-                    border: '1px solid var(--border-card)', borderRadius: 9, padding: '10px 12px',
-                  }}>
-                    <span style={{
-                      width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
-                      borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none',
-                    }} />
-                    <span style={{ flex: 1, minWidth: 0, font: "500 12.5px var(--sans)", color: 'var(--text-2)' }}>
-                      {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'Your agent'} is rewriting the steps from your spec…
-                    </span>
+                  {rev.syncBusy ? (
                     <button className="ad-btn-ghost" onClick={cancelSync} style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}>
                       Cancel
                     </button>
-                  </div>
-                )}
+                  ) : (
+                    <button
+                      className="ad-btn-soft" disabled={syncDisabled}
+                      onClick={() => void runSync()}
+                      style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}
+                    >
+                      {rev.dirty ? 'Sync now' : 'Sync with spec'}
+                    </button>
+                  )}
+                </div>
                 {/* STEPS */}
                 <div style={cardStyle}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
                     <span style={eyebrowStyle}>STEPS · GENERATED</span>
-                    {!rev.dirty && !rev.syncBusy && rev.steps.length > 0 && (
-                      <span style={{ font: "500 10.5px var(--mono)", color: 'var(--green)', whiteSpace: 'nowrap', flex: 'none' }}>
-                        <i className="fa-solid fa-check" style={{ fontSize: 10 }} /> {rev.stepsMeta || 'in sync with spec'}
-                      </span>
-                    )}
                   </div>
                   {/* §11 drafting-on-Review: skeleton until call 2 delivers */}
                   {drafting && (
@@ -1797,7 +1802,7 @@ export default function CreateFlow() {
                       </button>
                     </div>
                   )}
-                  <div style={{ display: 'flex', flexDirection: 'column', opacity: rev.dirty || rev.syncBusy ? 0.45 : 1, transition: 'opacity .2s', marginBottom: -1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', opacity: rev.dirty || busyRewrite ? 0.45 : 1, transition: 'opacity .2s', marginBottom: -1 }}>
                     {rev.steps.map((s, i) => (
                       <StepRow
                         key={i} step={s} i={i}
@@ -1881,7 +1886,7 @@ export default function CreateFlow() {
                       borderRadius: 7, color: 'var(--text)', font: "400 12px var(--mono)", padding: '7px 10px', outline: 'none',
                     }
                     return (
-                      <>
+                      <div style={lockStyle}>
                         {params.map((p) => {
                           if (p.kind === 'toggle') {
                             return (
@@ -2012,7 +2017,7 @@ export default function CreateFlow() {
                         <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
                           After creation these move to the automation page — changes there apply on the next execution, no new version.
                         </div>
-                      </>
+                      </div>
                     )
                   })()}
                 </div>
@@ -2027,8 +2032,9 @@ export default function CreateFlow() {
                         </button>
                       ) : (
                         <button
-                          className="ad-btn-soft" onClick={() => void runTest()}
-                          style={{ padding: '4px 10px', ...(rev.steps.length === 0 ? { opacity: 0.45, cursor: 'default' } : {}) }}
+                          className="ad-btn-soft" disabled={rev.steps.length === 0 || busyRewrite}
+                          onClick={() => void runTest()}
+                          style={{ padding: '4px 10px' }}
                         >
                           {test ? 'Execute again' : 'Execute the draft'}
                         </button>

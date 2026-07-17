@@ -112,6 +112,9 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
   transition: color .15s ease, border-color .15s ease;
 }
 .ad-btn-soft:hover:not(:disabled) { border-color: var(--border-hover); color: var(--text); }
+.ad-btn-soft:disabled, .ad-btn-ghost:disabled, .ad-btn-text:disabled, .ad-btn-pill:disabled,
+.ad-btn-x:disabled, .ad-btn-dashed:disabled { opacity: .45; cursor: default; }
+textarea:disabled, input:disabled { opacity: .45; }
 
 /* borderless text button; .dim for the fainter tone */
 .ad-btn-text { color: var(--text-muted); transition: color .15s ease; }

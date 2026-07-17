@@ -1051,7 +1051,7 @@ as the pipeline delivers, driven by the job's `stage` over `draft.progress`:
   during call 1, "Generating the steps…" during call 2.
 - **Editing while the steps generate** — any spec / build-instruction / agent-ask / grant change
   cancels the in-flight steps call (`DELETE /drafts/{jobId}`), keeps the landed spec, and marks
-  the workflow out of sync; the standard sync banner rebuilds the steps. Catching a bad spec
+  the workflow out of sync; the standard sync panel rebuilds the steps. Catching a bad spec
   early costs nothing.
 - **Failures** — a spec-call failure renders inside the spec card: the §8 spec headline,
   validation details beneath, **Try again** (new create job, same description) and **Back to
@@ -1081,7 +1081,7 @@ and what the primary action does depend on which call blocked:
   text. If the rebuild blocks again the modal returns with the new blockers plus a muted
   "Previously resolved" list of this session's earlier resolutions, so a fix that didn't take
   is visible. Closing the modal leaves the workflow out of sync with the spec editable and the
-  sync banner up. No automatic loop cap — the cycle is user-driven and Start over/close always
+  sync panel showing out of sync. No automatic loop cap — the cycle is user-driven and Start over/close always
   exits.
 
 **Review.** 1800 px max-width page. Title row: name (single line, shrinks with ellipsis so a long name never pushes the
@@ -1106,7 +1106,7 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   (enabled agent names, allowed secret names) and returns the rewritten spec. The steps are not
   touched: on success the spec is replaced and marked out of sync exactly like a manual spec
   edit (toast "Spec updated — the workflow is out of sync. Sync the steps before saving."), and
-  the sync banner's "Sync now" rebuilds the steps later. While the job is in flight the ask box shows a
+  the sync panel's "Sync now" rebuilds the steps later. While the job is in flight the ask box shows a
   spinner plus a ghost **Cancel** button that cancels the job (`DELETE /drafts/{jobId}`) — the
   draft is untouched and the request text returns to the ask box for editing (toast "Edit
   stopped — the spec is unchanged."); the Save hint reads "Rewriting the spec…"; on failure the backend's §8 error shows
@@ -1136,21 +1136,41 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   create mode the card arrives pre-filled with the app's default best-practice rules (§8) —
   edit or delete them freely before saving.
 - **Dirty gating** — any spec/instruction/agent-ask/agent-enablement/secret-allowance change
-  marks the workflow out of sync and **blocks saving** until the sync banner's "Sync now" button
+  marks the workflow out of sync and **blocks saving** until the sync panel's "Sync now" button
   makes one §8 `sync` call regenerating the steps ("Steps synced with the spec — review them,
-  then save."). The sync banner — and the in-flight sync spinner that takes its place — sits at
-  the top of the right column, **above** the Steps card rather than inside it, because a sync
-  rewrites the steps and the parameter definitions, not just the step list. The spinner carries
+  then save."). Sync state lives in a single **persistent sync panel** at the top of the right
+  column, **above** the Steps card rather than inside it, because a sync rewrites the steps and
+  the parameter definitions, not just the step list. The panel never disappears and uses the
+  same card background as the other cards (`--bg-card` / `--border-card`); only its content
+  changes with state: **in sync** — green dot, muted line "Steps are generated from the spec.",
+  and a "Sync with spec" button that runs the same §8 `sync` call on demand; **out of sync** —
+  amber dot, the reason line, the saving-is-locked explainer, and "Sync now"; **sync in
+  flight** — spinner line "`<agent>` is rewriting the steps from your spec…" with the sync
+  button replaced by a ghost Cancel button (a sync puts no spinner in the ask box — the ask box
+  spinner belongs to the `edit` job only). Outside a sync the panel's sync button is disabled
+  (never hidden) while any other §8 job is in flight, while drafting, while viewing an old
+  version, and while the steps list is empty. **Inputs lock while rewriting** — while a sync
+  or an agent-ask spec rewrite is in flight, every input on the review screen is disabled:
+  the spec Edit and Undo buttons, the ask box and its "Edit with agent" button, the
+  agent-enablement and secret-allowance checkbox rows (and the missing-secret add row), the
+  build-instructions Edit button, the create-mode parameter editors, the Test card's execute
+  button, the version menu, the drafting-agent picker, and Discard draft / Start over. The only
+  live control is the running job's Cancel button. Every disabled control shares one look:
+  45 % opacity, default cursor, no hover response. The step list dims to the same 45 % opacity
+  whenever it can't be trusted as-is: while the workflow is out of sync, while a sync is
+  rewriting the steps, and while an agent spec rewrite is in flight. The Steps card header carries no in-sync badge (no "in sync with
+  spec" check) — sync state lives only in the panel. The spinner carries
   a ghost **Cancel** button that cancels the in-flight sync (`DELETE /drafts/{jobId}`) no matter
-  how it was started (sync banner, Blocker-modal apply, "Rebuild the steps"): the steps and spec
-  are left untouched, the workflow stays out of sync, and the sync banner returns (toast "Sync
+  how it was started (sync panel, Blocker-modal apply, "Rebuild the steps"): the steps and spec
+  are left untouched, the workflow stays out of sync, and the panel returns to its out-of-sync
+  state (toast "Sync
   stopped — the workflow is still out of sync."). A `blocked` sync opens the Blocker modal (above): its
   primary button amends the in-editor spec (same `## Constraints & resolutions` rule) and
   repeats the sync; closing the modal leaves the workflow out of sync with
-  the sync banner still up. Disabled Save shows an amber hint ("Sync and review the steps before saving." /
+  the sync panel still showing it. Disabled Save shows an amber hint ("Sync and review the steps before saving." /
   "Finish editing the spec first…" / "Syncing steps…" / "Rewriting the spec…" /
   "Writing the spec…" / "Generating the steps…"); saving is also
-  blocked while any §8 job is in flight, and the sync banner hides while one is. Picking a different agent for a single
+  blocked while any §8 job is in flight, and the sync panel's button disables while one is. Picking a different agent for a single
   step does **not** dirty the workflow — it only marks the draft touched (toast "Step N now
   calls `<agent>` · `<model>`."); disabling an enabled agent that steps still call does dirty it
   (toast "Steps X, Y are out of sync — `<agent>` is no longer available here. Sync the steps
