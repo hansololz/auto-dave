@@ -173,8 +173,8 @@ stepAgents, allowedSecrets: string[] — per-automation enablement (set on save)
 Every edit saves automatically — there is no save or done action. Typing commits on a short
 debounce (and on blur); toggle flips, row/line removals, and additions commit immediately. On
 the automation detail page the `list`/`kv` editors are always fully shown — no
-collapse/expand toggle (the one-line summary column still serves compact contexts like the
-execution page and review step).
+collapse/expand toggle (the one-line summary column still serves the execution page's
+values-as-used block).
 
 URL validity: `/^https?:\/\/\S+\.\S+/`.
 
@@ -1183,8 +1183,9 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
 - **PARAMETERS · YOUR AI ASKED FOR THESE** card — in create mode the definitions are editable
   inline (per-line URL rows with "NOT A VALID LINK" chips, toggle rows, "+ Add line"); in edit
   mode (when the automation has params) the card is read-only with a "READ-ONLY HERE" tag,
-  one-line value summaries, and footer "Values aren't part of a version — change them on the
-  automation page; they apply on the next execution." (create-mode footer: "After creation these move
+  listing only each parameter's name and description — never current values — and footer
+  "Values aren't part of a version — change them on the automation page; they apply on the
+  next execution." (create-mode footer: "After creation these move
   to the automation page — changes there apply on the next execution, no new version."). Empty state:
   "No settings needed — your AI didn't ask for any."
 - **Steps** — readable scripts with per-step read-only tags (same tag language as the §9.2

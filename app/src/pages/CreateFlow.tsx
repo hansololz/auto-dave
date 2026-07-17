@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, SpecBlock, Step, VersionInfo } from '../types'
-import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, paramSummary, resultChipColors, usePopover, validUrl } from '../ui'
+import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, resultChipColors, usePopover, validUrl } from '../ui'
 import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown } from '../result'
 
@@ -1872,12 +1872,9 @@ export default function CreateFlow() {
                       return (
                         <>
                           {params.map((p) => (
-                            <div key={p.name} style={{ display: 'flex', gap: 16, alignItems: 'flex-start', justifyContent: 'space-between', padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ font: "600 12.5px var(--sans)" }}>{p.label}</div>
-                                <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>{p.help}</div>
-                              </div>
-                              <span style={{ font: "500 12px var(--mono)", color: '#c6cdd6', flex: 'none', paddingTop: 2 }}>{paramSummary(p)}</span>
+                            <div key={p.name} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                              <div style={{ font: "600 12.5px var(--sans)" }}>{p.label}</div>
+                              <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>{p.help}</div>
                             </div>
                           ))}
                           <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
