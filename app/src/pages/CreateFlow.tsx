@@ -225,6 +225,9 @@ interface Rev {
   specEdit: boolean
   specText: string
   specTextOrig: string
+  // §11 spec undo: one-level snapshot taken before an agent rewrite or an
+  // in-editor Save lands; editor-state only, never serialized into the draft.
+  specUndo: { spec: SpecBlock[]; dirty: boolean; dirtyWhy: Rev['dirtyWhy'] } | null
   instrEdit: boolean
   instrDraft: string | null
   ask: string
@@ -260,6 +263,7 @@ interface Rev {
 const revDefaults = {
   dirty: false, dirtyWhy: null as Rev['dirtyWhy'], touched: false,
   specEdit: false, specText: '', specTextOrig: '',
+  specUndo: null as Rev['specUndo'],
   instrEdit: false, instrDraft: null as string | null,
   ask: '', syncBusy: false, askBusy: false,
   specBusy: false, stepsBusy: false,
@@ -325,7 +329,7 @@ function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr
     steps: (snap.steps ?? []).map((s) => ({ ...s })),
     params: snap.params ? snap.params.map((p) => ({ ...p })) : r.params,
     instr: snap.instr || '',
-    specEdit: false, specText: '', specTextOrig: '', instrEdit: false, instrDraft: null,
+    specEdit: false, specText: '', specTextOrig: '', specUndo: null, instrEdit: false, instrDraft: null,
     dirty: false, dirtyWhy: null, syncBusy: false, askBusy: false,
     repair: null, resolved: [], askBlockers: null, stepsMeta: null, stepOpen: null, ask: '',
     viewing,
@@ -734,7 +738,9 @@ export default function CreateFlow() {
         (d) => {
           setRev((r) => r && ({
             ...r, askBusy: false,
-            spec: d.spec ?? r.spec, dirty: true, dirtyWhy: 'spec',
+            // §11 spec undo: stash the pre-rewrite spec + dirty flags
+            ...(d.spec ? { specUndo: { spec: r.spec, dirty: r.dirty, dirtyWhy: r.dirtyWhy } } : {}),
+            spec: d.spec ?? r.spec, dirty: true, dirtyWhy: 'spec' as const,
           }))
           showToast('Spec updated — the workflow is out of sync. Sync the steps before saving.', 5800)
         },
@@ -753,6 +759,23 @@ export default function CreateFlow() {
     }
   }
 
+  // §11 spec undo: restore the one-level snapshot. Dirty flags come back with
+  // it only while the out-of-sync cause is still the spec — an intervening
+  // agent/secret change keeps its own out-of-sync state.
+  const undoSpec = () => {
+    setRev((r) => {
+      if (!r || !r.specUndo) return r
+      const snap = r.specUndo
+      const specCause = r.dirtyWhy === 'spec'
+      return {
+        ...r, spec: snap.spec, specUndo: null, touched: true,
+        dirty: specCause ? snap.dirty : r.dirty,
+        dirtyWhy: specCause ? snap.dirtyWhy : r.dirtyWhy,
+      }
+    })
+    showToast('Last spec change undone.', 3200)
+  }
+
   // §11: a blocked sync opens the repair modal; applying amends the in-editor
   // spec (specOverride) and repeats the sync with it.
   const runSync = async (specOverride?: SpecBlock[]) => {
@@ -760,7 +783,8 @@ export default function CreateFlow() {
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // discard unsaved edits
       syncBusy: true, touched: true, stepsErr: null,
-      ...(specOverride ? { spec: specOverride } : {}),
+      // §11 spec undo: a repair amend replaces the spec outside the undo flow
+      ...(specOverride ? { spec: specOverride, specUndo: null } : {}),
     })
     try {
       const { jobId } = await api.postDraftJob({
@@ -778,7 +802,7 @@ export default function CreateFlow() {
               agentId: s.agent && s.agentId && !r.enabledAgents.includes(s.agentId) ? r.enabledAgents[0] ?? null : s.agentId,
             }))
             return {
-              ...r, syncBusy: false, dirty: false, dirtyWhy: null,
+              ...r, syncBusy: false, dirty: false, dirtyWhy: null, specUndo: null,
               steps, params: d.params ?? r.params, stepsMeta: 'synced just now', stepOpen: null,
             }
           })
@@ -1206,6 +1230,16 @@ export default function CreateFlow() {
                       <span style={eyebrowStyle}>SPEC</span>
                     </span>
                     {specOpenEff && !rev.specBusy && !rev.specBlockers && !rev.specErr && (!rev.specEdit ? (
+                      <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+                      {rev.specUndo && !busyRewrite && (
+                        <button
+                          className="ad-btn-text dim"
+                          onClick={undoSpec}
+                          style={{ font: "500 11.5px var(--sans)", padding: '4px 4px' }}
+                        >
+                          Undo
+                        </button>
+                      )}
                       <button
                         className="ad-btn-soft"
                         onClick={() => {
@@ -1223,6 +1257,7 @@ export default function CreateFlow() {
                       >
                         Edit
                       </button>
+                      </div>
                     ) : (
                       <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
                         <button
@@ -1239,6 +1274,7 @@ export default function CreateFlow() {
                           onClick={() => {
                             if (rev.specText === rev.specTextOrig) return
                             up({
+                              specUndo: { spec: rev.spec, dirty: rev.dirty, dirtyWhy: rev.dirtyWhy },
                               spec: textToSpec(rev.specText), specEdit: false, specText: '', specTextOrig: '',
                               dirty: true, dirtyWhy: 'spec', touched: true,
                             })

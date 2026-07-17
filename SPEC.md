@@ -1114,6 +1114,17 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   amber notice under the ask box — "Your AI hit a blocker: `<reason>` — `<fix>`" (one line per
   blocker, dismissible) — and the draft is untouched; the user rephrases the request. Spec/
   instructions/agent-ask edits are mutually exclusive (one edit at a time).
+- **Spec undo** — one-level snapshot. Applying an agent rewrite (ask-box success) or an
+  in-editor Save first stashes the previous spec blocks together with the dirty flags of that
+  moment. While a snapshot exists, a ghost **Undo** button shows next to Edit in the spec-card
+  header (hidden while the card is in an edit/busy/blocker/error state or a rewrite/sync job is
+  in flight). Clicking it restores the snapshot's spec, clears the snapshot, and — only when the
+  current out-of-sync cause is still the spec — restores the snapshot's dirty state too (so
+  undoing the sole unsynced spec change unblocks Save; an intervening agent/secret change keeps
+  its own out-of-sync state). Toast: "Last spec change undone." The snapshot is single-level —
+  each new agent rewrite or in-editor Save replaces it — and it clears on a successful sync, on
+  a repair-modal spec amend, and on loading a version from the Version menu. It lives only in
+  editor state: it is not part of the serialized draft and does not survive leaving the page.
 - **BUILD INSTRUCTIONS** — collapsible card holding the §4.1 `instr` free text, with view/edit
   states; the view state renders the text as markdown (same renderer as the Spec and
   Framework-instructions cards), first prefixing every bare line — one that starts no markdown
