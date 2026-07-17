@@ -58,15 +58,15 @@ blockers:
 
 
 def respond(prompt: str) -> str:
-    if "question:" in prompt.lower() and "TASK:" not in prompt:
+    if "question:" in prompt.lower() and "=== TASK ===" not in prompt:
         return "Mock answer: nothing new."
     # §8 blocker envelope on demand: "blocked-spec" blocks call 1,
     # "blocked-steps" blocks call 2 (it reaches call 2 via the spec title).
-    if "blocked-spec" in prompt.lower() and "TASK: update the SPEC" in prompt:
+    if "blocked-spec" in prompt.lower() and "Update the SPEC based on the USER REQUEST" in prompt:
         return BLOCKED_ENVELOPE
-    if "blocked-steps" in prompt.lower() and "TASK: build the automation" in prompt:
+    if "blocked-steps" in prompt.lower() and "Build the automation that implements the SPEC" in prompt:
         return BLOCKED_ENVELOPE
-    if "TASK: build the automation" in prompt:
+    if "Build the automation that implements the SPEC" in prompt:
         # §8 call 2 — title comes from the SPEC's # heading
         m = re.search(r"^# (.+)$", prompt.rsplit("=== SPEC", 1)[-1], re.M)
         title = (m.group(1).strip() if m else "New automation")[:48]

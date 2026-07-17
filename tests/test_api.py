@@ -166,10 +166,10 @@ def test_draft_edit_honors_in_editor_grants(client):
     assert j["draft"]["spec"] is not None
     assert "steps" not in j["draft"]
     logged = paths.app_log().read_text(encoding="utf-8")
-    assert "Available agents (agent: true steps allowed only if nonempty): Claude Code" in logged
-    assert "Available secrets (allowed secret names): MY_SECRET" in logged
+    assert "unless this list is nonempty) ===\nClaude Code" in logged
+    assert "=== AVAILABLE SECRETS (allowed secret names) ===\nMY_SECRET" in logged
     assert "Also check on weekends" in logged      # the USER REQUEST reached the prompt
-    assert "TASK: build the automation" not in logged  # no steps call on edit
+    assert "Build the automation that implements" not in logged  # no steps call on edit
 
 
 def test_checks_honor_in_editor_grants(client, monkeypatch):

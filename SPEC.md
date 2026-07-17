@@ -716,23 +716,31 @@ return the rewritten spec; the steps are untouched and a later `sync` rebuilds t
 (call 2 only: regenerate steps to match the provided spec; the spec itself must not change).
 
 **Call 1 — write the spec** (`create`/`edit`; skipped on `sync`). Step code never travels in
-this call; the prompt just asks to update the spec from the user request. Sections in order:
+this call; the prompt just asks to update the spec from the user request. Both calls open with
+`framework-instructions.md` (the role) and close with the task material — role first, task
+last. Every prompt section opens with a `=== NAME ===` header line — one dialect throughout,
+visually distinct from the response envelope's `===FILE: …===`/`===END===` markers (spaces
+around the name, plain words). Sections in order:
 
-1. **Available agents** — enabled agent names, each rendered `name — desc` when the agent has
+1. `framework-instructions.md` (verbatim).
+2. **Available agents** — enabled agent names, each rendered `name — desc` when the agent has
    a §4.7 description (name alone otherwise), so the drafting agent knows what each agent is
-   for; entries joined with `;`. The same rendering applies to the call-2 grants context.
-2. **Available secrets** — allowed secret **names** (never values, memory contents, or
+   for; entries joined with `;`. The line states its intent for the spec call: these agents can
+   power judgment steps when the automation is later built — the spec must not promise AI
+   judgment when the list is empty. The same name rendering applies to the call-2 grants
+   context.
+3. **Available secrets** — allowed secret **names** (never values, memory contents, or
    execution logs). For both grant lines the §19 body's grant arrays (the in-editor toggles)
    win over the stored automation's; absent both, the drafting agent's own name and no secrets.
-3. **Build instructions** — the user's standing rules (or the seeded default), context only;
+4. **Build instructions** — the user's standing rules (or the seeded default), context only;
    the agent never returns this file.
-4. `framework-instructions.md` (verbatim).
 5. **Original spec** (`edit` only) — the current `spec.md`.
 6. **USER REQUEST** — the description (`create`) or the change request (`edit`).
 7. **TASK directive** — update the SPEC based on the USER REQUEST and return exactly one file
    block, the full updated `spec.md` (markdown, `#` title first, plain words, no code/yaml/file
    names); keep everything the request doesn't touch unchanged; with no original spec, write it
-   fresh from the request.
+   fresh from the request. Ends with a short example spec (a `#` title, two `##` sections with
+   bullets) pinning the expected format and tone.
 
 Response: exactly one file block, `spec.md`. Validation: block present with no extras; must
 start with an `# title`; must have body content. The parsed §5 blocks become the draft's spec.
@@ -763,12 +771,16 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    ...python source...
    ===END===
    ```
-3. **Grants context** — as in call 1.
+3. **Grants** — one section: enabled agents (same `name — desc` rendering as call 1;
+   `agent: true` steps allowed only if nonempty) and allowed secret names.
 4. **Build instructions** — as in call 1.
-5. **Mode line** — `create`: include a suggested `name`; `sync`: current param
+5. **Mode** — `create`: include a suggested `name`; `sync`: current param
    definitions and step scripts travel as reference ("rewrite them to match the SPEC, changing
    no more than the spec demands").
 6. **SPEC** — call 1's validated `spec.md` (`create`) or the provided spec (`sync`).
+7. **Closing envelope reminder** — one final line restating the response shape (return
+   `manifest.yaml` plus one file block per step, no `spec.md`, end with `===END===`), so the
+   format sits at the end of the prompt as well as in the TASK directive near the top.
 
 **Envelope + validation** (backend, deterministic, before anything is written to `draft/`):
 

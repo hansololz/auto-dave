@@ -1,7 +1,7 @@
 """Agent drafting pipeline (§8): two calls — write the spec, then build the steps.
 
-Call 1 (create/edit): available agents + available secrets + build instructions +
-framework instructions + the original spec (edit only) + the user's request → spec.md;
+Call 1 (create/edit): framework instructions + available agents + available secrets +
+build instructions + the original spec (edit only) + the user's request → spec.md;
 step code never travels here. Call 2 (create/sync; sync starts here): framework
 instructions + build instructions + the spec → manifest.yaml (params, triggers) + step files.
 `edit` makes call 1 only — the rewritten spec lands out of sync and a later `sync`
@@ -40,17 +40,29 @@ _INSTRUCTIONS_DIR = Path(__file__).parent / "instructions"
 CONTRACT_PREAMBLE = (_INSTRUCTIONS_DIR / "framework-instructions.md").read_text(encoding="utf-8")
 DEFAULT_INSTRUCTIONS = (_INSTRUCTIONS_DIR / "default-build-instructions.md").read_text(encoding="utf-8")
 
+# §8: every prompt section opens with a `=== NAME ===` header — one dialect
+# throughout, visually distinct from the envelope's ===FILE:/===END=== markers.
+_FRAMEWORK_SECTION = "=== FRAMEWORK INSTRUCTIONS ===\n" + CONTRACT_PREAMBLE
+
 # ---------- prompts ----------
 
-SPEC_TASK = (
-    "TASK: update the SPEC based on the USER REQUEST above. Return exactly one file block, "
-    "spec.md — the full updated spec: markdown (# title first, then ## sections, - bullets, "
-    "paragraphs) written for the user in plain words — no code, no yaml, no file names. Keep "
-    "everything the request doesn't touch unchanged; when no ORIGINAL SPEC is given, write it "
-    "fresh from the request."
-)
+SPEC_TASK = """=== TASK ===
+Update the SPEC based on the USER REQUEST above. Return exactly one file block, spec.md — the full updated spec: markdown (# title first, then ## sections, - bullets, paragraphs) written for the user in plain words — no code, no yaml, no file names. Keep everything the request doesn't touch unchanged; when no ORIGINAL SPEC is given, write it fresh from the request. Shape and tone, for example:
 
-STEPS_TASK = """TASK: build the automation that implements the SPEC below, following the BUILD INSTRUCTIONS. Derive the triggers, every parameter (each with a default), and the steps from the SPEC. Return manifest.yaml plus one file block per step — no spec.md:
+===FILE: spec.md===
+# Track new manga chapters
+
+## What it does
+- Every morning at 8, check each manga page on my list for a new chapter.
+- Only genuinely new chapters count — reprints and reissues don't.
+
+## What I see
+- A notification naming the new chapters, only on days something new appeared.
+- The result lists each new chapter with its title and date.
+===END==="""
+
+STEPS_TASK = """=== TASK ===
+Build the automation that implements the SPEC below, following the BUILD INSTRUCTIONS. Derive the triggers, every parameter (each with a default), and the steps from the SPEC. Return manifest.yaml plus one file block per step — no spec.md:
 
 ===FILE: manifest.yaml===
 name: Suggested automation name        # create mode only
@@ -68,6 +80,12 @@ steps:                                 # ordered; file names NN-name.py, two-dig
 ===END===
 
 Return every file named in steps."""
+
+# §8 call-2 closing section: restates the response shape after the (possibly
+# long) context so the format sits at the end of the prompt as well as in STEPS_TASK.
+STEPS_REMINDER = ("=== RESPONSE REMINDER ===\n"
+                  "Respond with manifest.yaml plus one file block per step "
+                  "(no spec.md), ending with ===END=== exactly.")
 
 
 def spec_as_md(current: dict | None) -> str:
@@ -89,9 +107,10 @@ def _common_context(current: dict | None, grants: dict) -> list[str]:
     """Grants + build instructions — the steps call's shared context (call 1
     builds its own sections in its own order)."""
     parts = [
-        "Grants for this automation — enabled agents (agent: true steps allowed only if nonempty): "
-        f"{_agent_grants(grants)}; allowed secret names: "
-        f"{', '.join(grants.get('secrets', [])) or 'none'}."
+        "=== GRANTS FOR THIS AUTOMATION ===\n"
+        "Enabled agents (agent: true steps allowed only if nonempty): "
+        f"{_agent_grants(grants)}.\n"
+        f"Allowed secret names: {', '.join(grants.get('secrets', [])) or 'none'}."
     ]
     # §8: instructions travel with every call as context only — never returned by
     # the agent. In create mode the API seeds DEFAULT_INSTRUCTIONS when none given.
@@ -103,19 +122,21 @@ def _common_context(current: dict | None, grants: dict) -> list[str]:
 
 def build_spec_prompt(mode: str, user_text: str | None, current: dict | None,
                       grants: dict) -> str:
-    """§8 call 1 — available agents + available secrets + build instructions + framework
-    instructions + original spec (edit only) + user request → spec.md. Step code never
-    travels here; the closing TASK just asks to update the spec from the request."""
+    """§8 call 1 — framework instructions + available agents + available secrets + build
+    instructions + original spec (edit only) + user request → spec.md. Role first, task
+    last. Step code never travels here; the closing TASK just asks to update the spec
+    from the request."""
     parts = [
-        "Available agents (agent: true steps allowed only if nonempty): "
-        f"{_agent_grants(grants)}.",
-        "Available secrets (allowed secret names): "
-        f"{', '.join(grants.get('secrets', [])) or 'none'}.",
+        _FRAMEWORK_SECTION,
+        "=== AVAILABLE AGENTS (they can power judgment steps when the automation is later "
+        "built — don't promise AI judgment in the spec unless this list is nonempty) ===\n"
+        f"{_agent_grants(grants)}",
+        "=== AVAILABLE SECRETS (allowed secret names) ===\n"
+        f"{', '.join(grants.get('secrets', [])) or 'none'}",
     ]
     if (current or {}).get("instr"):
         parts.append("=== BUILD INSTRUCTIONS (the user's standing rules — follow them; "
                      "never return this file) ===\n" + current["instr"].strip())
-    parts.append(CONTRACT_PREAMBLE)
     if mode == "edit" and current:
         parts.append("=== ORIGINAL SPEC (spec.md) ===\n" + spec_as_md(current))
     if user_text:
@@ -127,11 +148,11 @@ def build_spec_prompt(mode: str, user_text: str | None, current: dict | None,
 def build_steps_prompt(mode: str, spec_md: str, current: dict | None,
                        grants: dict) -> str:
     """§8 call 2 — framework + build instructions + spec → manifest + step files."""
-    parts = [CONTRACT_PREAMBLE, STEPS_TASK, *_common_context(current, grants)]
+    parts = [_FRAMEWORK_SECTION, STEPS_TASK, *_common_context(current, grants)]
     if mode == "create":
-        parts.append("MODE: create — include a suggested `name` in manifest.yaml.")
+        parts.append("=== MODE ===\ncreate — include a suggested `name` in manifest.yaml.")
     else:
-        parts.append(f"MODE: {mode} — the CURRENT files below are today's implementation; "
+        parts.append(f"=== MODE ===\n{mode} — the CURRENT files below are today's implementation; "
                      "rewrite them to match the SPEC, changing no more than the spec demands.")
         if current:
             parts.append("=== CURRENT param definitions ===\n"
@@ -139,6 +160,7 @@ def build_steps_prompt(mode: str, spec_md: str, current: dict | None,
             for s in current.get("steps", []):
                 parts.append(f"=== CURRENT step {s.get('file')} ({s.get('name')}) ===\n{s.get('code', '')}")
     parts.append("=== SPEC (spec.md — implement this exactly) ===\n" + (spec_md or "").strip())
+    parts.append(STEPS_REMINDER)
     return "\n\n".join(parts)
 
 

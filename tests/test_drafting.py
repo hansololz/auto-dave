@@ -206,8 +206,9 @@ def test_truncated_blocker_rejected():
 def test_spec_prompt_carries_framework_instructions_and_request():
     p = build_spec_prompt("create", "Watch a product price", None, GRANTS)
     assert "automation writer inside Auto Dave" in p   # framework-instructions.md
-    assert "TASK: update the SPEC" in p
+    assert "=== TASK ===\nUpdate the SPEC" in p
     assert "=== USER REQUEST ===\nWatch a product price" in p
+    assert "# Track new manga chapters" in p    # the example spec in SPEC_TASK
 
 
 def test_prompts_carry_agent_descriptions():
@@ -228,16 +229,16 @@ def test_prompts_carry_blocker_contract():
 
 
 def test_spec_prompt_section_order():
-    # §8 call 1: agents, secrets, build instructions, framework, original spec,
-    # user request, then the TASK ask — in that order.
+    # §8 call 1: framework, agents, secrets, build instructions, original spec,
+    # user request, then the TASK ask — role first, task last.
     cur = {"instr": "Never touch the Documents folder.",
            "spec": [{"k": "h1", "text": "Title"}, {"k": "p", "text": "Block spec body."}],
            "params": [], "steps": []}
     p = build_spec_prompt("edit", "also check weekends", cur, GRANTS)
-    order = [p.index("Available agents"), p.index("Available secrets"),
-             p.index("BUILD INSTRUCTIONS"), p.index("automation writer inside Auto Dave"),
+    order = [p.index("=== FRAMEWORK INSTRUCTIONS ==="), p.index("=== AVAILABLE AGENTS"),
+             p.index("=== AVAILABLE SECRETS"), p.index("=== BUILD INSTRUCTIONS"),
              p.index("=== ORIGINAL SPEC"), p.index("=== USER REQUEST"),
-             p.index("TASK: update the SPEC")]
+             p.index("=== TASK ===")]
     assert order == sorted(order)
 
 
@@ -245,7 +246,7 @@ def test_spec_prompt_edit_embeds_current_spec_but_no_step_code():
     cur = {"spec": [{"k": "h1", "text": "Title"}, {"k": "p", "text": "Block spec body."}],
            "params": [], "steps": [{"file": "01-a.py", "name": "A", "code": 'log("old")'}]}
     p = build_spec_prompt("edit", "also check weekends", cur, GRANTS)
-    assert "TASK: update the SPEC" in p
+    assert "=== TASK ===\nUpdate the SPEC" in p
     assert "Block spec body." in p
     assert 'log("old")' not in p
 
@@ -253,15 +254,17 @@ def test_spec_prompt_edit_embeds_current_spec_but_no_step_code():
 def test_steps_prompt_embeds_spec_and_framework():
     p = build_steps_prompt("create", "# Raw\n\nString spec body.", None, GRANTS)
     assert "automation writer inside Auto Dave" in p
-    assert "TASK: build the automation" in p
+    assert "=== TASK ===\nBuild the automation" in p
     assert "String spec body." in p
+    # §8 call 2 ends with the envelope reminder, after the SPEC
+    assert p.endswith("ending with ===END=== exactly.")
 
 
 def test_steps_prompt_sync_embeds_current_files():
     cur = {"params": [{"name": "n", "kind": "number", "default": 1}],
            "steps": [{"file": "01-a.py", "name": "A", "code": 'log("old")'}]}
     p = build_steps_prompt("sync", "# T\n\nBody.", cur, GRANTS)
-    assert "MODE: sync" in p
+    assert "=== MODE ===\nsync" in p
     assert 'log("old")' in p
 
 
@@ -319,7 +322,7 @@ def test_create_job_payload_carries_spec_mid_job(monkeypatch):
     seen = {}
 
     def fake_invoke(agent, prompt, timeout=300, proc_holder=None):
-        if "TASK: update the SPEC" in prompt:
+        if "Update the SPEC based on the USER REQUEST" in prompt:
             return GOOD_SPEC
         seen["mid"] = next(iter(jobs.jobs.values())).get("draft")
         return GOOD_STEPS
