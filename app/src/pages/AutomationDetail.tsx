@@ -373,9 +373,10 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
 
 // ---------- steps ----------
 
-function StepRow({ s, n, open, onToggle, last }: {
-  s: Step; n: number; open: boolean; onToggle: () => void; last: boolean
+function StepRow({ s, n, open, onToggle, last, agentName }: {
+  s: Step; n: number; open: boolean; onToggle: () => void; last: boolean; agentName: string
 }) {
+  const stepSecrets = [...new Set([...(s.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]))]
   return (
     <div style={{ borderBottom: last ? 'none' : '1px solid rgba(255,255,255,.05)' }}>
       <HoverRow onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '12px 18px', cursor: 'pointer' }}>
@@ -393,9 +394,23 @@ function StepRow({ s, n, open, onToggle, last }: {
                   fontSize: 10, color: 'var(--accent)', whiteSpace: 'nowrap',
                 }}
               >
-                <i className="fa-solid fa-robot" style={{ fontSize: 8.5 }} /> Agent step
+                <i className="fa-solid fa-robot" style={{ fontSize: 8.5 }} /> {agentName}
               </span>
             )}
+            {stepSecrets.map((name) => (
+              <span
+                key={name}
+                title={`This step uses the ${name} secret from your Keychain`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
+                  borderRadius: 6, padding: '2px 8px', fontFamily: 'var(--mono)', fontWeight: 600,
+                  fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap',
+                }}
+              >
+                <i className="fa-solid fa-key" style={{ fontSize: 8.5 }} /> {name}
+              </span>
+            ))}
           </div>
           <div style={{ fontSize: 11.5, lineHeight: 1.45, color: 'var(--text-muted)', marginTop: 1 }}>{s.desc}</div>
         </div>
@@ -431,7 +446,7 @@ function StepRow({ s, n, open, onToggle, last }: {
 // ---------- page ----------
 
 export default function AutomationDetail() {
-  const { autoId, autos, execs, go, setSurface, showToast, loadAuto } = useStore()
+  const { autoId, autos, agents, execs, go, setSurface, showToast, loadAuto } = useStore()
   const auto: Auto | undefined = autos.find((a) => a.id === autoId)
 
   const [verOpen, setVerOpen, verRef] = usePopover()
@@ -1002,6 +1017,10 @@ export default function AutomationDetail() {
                 open={stepOpen === i}
                 onToggle={() => setStepOpen(stepOpen === i ? null : i)}
                 last={i === steps.length - 1}
+                agentName={(() => {
+                  const g = s.agentId ? agents.find((z) => z.id === s.agentId) : undefined
+                  return g ? (g.name || g.harness) : 'agent'
+                })()}
               />
             ))}
           </div>

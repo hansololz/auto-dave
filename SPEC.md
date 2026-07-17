@@ -963,6 +963,13 @@ Sections top to bottom:
 - **MEMORY** card — mono size/updated info line, "Show in Finder" and "Clear memory" buttons;
   Clear swaps to an inline confirm: "Next execution starts fresh, like the first time." with red
   Clear / quiet Keep.
+- **STEPS** card — read-only step rows (number, name, desc, view/hide script with §11 `PyCode`
+  highlighting; agent steps show the "Why an agent" note when expanded). Step tags are
+  display-only — never menus: an agent step carries a tag with the assigned agent's name (robot
+  icon, tooltip = the step's `why`; the step's `agentId` resolved against the agents list, name
+  fallback "agent" if the agent no longer exists), and a step whose code references
+  `secrets.NAME` carries one key-icon tag per secret name. Agents and secrets are changed on
+  the edit page.
 - **SPEC panel** — collapsible (expand/collapse header toggle), expanded by default; the automation's spec blocks, footer: "The AI regenerates the steps from this
   document when you edit it. Every change mints a new version — older ones live in the Version
   menu on the edit page."
@@ -1149,8 +1156,12 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   automation page; they apply on the next execution." (create-mode footer: "After creation these move
   to the automation page — changes there apply on the next execution, no new version."). Empty state:
   "No settings needed — your AI didn't ask for any."
-- **Steps** — readable scripts with per-step agent menus (menu empty state: "No agents enabled —
-  turn one on under 'Agents · available to steps'."). An expanded step ("view script") renders its
+- **Steps** — readable scripts with per-step read-only tags (same tag language as the §9.2
+  detail page — never menus): an agent step shows a tag with its assigned agent's name (robot
+  icon; red "no agent" tag when no enabled agent covers it), and a step whose code references
+  `secrets.NAME` shows one key-icon tag per secret name. Which agent a step calls is decided by
+  the draft's `agentId` (fallback: first enabled agent) — changing it happens through the
+  agent-enablement card plus sync, not per step. An expanded step ("view script") renders its
   `code` with Python syntax highlighting — a self-contained tokenizer (`PyCode` in `ui.tsx`, no
   dependency) coloring keywords, constants, strings, numbers, comments, decorators, builtins,
   `def`/`class` names, and call names over the base mono `.ad-copy` `pre`. Language is always

@@ -2,7 +2,7 @@
 // editing/syncing are §8 backend jobs (POST /drafts + polling); on create, Review
 // renders in a drafting state and fills in as the pipeline delivers (spec card first,
 // steps skeletons after). This page also renders the Review dirty-gating, version
-// menu, per-step agent menus, secrets and checks panels.
+// menu, per-step agent/secret tags, secrets and checks panels.
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
@@ -350,16 +350,16 @@ function serializeDraft(r: Rev): DraftPayload {
   }
 }
 
-// ---------- step row (per-step agent menu) ----------
+// ---------- step row (read-only agent + secret tags) ----------
 
-function StepRow({ step, i, open, onToggle, availAgents, onPickAgent }: {
+function StepRow({ step, i, open, onToggle, availAgents }: {
   step: Step; i: number; open: boolean; onToggle: () => void
-  availAgents: Agent[]; onPickAgent: (agentId: string) => void
+  availAgents: Agent[]
 }) {
-  const [menuOpen, setMenuOpen, ref] = usePopover()
   const asg = step.agent
     ? (step.agentId ? availAgents.find((g) => g.id === step.agentId) ?? null : availAgents[0] ?? null)
     : null
+  const stepSecrets = [...new Set([...(step.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]))]
   return (
     <div style={{ borderBottom: '1px solid rgba(255,255,255,.05)' }}>
       <div
@@ -371,60 +371,35 @@ function StepRow({ step, i, open, onToggle, availAgents, onPickAgent }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ font: "600 12.5px var(--sans)" }}>{step.name}</div>
             {step.agent && (
-              <div ref={ref} onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
-                  title={asg
-                    ? `This step calls ${agName(asg)} · ${dispModel(asg)} mid-execution — click to switch`
-                    : 'No agent is enabled for steps — this step would fail'}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    background: asg ? 'oklch(0.74 0.155 52 / .1)' : 'oklch(0.7 0.19 25 / .14)',
-                    border: `1px solid ${asg ? 'oklch(0.74 0.155 52 / .3)' : 'oklch(0.7 0.19 25 / .4)'}`,
-                    borderRadius: 6, padding: '2px 8px', font: "600 10px var(--mono)",
-                    color: asg ? 'oklch(0.78 0.13 52)' : 'oklch(0.78 0.15 25)', cursor: 'pointer', whiteSpace: 'nowrap',
-                  }}
-                >
-                  <i className="fa-solid fa-robot" style={{ fontSize: 8.5 }} /> {asg ? agName(asg) : 'no agent'}{' '}
-                  <i className="fa-solid fa-caret-down" style={{ fontSize: 8, opacity: 0.7 }} />
-                </button>
-                {menuOpen && (
-                  <div style={{
-                    position: 'absolute', top: 'calc(100% + 5px)', left: 0, minWidth: 250, background: 'var(--bg-menu)',
-                    border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, boxShadow: '0 18px 44px rgba(0,0,0,.5)',
-                    zIndex: 25, padding: 5, animation: 'adFadeUp .18s ease both',
-                  }}>
-                    {availAgents.map((g) => {
-                      const sel = !!asg && g.id === asg.id
-                      return (
-                        <div
-                          key={g.id}
-                          onClick={(e) => { e.stopPropagation(); setMenuOpen(false); if (!sel) onPickAgent(g.id) }}
-                          style={{
-                            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 12px', cursor: 'pointer',
-                            borderRadius: 7, background: sel ? 'rgba(255,255,255,.04)' : 'transparent',
-                          }}
-                        >
-                          <span style={{ width: 14, flex: 'none', textAlign: 'center', font: "600 12px var(--mono)", color: 'var(--accent)' }}>{sel ? '✓' : ''}</span>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ font: "600 12px var(--sans)", color: 'var(--text)', whiteSpace: 'nowrap' }}>{agName(g)}</div>
-                            <div style={{ font: "400 11px var(--sans)", color: 'var(--text-muted)' }}>{dispModel(g)}</div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                    {availAgents.length === 0 && (
-                      <div style={{ padding: '9px 12px', font: "400 11.5px/1.5 var(--sans)", color: 'oklch(0.78 0.15 25)' }}>
-                        No agents enabled — turn one on under “Agents · available to steps”.
-                      </div>
-                    )}
-                    <div style={{ padding: '8px 12px 6px', font: "400 10.5px/1.5 var(--sans)", color: 'var(--text-faintest)', borderTop: '1px solid rgba(255,255,255,.05)' }}>
-                      The agent this step calls mid-execution. Only agents enabled below are offered.
-                    </div>
-                  </div>
-                )}
-              </div>
+              <span
+                title={asg
+                  ? `This step calls ${agName(asg)} · ${dispModel(asg)} mid-execution`
+                  : 'No agent is enabled for steps — this step would fail'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: asg ? 'oklch(0.74 0.155 52 / .1)' : 'oklch(0.7 0.19 25 / .14)',
+                  border: `1px solid ${asg ? 'oklch(0.74 0.155 52 / .3)' : 'oklch(0.7 0.19 25 / .4)'}`,
+                  borderRadius: 6, padding: '2px 8px', font: "600 10px var(--mono)",
+                  color: asg ? 'oklch(0.78 0.13 52)' : 'oklch(0.78 0.15 25)', whiteSpace: 'nowrap',
+                }}
+              >
+                <i className="fa-solid fa-robot" style={{ fontSize: 8.5 }} /> {asg ? agName(asg) : 'no agent'}
+              </span>
             )}
+            {stepSecrets.map((name) => (
+              <span
+                key={name}
+                title={`This step uses the ${name} secret from your Keychain`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
+                  borderRadius: 6, padding: '2px 8px', font: "600 10px var(--mono)",
+                  color: 'var(--text-muted)', whiteSpace: 'nowrap',
+                }}
+              >
+                <i className="fa-solid fa-key" style={{ fontSize: 8.5 }} /> {name}
+              </span>
+            ))}
           </div>
           <div style={{ font: "400 11.5px/1.45 var(--sans)", color: 'var(--text-muted)' }}>{step.desc}</div>
         </div>
@@ -1793,15 +1768,6 @@ export default function CreateFlow() {
                         open={rev.stepOpen === i}
                         onToggle={() => up({ stepOpen: rev.stepOpen === i ? null : i })}
                         availAgents={availAgents}
-                        onPickAgent={(gid) => {
-                          setRev((r) => r && ({
-                            ...r,
-                            steps: r.steps.map((st, j) => (j === i && st.agent ? { ...st, agentId: gid } : st)),
-                            ...(isEdit ? { touched: true } : {}),
-                          }))
-                          const g = agents.find((z) => z.id === gid)
-                          if (g) showToast(`Step ${i + 1} now calls ${agName(g)} · ${dispModel(g)}.`, 3000)
-                        }}
                       />
                     ))}
                   </div>
