@@ -310,8 +310,7 @@ skipped (gray) · reused (gray) · interrupted (magenta) · none → "Not execut
 ```
 `desc` is an optional free-text description ("What this agent is for — shown on the Agents
 page and given to the drafting agent"), rendered as the detail line on the agent card and
-carried into the §8 drafting prompts next to the agent's name so the drafting agent knows what
-each enabled agent is for.
+carried into the §8 grants yaml so the drafting agent knows what each enabled agent is for.
 `model` is null unless `mode` is `ollama`, where it names the local Ollama model. A null model
 means the app never picks or passes a model — the harness uses whatever model it is already
 configured with. Display shows "Default configured model" when the model is null. One agent is
@@ -319,11 +318,16 @@ the app default; deleting an agent reassigns the default and warns which automat
 
 ### 4.8 Secret
 
-`{ name, value, usedBy }`. Names uppercase, `[A-Z][A-Z0-9_]*` — sanitization (uppercase, invalid
-chars → `_`) is UI input behavior; the backend validates strictly and rejects nonconforming names
-with HTTP 422. Values are arbitrary strings and may be multi-line (e.g. a PEM key). Values stored
+`{ name, desc, value, usedBy }`. Names uppercase, `[A-Z][A-Z0-9_]*` — sanitization (uppercase,
+invalid chars → `_`) is UI input behavior; the backend validates strictly and rejects nonconforming
+names with HTTP 422. `desc` is an optional free-text description ("What this secret is for — shown
+on the Secrets page and given to the drafting agent"), stored next to the name in `secrets.yaml`
+(never in the Keychain) and carried into the §8 grants yaml so the drafting agent knows which
+secret to use. Values are arbitrary strings and may be multi-line (e.g. a PEM key). Values stored
 in macOS Keychain, masked at rest; the API never returns secret values — show/hide applies to the
-value being typed in the add/edit modal, not to stored values. Step scripts reference them by name
+value being typed in the add/edit modal, not to stored values. Saving requires a value when the
+name is new; saving an existing secret with a blank value keeps the stored value and updates only
+the description. Step scripts reference them by name
 (`secrets.NAME`); values are injected at runtime and redacted from logs. Because log lines are
 redacted one at a time, each non-blank line of a multi-line value is redacted individually as well,
 and the §6 agent-prompt scan likewise checks every non-blank line of a multi-line value, not just
@@ -752,15 +756,20 @@ visually distinct from the response envelope's `===FILE: …===`/`===END===` mar
 around the name, plain words). Sections in order:
 
 1. `framework-instructions.md` (verbatim).
-2. **Available agents** — enabled agent names, each rendered `name — desc` when the agent has
-   a §4.7 description (name alone otherwise), so the drafting agent knows what each agent is
-   for; entries joined with `;`. The line states its intent for the spec call: these agents can
-   power judgment steps when the automation is later built — the spec must not promise AI
-   judgment when the list is empty. The same name rendering applies to the call-2 grants
-   context.
-3. **Available secrets** — allowed secret **names** (never values, memory contents, or
-   execution logs). For both grant lines the §19 body's grant arrays (the in-editor toggles)
-   win over the stored automation's; absent both, the drafting agent's own name and no secrets.
+2. **Available agents** — the enabled agents as a yaml list, one entry per agent with `name`
+   (falling back to the harness name), `description` (the §4.7 desc, omitted when empty),
+   `harness`, and `model` (the literal `harness default` when the §4.7 model is null). An empty
+   list renders the literal `none`. The header states its intent for the spec call: these
+   agents can power judgment steps when the automation is later built — the spec must not
+   promise AI judgment when the list is empty — and instructs the agent to use the entries to
+   decide which agents the automation should use. The same yaml rendering applies to the
+   call-2 grants context.
+3. **Available secrets** — the allowed secrets as a yaml list, one entry per secret with
+   `name` and `description` (the §4.8 desc, omitted when empty) — never values, memory
+   contents, or execution logs; empty list renders `none`. The header instructs the agent to
+   use the entries to decide which secrets the automation should use. For both grant lists the
+   §19 body's grant arrays (the in-editor toggles) win over the stored automation's; absent
+   both, the drafting agent's own entry and no secrets.
 4. **Build instructions** — the user's standing rules (or the seeded default), context only;
    the agent never returns this file.
 5. **Original spec** (`edit` only) — the current `spec.md`.
@@ -800,8 +809,10 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    ...python source...
    ===END===
    ```
-3. **Grants** — one section: enabled agents (same `name — desc` rendering as call 1;
-   `agent: true` steps allowed only if nonempty) and allowed secret names.
+3. **Grants** — one section: enabled agents and allowed secrets, both rendered as the same
+   yaml lists as call 1 (`agent: true` steps allowed only if the agent list is nonempty;
+   secrets referenced by `secrets.NAME`), closing with the instruction to use the entries to
+   decide which agents and secrets the automation should use.
 4. **Build instructions** — as in call 1.
 5. **Mode** — `create`: include a suggested `name`; `sync`: current param
    definitions and step scripts travel as reference ("rewrite them to match the SPEC, changing
@@ -1220,12 +1231,17 @@ chips fill the pull input (they don't start the pull); suggested models qwen3-co
 currently downloading; when no chips remain, the whole SUGGESTED section is hidden. Below the
 pull input: link "Browse more models on Ollama ↗" (opens https://ollama.com/library).
 
-**Secrets.** List with add/edit modal, masked values, delete confirm (§4.8). The name field is a
+**Secrets.** List with add/edit modal, masked values, delete confirm (§4.8). The list's NAME
+cell shows the secret's `desc` as a muted sub-line when present. The name field is a
 single-line input (Enter saves, Escape closes); its placeholder is a hint, not a literal example
-value: "A short name, like MAIL_PASSWORD or CRM_API_KEY". The value field is a 3-row vertically
+value: "A short name, like MAIL_PASSWORD or CRM_API_KEY". Below the name sits an optional
+single-line DESCRIPTION input (placeholder "What this secret is for — helps the drafting agent
+pick the right secret"), pre-filled when editing. The value field is a 3-row vertically
 resizable textarea (multi-line values allowed, §4.8) masked with `-webkit-text-security` unless
-Show is toggled; Enter inserts a newline, Cmd/Ctrl+Enter saves, Escape closes. Toasts: "Saved to your Keychain." / "Updated in your
-Keychain." / "Removed from your Keychain." When no secrets exist, the table is replaced by an
+Show is toggled; Enter inserts a newline, Cmd/Ctrl+Enter saves, Escape closes; when editing, a
+blank value keeps the stored one (§4.8) and the placeholder says so. The edit modal is titled
+"Edit secret" with submit "Save changes"; add is "New secret" / "Save to Keychain". Toasts:
+"Saved to your Keychain." / "Secret updated." / "Removed from your Keychain." When no secrets exist, the table is replaced by an
 empty state (dashed card, same pattern as the Automations list): "No secrets yet. Add a password
 or API key once, and your automations use it by name — the value never appears in a script or a
 log." with an accent CTA "Add your first secret" that opens the add modal (all three empty-state

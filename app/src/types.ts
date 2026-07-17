@@ -138,7 +138,7 @@ export interface Agent {
   usedBy?: string[]
 }
 
-export interface SecretMeta { name: string; usedBy: string }
+export interface SecretMeta { name: string; desc: string; usedBy: string }
 
 export interface Settings {
   login: boolean

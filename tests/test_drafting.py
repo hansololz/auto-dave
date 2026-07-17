@@ -211,14 +211,23 @@ def test_spec_prompt_carries_framework_instructions_and_request():
     assert "# Track new manga chapters" in p    # the example spec in SPEC_TASK
 
 
-def test_prompts_carry_agent_descriptions():
-    # §8: each enabled agent renders `name — desc` (name alone without a desc)
-    # in both calls so the drafting agent knows what each agent is for.
-    grants = {"agents": [{"name": "Claude Code", "desc": "Best for coding judgment"},
-                         {"name": "Local", "desc": ""}], "secrets": []}
+def test_prompts_carry_grants_yaml():
+    # §8: grants render as yaml lists — name/description/harness/model per agent,
+    # name/description per secret — in both calls, so the drafting agent can
+    # decide which agents and secrets the automation should use.
+    grants = {"agents": [{"name": "Claude Code", "description": "Best for coding judgment",
+                          "harness": "Claude Code", "model": "harness default"},
+                         {"name": "Local", "harness": "Ollama", "model": "gemma4:e4b"}],
+              "secrets": [{"name": "MAIL_PASSWORD", "description": "Gmail app password"},
+                          {"name": "CRM_API_KEY"}]}
     for p in (build_spec_prompt("create", "x", None, grants),
               build_steps_prompt("sync", "# T\n\nBody.", None, grants)):
-        assert "Claude Code — Best for coding judgment; Local" in p
+        assert ("- name: Claude Code\n  description: Best for coding judgment\n"
+                "  harness: Claude Code\n  model: harness default\n"
+                "- name: Local\n  harness: Ollama\n  model: gemma4:e4b") in p
+        assert ("- name: MAIL_PASSWORD\n  description: Gmail app password\n"
+                "- name: CRM_API_KEY") in p
+        assert "decide which agents" in p and "secrets" in p
 
 
 def test_prompts_carry_blocker_contract():

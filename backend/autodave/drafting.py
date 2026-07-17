@@ -95,12 +95,13 @@ def spec_as_md(current: dict | None) -> str:
     return spec_val if isinstance(spec_val, str) else blocks_to_md(spec_val)
 
 
-def _agent_grants(grants: dict) -> str:
-    """§8: each enabled agent renders `name — desc` (name alone without a §4.7
-    description) so the drafting agent knows what each agent is for."""
-    ents = [f"{a['name']} — {a['desc']}" if a.get("desc") else a["name"]
-            for a in grants.get("agents", [])]
-    return "; ".join(ents) or "none"
+def _grants_yaml(entries: list[dict]) -> str:
+    """§8: grant lists render as yaml (agents: name/description/harness/model,
+    secrets: name/description) so the drafting agent can weigh each entry when
+    deciding which agents and secrets the automation should use."""
+    if not entries:
+        return "none"
+    return yaml.safe_dump(entries, sort_keys=False, allow_unicode=True).strip()
 
 
 def _common_context(current: dict | None, grants: dict) -> list[str]:
@@ -108,9 +109,12 @@ def _common_context(current: dict | None, grants: dict) -> list[str]:
     builds its own sections in its own order)."""
     parts = [
         "=== GRANTS FOR THIS AUTOMATION ===\n"
-        "Enabled agents (agent: true steps allowed only if nonempty): "
-        f"{_agent_grants(grants)}.\n"
-        f"Allowed secret names: {', '.join(grants.get('secrets', [])) or 'none'}."
+        "Enabled agents (yaml: name, description, harness, model; agent: true steps "
+        "allowed only if nonempty):\n"
+        f"{_grants_yaml(grants.get('agents', []))}\n"
+        "Allowed secrets (yaml: name, description; reference by secrets.NAME):\n"
+        f"{_grants_yaml(grants.get('secrets', []))}\n"
+        "Use these entries to decide which agents and secrets the automation should use."
     ]
     # §8: instructions travel with every call as context only — never returned by
     # the agent. In create mode the API seeds DEFAULT_INSTRUCTIONS when none given.
@@ -128,11 +132,14 @@ def build_spec_prompt(mode: str, user_text: str | None, current: dict | None,
     from the request."""
     parts = [
         _FRAMEWORK_SECTION,
-        "=== AVAILABLE AGENTS (they can power judgment steps when the automation is later "
-        "built — don't promise AI judgment in the spec unless this list is nonempty) ===\n"
-        f"{_agent_grants(grants)}",
-        "=== AVAILABLE SECRETS (allowed secret names) ===\n"
-        f"{', '.join(grants.get('secrets', [])) or 'none'}",
+        "=== AVAILABLE AGENTS (yaml: name, description, harness, model — they can power "
+        "judgment steps when the automation is later built; don't promise AI judgment in "
+        "the spec unless this list is nonempty. Use these entries to decide which agents "
+        "the automation should use) ===\n"
+        f"{_grants_yaml(grants.get('agents', []))}",
+        "=== AVAILABLE SECRETS (yaml: name, description — use these entries to decide "
+        "which secrets the automation should use) ===\n"
+        f"{_grants_yaml(grants.get('secrets', []))}",
     ]
     if (current or {}).get("instr"):
         parts.append("=== BUILD INSTRUCTIONS (the user's standing rules — follow them; "

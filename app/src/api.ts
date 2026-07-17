@@ -76,7 +76,8 @@ export const api = {
   detectAgents: () => req<{ id: string; name: string; detail: string }[]>('GET', '/agents/detect'),
   ollamaStatus: () => req<{ ready: boolean; installed: boolean; models: string[] }>('GET', '/ollama/status'),
   ollamaPull: (model: string) => req('POST', '/ollama/pull', { model }),
-  putSecret: (name: string, value: string) => req('PUT', `/secrets/${name}`, { value }),
+  putSecret: (name: string, value: string, desc?: string) =>
+    req('PUT', `/secrets/${name}`, desc === undefined ? { value } : { value, desc }),
   deleteSecret: (name: string) => req('DELETE', `/secrets/${name}`),
   patchSettings: (patch: Record<string, unknown>) =>
     req<import('./types').Settings>('PATCH', '/settings', patch),

@@ -93,7 +93,7 @@ class Store:
         self.execdb: ExecDB | None = None
         self.agents: list[dict] = []
         self.settings: dict = dict(DEFAULT_SETTINGS)
-        self.secret_names: list[str] = []
+        self.secrets: list[dict] = []             # {name, desc} — values live in the Keychain
 
     # ---------- paths ----------
     def data_path(self) -> Path:
@@ -116,7 +116,8 @@ class Store:
             paths.ensure_dirs()
             self.settings = {**DEFAULT_SETTINGS, **(load_yaml(paths.settings_file(), {}) or {})}
             self.agents = (load_yaml(paths.agents_file(), {}) or {}).get("agents", [])
-            self.secret_names = [s["name"] for s in (load_yaml(paths.secrets_file(), {}) or {}).get("secrets", [])]
+            self.secrets = [{"name": s["name"], "desc": s.get("desc") or ""}
+                            for s in (load_yaml(paths.secrets_file(), {}) or {}).get("secrets", [])]
             self.autos = {}
             for d in sorted(paths.automations_dir().iterdir()) if paths.automations_dir().exists() else []:
                 if not d.is_dir() or not (d / "automation.yaml").exists():
@@ -490,8 +491,8 @@ class Store:
     def save_agents(self) -> None:
         save_yaml(paths.agents_file(), {"agents": self.agents})
 
-    def save_secret_names(self) -> None:
-        save_yaml(paths.secrets_file(), {"secrets": [{"name": n} for n in self.secret_names]})
+    def save_secrets(self) -> None:
+        save_yaml(paths.secrets_file(), {"secrets": self.secrets})
 
     def save_settings(self) -> None:
         save_yaml(paths.settings_file(), self.settings)

@@ -24,12 +24,14 @@ def seed(store: Store) -> None:
 
     now = datetime.now()
 
-    # ---------- secrets (values → Keychain; names → secrets.yaml) ----------
-    for name, value in [("SMTP_PASSWORD", "mail-app-2291-kx7f"), ("VAULT_DRIVE_KEY", "bk-2f91-aa07-51d3")]:
+    # ---------- secrets (values → Keychain; names + descs → secrets.yaml) ----------
+    for name, value, desc in [
+            ("SMTP_PASSWORD", "mail-app-2291-kx7f", "App password for outgoing mail"),
+            ("VAULT_DRIVE_KEY", "bk-2f91-aa07-51d3", "Encryption key for the backup drive")]:
         keychain.set_secret(name, value)
-        if name not in store.secret_names:
-            store.secret_names.append(name)
-    store.save_secret_names()
+        if not any(s["name"] == name for s in store.secrets):
+            store.secrets.append({"name": name, "desc": desc})
+    store.save_secrets()
 
     # ---------- agents ----------
     if not store.agents:

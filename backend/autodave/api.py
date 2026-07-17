@@ -81,8 +81,29 @@ def _settings_json() -> dict:
 
 
 def _secrets_json() -> list[dict]:
-    return [{"name": n, "usedBy": ", ".join(store.secret_used_by(n)) or "Not used yet"}
-            for n in sorted(store.secret_names)]
+    return [{"name": s["name"], "desc": s.get("desc") or "",
+             "usedBy": ", ".join(store.secret_used_by(s["name"])) or "Not used yet"}
+            for s in sorted(store.secrets, key=lambda s: s["name"])]
+
+
+def _agent_grant(g: dict) -> dict:
+    """§8 grants yaml entry: name, description, harness, model — the fields the
+    drafting agent weighs when deciding which agents to use; ids stay internal."""
+    e = {"name": g.get("name") or g.get("harness", "")}
+    if g.get("desc"):
+        e["description"] = g["desc"]
+    e["harness"] = g.get("harness", "")
+    e["model"] = g.get("model") or "harness default"
+    return e
+
+
+def _secret_grant(name: str) -> dict:
+    """§8 grants yaml entry: name + description (omitted when empty)."""
+    e = {"name": name}
+    desc = next((s.get("desc") for s in store.secrets if s["name"] == name), "")
+    if desc:
+        e["description"] = desc
+    return e
 
 
 # ---------- health / state ----------
@@ -364,13 +385,9 @@ def post_draft(body: dict) -> dict:
     if allowed is None:
         allowed = auto["allowed_secrets"] if auto else []
     grants = {
-        # §8: grants context carries agent names + descriptions — ids are meaningless
-        # to the drafting agent; the §4.7 desc tells it what each agent is for.
-        "agents": [{"name": g.get("name") or g.get("harness", ""), "desc": g.get("desc") or ""}
-                   for g in store.agents if g["id"] in enabled_ids] if enabled_ids is not None
-                  else [{"name": agent.get("name") or agent.get("harness", ""),
-                         "desc": agent.get("desc") or ""}],
-        "secrets": allowed,
+        "agents": [_agent_grant(g) for g in store.agents if g["id"] in enabled_ids]
+                  if enabled_ids is not None else [_agent_grant(agent)],
+        "secrets": [_secret_grant(n) for n in allowed],
     }
     job_id = draft_jobs.start(mode, agent, body.get("text"), current, grants)
     return {"jobId": job_id}
@@ -559,13 +576,20 @@ def put_secret(name: str, body: dict) -> dict:
     if not SECRET_NAME_RE.match(name):
         raise HTTPException(422, "secret names must match [A-Z][A-Z0-9_]* — "
                                  "uppercase letters, digits and underscores, starting with a letter")
+    existing = next((s for s in store.secrets if s["name"] == name), None)
     value = body.get("value", "")
-    if not value:
+    # §4.8: a new secret needs a value; a blank value on an existing one keeps
+    # the stored value (description-only update).
+    if not value and existing is None:
         raise HTTPException(422, "value required")
-    keychain.set_secret(name, value)
-    if name not in store.secret_names:
-        store.secret_names.append(name)
-        store.save_secret_names()
+    if value:
+        keychain.set_secret(name, value)
+    if existing is None:
+        existing = {"name": name, "desc": ""}
+        store.secrets.append(existing)
+    if "desc" in body:
+        existing["desc"] = body.get("desc") or ""
+    store.save_secrets()
     hub.publish("secrets.changed")
     return {"ok": True}
 
@@ -573,9 +597,8 @@ def put_secret(name: str, body: dict) -> dict:
 @app.delete("/secrets/{name}", dependencies=[Depends(auth)])
 def delete_secret(name: str) -> dict:
     keychain.delete_secret(name)
-    if name in store.secret_names:
-        store.secret_names.remove(name)
-        store.save_secret_names()
+    store.secrets = [s for s in store.secrets if s["name"] != name]
+    store.save_secrets()
     hub.publish("secrets.changed")
     return {"ok": True}
 

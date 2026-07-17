@@ -87,7 +87,7 @@ def test_secret_redacted_from_logs(store):
     from autodave.engine import Engine
 
     keychain.set_secret("API_KEY", "super-secret-value-123")
-    store.secret_names.append("API_KEY")
+    store.secrets.append({"name": "API_KEY", "desc": ""})
     engine = Engine(store)
     ver = make_version()
     ver["steps"][0]["code"] = 'k = secrets.API_KEY\nlog(f"using {k} now")\n'
@@ -108,7 +108,7 @@ def test_multiline_secret_lines_redacted_from_logs(store):
 
     pem = "-----BEGIN KEY-----\nabc123line\n-----END KEY-----"
     keychain.set_secret("PEM_KEY", pem)
-    store.secret_names.append("PEM_KEY")
+    store.secrets.append({"name": "PEM_KEY", "desc": ""})
     engine = Engine(store)
     ver = make_version()
     # Each log() call is a separate log line, so the whole value never
@@ -341,7 +341,7 @@ def test_secrets_scoped_per_step(store):
 
     keychain.set_secret("API_ONE", "value-one")
     keychain.set_secret("API_TWO", "value-two")
-    store.secret_names += ["API_ONE", "API_TWO"]
+    store.secrets += [{"name": "API_ONE", "desc": ""}, {"name": "API_TWO", "desc": ""}]
     engine = Engine(store)
     ver = make_version()
     ver["steps"] = [
@@ -490,7 +490,7 @@ def test_failure_error_message_redacted(store):
     from autodave.engine import Engine
 
     keychain.set_secret("API_KEY", "sekret-42")
-    store.secret_names.append("API_KEY")
+    store.secrets.append({"name": "API_KEY", "desc": ""})
     engine = Engine(store)
     ver = make_version()
     ver["steps"][0]["code"] = 'k = secrets.API_KEY\nraise RuntimeError(f"bad key {k}")\n'

@@ -19,12 +19,13 @@ const inputStyle: React.CSSProperties = {
   font: `400 12.5px var(--mono)`, padding: '9px 11px', outline: 'none',
 }
 
-type ModalState = { mode: 'add' } | { mode: 'edit'; name: string; usedBy: string } | null
+type ModalState = { mode: 'add' } | { mode: 'edit'; name: string; desc: string; usedBy: string } | null
 
 function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClose: () => void }) {
   const { showToast } = useStore()
   const isAdd = modal.mode === 'add'
   const [name, setName] = useState(isAdd ? '' : modal.name)
+  const [desc, setDesc] = useState(isAdd ? '' : modal.desc)
   const [value, setValue] = useState('')
   const [show, setShow] = useState(false)
 
@@ -35,11 +36,12 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
           if (isAdd) {
             if (!name || !value) { showToast('Give the secret a name and a value.'); return }
             if (!NAME_RE.test(name)) { showToast('Secret names must start with a letter — A–Z, 0–9 and _ only.'); return }
-          } else if (!value) { showToast('Enter a value.'); return }
+          }
           try {
-            await api.putSecret(name, value)
+            // §4.8: a blank value on edit keeps the stored one (description-only update).
+            await api.putSecret(name, value, desc)
             close()
-            showToast(isAdd ? 'Saved to your Keychain.' : 'Updated in your Keychain.')
+            showToast(isAdd ? 'Saved to your Keychain.' : 'Secret updated.')
           } catch (e) { showToast((e as Error).message) }
         }
 
@@ -56,12 +58,12 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
         return (
           <>
             <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 6px', color: 'var(--text)' }}>
-              {isAdd ? 'New secret' : 'Update value'}
+              {isAdd ? 'New secret' : 'Edit secret'}
             </h2>
             <p style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)', margin: '0 0 18px' }}>
               {isAdd
                 ? 'A password or API key your automations use by name — the value itself never appears in a script or a log.'
-                : 'The new value is used from the next execution onward.'}
+                : 'A new value is used from the next execution onward — leave the value blank to keep the current one.'}
             </p>
             <label style={{ ...labelStyle, margin: '0 0 6px' }}>NAME</label>
             {isAdd ? (
@@ -89,6 +91,15 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
                 </span>
               </div>
             )}
+            <label style={{ ...labelStyle, margin: '16px 0 6px' }}>DESCRIPTION · OPTIONAL</label>
+            <input
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              onKeyDown={onKeyDown}
+              spellCheck={false}
+              placeholder="What this secret is for — helps the drafting agent pick the right secret"
+              style={inputStyle}
+            />
             <label style={{ ...labelStyle, margin: '16px 0 6px' }}>VALUE</label>
             <div style={{ position: 'relative' }}>
               <textarea
@@ -98,7 +109,9 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
                 autoFocus={!isAdd}
                 spellCheck={false}
                 rows={3}
-                placeholder="Paste the password or API key — multi-line values are fine"
+                placeholder={isAdd
+                  ? 'Paste the password or API key — multi-line values are fine'
+                  : 'Leave blank to keep the current value'}
                 style={{
                   ...inputStyle, padding: '9px 62px 9px 11px', resize: 'vertical', minHeight: 60,
                   WebkitTextSecurity: show ? 'none' : 'disc',
@@ -136,7 +149,7 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
                   fontWeight: 600, fontSize: 12.5, padding: '8px 14px', cursor: 'pointer',
                 }}
               >
-                {isAdd ? 'Save to Keychain' : 'Update value'}
+                {isAdd ? 'Save to Keychain' : 'Save changes'}
               </button>
             </div>
           </>
@@ -217,7 +230,17 @@ export default function SecretsPage() {
               padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,.04)', alignItems: 'center',
             }}
           >
-            <span style={{ font: `500 12px var(--mono)`, color: 'var(--text)' }}>{s.name}</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ font: `500 12px var(--mono)`, color: 'var(--text)' }}>{s.name}</div>
+              {s.desc && (
+                <div style={{
+                  fontSize: 11.5, color: 'var(--text-muted)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {s.desc}
+                </div>
+              )}
+            </div>
             <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{s.usedBy}</span>
             <span style={{
               font: `400 12px var(--mono)`, color: 'var(--text-muted)',
@@ -227,7 +250,7 @@ export default function SecretsPage() {
             </span>
             <div style={{ display: 'flex', gap: 4, justifySelf: 'end', alignItems: 'center' }}>
               <button
-                onClick={() => setModal({ mode: 'edit', name: s.name, usedBy: s.usedBy })}
+                onClick={() => setModal({ mode: 'edit', name: s.name, desc: s.desc, usedBy: s.usedBy })}
                 title="Edit"
                 style={{
                   background: 'none', border: 'none', borderRadius: 6, color: 'var(--text-faint)',
