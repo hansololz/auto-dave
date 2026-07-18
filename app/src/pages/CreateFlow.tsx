@@ -2060,13 +2060,16 @@ export default function CreateFlow() {
                   <div style={{ display: 'flex', alignItems: 'center', padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
                     <span style={eyebrowStyle}>STEPS · GENERATED</span>
                   </div>
-                  {/* §11 drafting-on-Review: skeleton until call 2 delivers */}
+                  {/* §11 drafting-on-Review: skeleton until call 2 delivers — plain text
+                      while waiting on the spec, spinner only once call 2 runs */}
                   {drafting && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '18px 20px 20px' }}>
-                      <span style={{
-                        width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
-                        borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none',
-                      }} />
+                      {rev.stepsBusy && (
+                        <span style={{
+                          width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
+                          borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none',
+                        }} />
+                      )}
                       <span style={{ font: "500 12.5px var(--sans)", color: 'var(--text-2)' }}>{stageLabel}</span>
                       {rev.stepsBusy && (
                         <span style={{ font: "500 10.5px var(--mono)", color: 'var(--text-faintest)' }}>

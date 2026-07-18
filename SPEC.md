@@ -1184,7 +1184,9 @@ as the pipeline delivers, driven by the job's `stage` over `draft.progress`:
   validates, the spec renders — while the steps are still generating — and is readable and
   editable right away.
 - **Right column** (steps, triggers, parameters) — skeleton cards: "Waiting for the spec…"
-  during call 1, "Generating the steps…" during call 2.
+  during call 1, "Generating the steps…" during call 2. During call 1 the label is plain
+  text with no spinner anywhere in the right column; the steps card shows its spinner only
+  once call 2 is actually running.
 - **Editing while the steps generate** — any spec / build-instruction / agent-ask / grant change
   cancels the in-flight steps call (`DELETE /drafts/{jobId}`), keeps the landed spec, and marks
   the workflow out of sync; the standard sync panel rebuilds the steps. Catching a bad spec
