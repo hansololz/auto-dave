@@ -145,7 +145,7 @@ resultChip: short summary chip ("2 new chapters") | null — the chip is optiona
 resultStatus: changes | ok | attention | null — tints resultChip with the §7 chip colors
   everywhere it appears (list rows included); null whenever resultChip is null; "attention" for
   failed automations
-lastExecLabel: "just now" | "Xm ago" | "Xh ago" | "yesterday" | "Jun 28" | "executing…"
+lastExecLabel: "today" | "Xm ago" | "Xh ago" | "yesterday" | "Jun 28" | "executing…"
 latest: last execution's result object + when-label, for the detail page
 params: parameter list (§4.2)
 memory: { size, updated } — per-automation memory directory between executions (any files/formats)
@@ -244,7 +244,7 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
 
 - Saving an edit creates version N+1 (on disk: a fresh `versions/vN+1/` folder, then the
   `current_version` pointer flip, per §5), applies spec/steps/instr/stepAgents/allowedSecrets/
-  agentId, sets `specMeta` to "vN · updated just now". Prior versions are untouched.
+  agentId, sets `specMeta` to "vN · updated today". Prior versions are untouched.
 - Leaving the editor with unsaved touched changes snapshots a **draft** onto the automation
   (toast: "Draft kept — resume or execute it from this automation anytime.").
 - Editor version menu lists: Draft ("your working copy — unsaved"), current vN ("current · …"),
@@ -263,7 +263,7 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
 id: uuid, autoId: uuid, ver ("v3" or "Draft"), status,
 trigger: Manual | Menu bar | Cron | Once (future: Discord | iMessage | Pub/Sub) — the label of
   what started the execution (§4.3 kinds map cron → "Cron", time → "Once")
-dur, started ("Just now, 8:00 AM"), startedMs
+dur, started ("Today, 8:00 AM"), startedMs
 steps: [{ name, status, dur }]
 logs: [{ t, k: sys|out|wrn|err, text }]
 result: result object | null
@@ -750,7 +750,7 @@ destructive moments recoverable.
   execution before any step with the package category below.
 - Streaming: each step queued → executing (sys log "▸ Step N — `<name>`", then step logs) →
   terminal status with duration. Then the execution gets its final status, duration, result
-  object; automation gets latest/resultChip/lastExecLabel "just now"; toast summarizes.
+  object; automation gets latest/resultChip/lastExecLabel "today"; toast summarizes.
 - Cancel: kills timers/processes; execution cancelled, all executing/queued steps cancelled, sys
   log "execution cancelled by you — nothing else will happen".
 - **Failure diagnostics:** when a step fails, the executor reports the exception as a structured

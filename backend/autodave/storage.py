@@ -731,7 +731,7 @@ class Store:
         if when:
             dt = datetime.fromisoformat(when)
             days = (datetime.now().date() - dt.date()).days
-            ago = "just now" if days == 0 else ("yesterday" if days == 1 else
+            ago = "today" if days == 0 else ("yesterday" if days == 1 else
                   (f"{days} days ago" if days < 30 else dt.strftime("%B %Y")))
             spec_meta += f" · updated {ago}"
         out: dict[str, Any] = {

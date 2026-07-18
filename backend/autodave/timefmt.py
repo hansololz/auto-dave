@@ -13,8 +13,6 @@ def started_label(dt: datetime, now: datetime | None = None) -> str:
     now = now or datetime.now()
     days = (now.date() - dt.date()).days
     if days == 0:
-        if (now - dt).total_seconds() < 90:
-            return f"Just now, {clock(dt)}"
         return f"Today, {clock(dt)}"
     if days == 1:
         return f"Yesterday, {clock(dt)}"
@@ -29,7 +27,7 @@ def last_exec_label(dt: datetime | None, now: datetime | None = None) -> str:
     now = now or datetime.now()
     secs = (now - dt).total_seconds()
     if secs < 90:
-        return "just now"
+        return "today"
     if secs < 3600:
         return f"{int(secs // 60)}m ago"
     if (now.date() - dt.date()).days == 0:
