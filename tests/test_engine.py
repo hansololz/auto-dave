@@ -610,3 +610,16 @@ def test_pre_version_snapshot_on_first_execution(store):
     h4 = engine.start(a, "Manual")
     wait_done(engine, h4["id"])
     assert len(store.list_snapshots(a)) == 1  # vN's later executions don't snapshot again
+
+
+def test_pre_version_snapshot_toggle_off(store):
+    # §6.3: the pre_version toggle off → the first-execution snapshot is skipped.
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    a = store.create_automation(make_version(), "No Snap Ver", None)
+    store.patch_automation(a, {"snapshotSettings": {"preVersion": False}})
+    (store.auto_dir(a) / "memory" / "seen.yaml").write_text("x: 1\n")
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert store.list_snapshots(a) == []

@@ -220,6 +220,52 @@ def test_snapshot_rename_and_delete(store):
     assert store.delete_snapshot(a, m["id"]) is False
 
 
+def test_snapshot_toggles_gate_automatic_reasons(store):
+    from autodave.storage import Store
+
+    a = store.create_automation(make_version(), "Toggler", None)
+    # defaults: every automatic reason on
+    assert a["memory_snapshots"] == {"pre_version": True, "pre_clear": True, "pre_restore": True}
+    _write_memory(store, a)
+
+    # off → the automatic reason skips silently; manual is never gated
+    store.patch_automation(a, {"snapshotSettings": {"preClear": False}})
+    assert store.snapshot_memory(a, "pre-clear") is None
+    m = store.snapshot_memory(a, "manual")
+    assert m is not None
+
+    # pre-restore off → restore replaces memory without the undo copy
+    store.patch_automation(a, {"snapshotSettings": {"preRestore": False}})
+    _write_memory(store, a, text="v: new\n")
+    assert store.restore_snapshot(a, m["id"]) is not None
+    assert [s["reason"] for s in store.list_snapshots(a)] == ["manual"]
+
+    # partial merge touched only the sent keys; persisted and reloaded as-is
+    assert a["memory_snapshots"] == {"pre_version": True, "pre_clear": False, "pre_restore": False}
+    s2 = Store()
+    s2.load_all()
+    b = s2.autos[a["id"]]
+    assert b["memory_snapshots"] == {"pre_version": True, "pre_clear": False, "pre_restore": False}
+    assert s2.auto_json(b)["snapshotSettings"] == {
+        "preVersion": True, "preClear": False, "preRestore": False}
+
+
+def test_snapshot_toggles_absent_keys_default_on(store):
+    from autodave.storage import Store
+    from autodave.yamlio import load_yaml, save_yaml
+
+    a = store.create_automation(make_version(), "Legacyless", None)
+    # hand-edited automation.yaml without the memory_snapshots key → all on
+    top = store.auto_dir(a) / "automation.yaml"
+    data = load_yaml(top)
+    del data["memory_snapshots"]
+    save_yaml(top, data)
+    s2 = Store()
+    s2.load_all()
+    b = s2.autos[a["id"]]
+    assert b["memory_snapshots"] == {"pre_version": True, "pre_clear": True, "pre_restore": True}
+
+
 def test_snapshot_retention_prunes_unnamed_keeps_named(store):
     a = store.create_automation(make_version(), "Pruner", None)
     _write_memory(store, a)

@@ -541,6 +541,24 @@ def test_memory_snapshot_endpoints(client):
     assert client.delete(f"{base}/{snap['id']}").status_code == 404
 
 
+def test_patch_snapshot_settings_and_gated_clear(client):
+    # §19 PATCH snapshotSettings: partial merge; §6.3 pre-clear off → clear leaves no snapshot.
+    from autodave.storage import store
+
+    auto = client.post("/automations", json={"draft": _echo_draft()}).json()
+    a = store.autos[auto["id"]]
+    assert auto["snapshotSettings"] == {"preVersion": True, "preClear": True, "preRestore": True}
+
+    r = client.patch(f"/automations/{auto['id']}", json={"snapshotSettings": {"preClear": False}})
+    assert r.status_code == 200
+    assert r.json()["snapshotSettings"] == {"preVersion": True, "preClear": False, "preRestore": True}
+
+    (store.auto_dir(a) / "memory" / "seen.yaml").write_text("v: old\n")
+    assert client.post(f"/automations/{auto['id']}/memory/clear").status_code == 200
+    assert not (store.auto_dir(a) / "memory" / "seen.yaml").exists()
+    assert store.list_snapshots(a) == []
+
+
 def test_memory_snapshot_409_while_live(client):
     # §6.3: manual snapshot and restore are blocked while an execution is live.
     from autodave.storage import store

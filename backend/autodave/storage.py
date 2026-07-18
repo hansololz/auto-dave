@@ -149,6 +149,7 @@ class Store:
             "agent_id": top.get("agent_id"),
             "enabled_agents": top.get("enabled_agents", []) or [],
             "allowed_secrets": top.get("allowed_secrets", []) or [],
+            "memory_snapshots": self._load_snapshot_settings(top.get("memory_snapshots")),
             "param_values": top.get("param_values", {}) or {},
             "created_at": top.get("created_at"),
             "updated_at": top.get("updated_at"),
@@ -167,6 +168,12 @@ class Store:
             log.warning("automation %r at %s has no version folders — skipping it at load", a["name"], d)
             return None
         return a
+
+    @staticmethod
+    def _load_snapshot_settings(raw: dict | None) -> dict:
+        """§6.3 automatic-snapshot toggles from automation.yaml — absent keys default on."""
+        raw = raw or {}
+        return {k: bool(raw.get(k, True)) for k in ("pre_version", "pre_clear", "pre_restore")}
 
     @staticmethod
     def _load_triggers(raw: list) -> list[dict]:
@@ -238,6 +245,7 @@ class Store:
             "agent_id": a["agent_id"],
             "enabled_agents": a["enabled_agents"],
             "allowed_secrets": a["allowed_secrets"],
+            "memory_snapshots": a["memory_snapshots"],
             "param_values": a["param_values"],
             "created_at": a["created_at"],
             "updated_at": a["updated_at"],
@@ -290,6 +298,7 @@ class Store:
                 "agent_id": agent_id,
                 "enabled_agents": enabled_agents or ([agent_id] if agent_id else []),
                 "allowed_secrets": allowed_secrets or [],
+                "memory_snapshots": {"pre_version": True, "pre_clear": True, "pre_restore": True},
                 "param_values": {}, "created_at": now, "updated_at": now,
                 "versions": {}, "draft": None,
                 "_last_status": "none", "_last_exec_at": None, "_live": None,
@@ -373,6 +382,13 @@ class Store:
                 a["triggers"] = patch["triggers"]
             if "paramValues" in patch:
                 a["param_values"].update(patch["paramValues"])
+            if "snapshotSettings" in patch:
+                # §6.3 toggles — partial object, sent keys merged over the stored ones.
+                sent = patch["snapshotSettings"] or {}
+                for k_api, k_int in [("preVersion", "pre_version"), ("preClear", "pre_clear"),
+                                     ("preRestore", "pre_restore")]:
+                    if k_api in sent:
+                        a["memory_snapshots"][k_int] = bool(sent[k_api])
             a["updated_at"] = datetime.now().isoformat(timespec="seconds")
             self._write_toplevel(a)
 
@@ -612,8 +628,12 @@ class Store:
     def snapshot_memory(self, a: dict, reason: str, name: str | None = None,
                         version: str | None = None) -> dict | None:
         """§6.3 create: memory copy first, snapshot.yaml last; empty memory → None.
-        Sweeps crash orphans, then prunes unnamed snapshots beyond the newest 5."""
+        Automatic reasons toggled off (§6.3 memory_snapshots) → None, so no call
+        site needs its own check. Sweeps crash orphans, then prunes unnamed
+        snapshots beyond the newest 5."""
         with self.lock:
+            if reason != "manual" and not a["memory_snapshots"][reason.replace("-", "_")]:
+                return None
             mem = self.auto_dir(a) / "memory"
             size, files = self._memory_file_stats(mem)
             if files == 0:
@@ -758,6 +778,9 @@ class Store:
             "agentId": a["agent_id"],
             "stepAgents": a["enabled_agents"],
             "allowedSecrets": a["allowed_secrets"],
+            "snapshotSettings": {"preVersion": a["memory_snapshots"]["pre_version"],
+                                 "preClear": a["memory_snapshots"]["pre_clear"],
+                                 "preRestore": a["memory_snapshots"]["pre_restore"]},
             "specMeta": spec_meta,
         }
         if full:

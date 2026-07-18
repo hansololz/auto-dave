@@ -110,6 +110,7 @@ export interface Auto {
   agentId: string | null
   stepAgents: string[]
   allowedSecrets: string[]
+  snapshotSettings: SnapshotSettings // §6.3 automatic-snapshot toggles
   specMeta: string
   latest?: (ExecResult & { execId: string; when: string }) | null
   params?: ParamDef[]
@@ -120,6 +121,13 @@ export interface Auto {
   packages?: PackageDep[]    // §6.2 — the current version's declared packages
   versions?: VersionInfo[]
   draft?: VersionInfo | null
+}
+
+// §6.3 automatic-snapshot toggles — one per automatic reason, all default true
+export interface SnapshotSettings {
+  preVersion: boolean
+  preClear: boolean
+  preRestore: boolean
 }
 
 // §6.3 memory snapshot (API shape, §4.1)

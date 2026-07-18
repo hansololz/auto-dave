@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { Auto, ParamDef, Step, Trigger } from '../types'
+import type { Auto, ParamDef, SnapshotSettings, Step, Trigger } from '../types'
 import {
   Badge, BtnPrimary, ConfirmModal, Eyebrow, FailureNotice, PyCode, Toggle,
   nextIn, usePopover, validUrl,
@@ -61,6 +61,22 @@ const memBtn: React.CSSProperties = {
 const memRowBtn: React.CSSProperties = {
   ...memBtn, border: 'none', color: 'var(--text-muted)', fontSize: 11.5, padding: '3px 7px',
 }
+
+// §6.3 automatic-snapshot toggles — label + plain-language explanation per reason
+const SNAP_SETTINGS: Array<{ key: keyof SnapshotSettings; label: string; help: string }> = [
+  {
+    key: 'preVersion', label: 'Before a new version executes',
+    help: 'Saves a copy of memory right before the first execution of a newly saved version, so you can restore how memory was if the new version mishandles it.',
+  },
+  {
+    key: 'preClear', label: 'Before clearing memory',
+    help: 'Saves a copy right before Clear memory empties the directory, so a clear can be undone.',
+  },
+  {
+    key: 'preRestore', label: 'Before restoring a snapshot',
+    help: 'Saves a copy of the current memory right before a restore replaces it, so a restore can be undone.',
+  },
+]
 
 // ---------- §9.2 Add-trigger editor (kind picker → cron expr / one-shot time) ----------
 
@@ -610,6 +626,18 @@ export default function AutomationDetail() {
       }
     })()
   }
+  // §6.3 automatic-snapshot toggles — user-owned operational state, applies immediately (§19 PATCH)
+  const setSnapSetting = (key: keyof SnapshotSettings, on: boolean) => {
+    void (async () => {
+      try {
+        await api.patchAuto(auto.id, { snapshotSettings: { [key]: on } })
+        void loadAuto(auto.id)
+      } catch (err) {
+        showToast((err as Error).message)
+      }
+    })()
+  }
+
   const doDeleteSnap = (sid: string) => {
     setSnapRow(null)
     void (async () => {
@@ -1021,7 +1049,9 @@ export default function AutomationDetail() {
               {confirmClear ? (
                 <>
                   <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>
-                    Next execution starts fresh, like the first time. Current memory is snapshotted first.
+                    {auto.snapshotSettings.preClear
+                      ? 'Next execution starts fresh, like the first time. Current memory is snapshotted first.'
+                      : "Next execution starts fresh, like the first time. Automatic snapshots are off — this can't be undone."}
                   </span>
                   <HoverBtn
                     onClick={doClearMemory}
@@ -1098,7 +1128,9 @@ export default function AutomationDetail() {
                     {snapRow?.sid === s.id && snapRow.kind === 'restore' ? (
                       <>
                         <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>
-                          Replaces current memory — the current state is snapshotted first.
+                          {auto.snapshotSettings.preRestore
+                            ? 'Replaces current memory — the current state is snapshotted first.'
+                            : 'Replaces current memory — automatic snapshots are off, so the current state is lost.'}
                         </span>
                         <div style={{ flex: 1 }} />
                         <HoverBtn
@@ -1178,6 +1210,23 @@ export default function AutomationDetail() {
                 ))}
               </div>
             )}
+            {/* §6.3 automatic-snapshot toggles */}
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.06)' }}>
+              <Eyebrow style={{ marginBottom: 4 }}>Automatic snapshots</Eyebrow>
+              {SNAP_SETTINGS.map(({ key, label, help }) => (
+                <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '7px 0' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-2)' }}>{label}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>{help}</div>
+                  </div>
+                  <Toggle
+                    on={auto.snapshotSettings[key]}
+                    onChange={() => setSnapSetting(key, !auto.snapshotSettings[key])}
+                    title={auto.snapshotSettings[key] ? 'Turn this automatic snapshot off' : 'Turn this automatic snapshot on'}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

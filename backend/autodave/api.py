@@ -338,7 +338,7 @@ def checks(auto_id: str, body: dict | None = None) -> dict:
 def clear_memory(auto_id: str) -> dict:
     # §9.2 MEMORY card: "Clear memory" — next execution starts fresh.
     a = _auto_or_404(auto_id)
-    store.snapshot_memory(a, "pre-clear")  # §6.3 — skips silently when memory is empty
+    store.snapshot_memory(a, "pre-clear")  # §6.3 — silently skipped when memory is empty or the toggle is off
     store.clear_memory(a)
     hub.publish("auto.changed", autoId=auto_id)
     return {"ok": True}

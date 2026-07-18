@@ -156,6 +156,8 @@ snapshots: [{ id, name, reason, when, version, size, files }] — the §6.3 memo
   newest-first; name = user label | null, reason ∈ manual | pre-clear | pre-version |
   pre-restore, when = humanized time label, version = "vN" current at capture (pre-version:
   the version about to execute), size = humanized byte label, files = file count
+snapshotSettings: { preVersion, preClear, preRestore } — booleans, the §6.3 automatic-snapshot
+  toggles (all default true)
 steps: [{ name, desc, code, agent?, agentId?, why? }] — code is human-readable script; agent marks
   a step that makes a query-only runtime model call (§6) — the script itself still does any changes
 spec: block list [{ k: h1|h2|p|li, text }] — the human-readable spec
@@ -408,6 +410,8 @@ automations/<slug>/
                                # current_version (pointer: current = versions/v<N>/),
                                # triggers [{id, kind, off, expr | at}], agent_id,
                                # enabled_agents, allowed_secrets,
+                               # memory_snapshots {pre_version, pre_clear, pre_restore} —
+                               # §6.3 automatic-snapshot toggles (absent keys default true),
                                # param_values {name: value} (user data, never pruned),
                                # created_at, updated_at
   memory/                      # memory directory carried between executions (engine contract, §6) — scripts
@@ -752,13 +756,21 @@ destructive moments recoverable.
   versions only, never Draft — a Draft execution runs on `draft/memory/` (§4.4) and can't
   touch the live dir; `version` in the meta is the version about to execute);
   `pre-restore` (automatic, current memory saved right before a restore replaces it).
+- **Automatic-snapshot toggles** — every automatic reason has a per-automation on/off setting,
+  edited on the §9.2 MEMORY card and stored top-level as
+  `memory_snapshots: {pre_version, pre_clear, pre_restore}` (§5 — user-operational state,
+  never versioned; absent keys default **on**). A reason toggled off skips its snapshot
+  silently — the action itself (execution, clear, restore) still proceeds, it just leaves no
+  snapshot behind, and the §9.2 confirm copy warns the step is then not undoable. Manual
+  snapshots have no toggle — the button is the consent.
 - **Empty memory is never snapshotted** — automatic reasons silently skip; a manual snapshot
   of empty memory answers 422.
 - **Write order** — the `memory/` copy first, `snapshot.yaml` last. A dir without
   `snapshot.yaml` is a crash orphan: listing skips it, the next snapshot creation deletes it.
 - **Restore** — 409 while an execution is live. Takes a `pre-restore` snapshot of current
-  memory (when non-empty), then replaces `memory/` with the snapshot's copy. The restored
-  snapshot itself stays — restore is repeatable and, via `pre-restore`, undoable.
+  memory (when non-empty and the toggle is on), then replaces `memory/` with the snapshot's
+  copy. The restored snapshot itself stays — restore is repeatable and, via `pre-restore`,
+  undoable.
 - **Manual snapshot** — 409 while live (a mid-execution copy could catch a half-written
   file). Automatic reasons never race an execution: `pre-version` runs before step 1,
   `pre-clear` rides the clear request (§7: one execution at a time per automation).
@@ -1119,18 +1131,33 @@ Sections top to bottom:
   present), linking to execution pages.
 - **MEMORY** card — mono size/updated info line; "Show in Finder", "Snapshot" and "Clear
   memory" buttons. Clear swaps the button row to an inline confirm: "Next execution starts
-  fresh, like the first time. Current memory is snapshotted first." with red Clear / quiet
-  Keep. Snapshot swaps it to a name input (placeholder "Name — optional", Enter saves) with
+  fresh, like the first time. Current memory is snapshotted first." (pre-clear toggle off:
+  "Next execution starts fresh, like the first time. Automatic snapshots are off — this
+  can't be undone.") with red Clear / quiet Keep. Snapshot swaps it to a name input
+  (placeholder "Name — optional", Enter saves) with
   Save / quiet Cancel; the button is disabled when memory is empty (title "Memory is empty").
   Below the info row, the §6.3 snapshot list (absent when there are none): one row per
   snapshot — title (the name, else "Snapshot"), mono meta "reason · version · size · files ·
   when", quiet row actions Restore / Rename / Delete. Restore swaps the row to an inline
-  confirm "Replaces current memory — the current state is snapshotted first." (accent
+  confirm "Replaces current memory — the current state is snapshotted first." (pre-restore
+  toggle off: "Replaces current memory — automatic snapshots are off, so the current state
+  is lost.") (accent
   Restore / quiet Keep; blocked while an execution is live — the 409 surfaces as a toast);
   Rename swaps to a name input (Save / Cancel; empty clears the name back to "Snapshot");
   Delete swaps to "Delete this snapshot?" (red Delete / quiet Keep). Toasts: "Snapshot
   saved." / "Memory restored — the next execution continues from the snapshot." / "Snapshot
   deleted."
+  At the card's bottom, the "Automatic snapshots" section — the §6.3 toggles, one `Toggle`
+  row per automatic reason, each with a plain-language explanation so users know exactly
+  what they're switching off:
+  - "Before a new version executes" — "Saves a copy of memory right before the first
+    execution of a newly saved version, so you can restore how memory was if the new
+    version mishandles it." (pre-version)
+  - "Before clearing memory" — "Saves a copy right before Clear memory empties the
+    directory, so a clear can be undone." (pre-clear)
+  - "Before restoring a snapshot" — "Saves a copy of the current memory right before a
+    restore replaces it, so a restore can be undone." (pre-restore)
+  Edits apply immediately (§19 PATCH `snapshotSettings`) — no version, no AI.
 - **STEPS** card — read-only step rows (number, name, desc, view/hide script with §11 `PyCode`
   highlighting; agent steps show the "Why an agent" note when expanded). Step tags are
   display-only — never menus: an agent step carries a tag with the assigned agent's name (robot
@@ -1727,7 +1754,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `PATCH /automations/{id}` — user-owned fields only: name, triggers (the §4.3 list, replaced
   whole; entries keep their `id`, new entries get one assigned; cron/time kinds only — a message
   kind, an invalid cron expression, or a past `time` answers 422 and nothing is stored), param
-  values, agentId, stepAgents, allowedSecrets
+  values, agentId, stepAgents, allowedSecrets, snapshotSettings (the §6.3 automatic-snapshot
+  toggles — partial object, sent keys merged over the stored ones)
 - `POST /automations/{id}/execute` `{ version?: "vN" | "draft" (case-insensitive), trigger? }` →
   `{ execId }` (409 while live)
 - `POST /automations` `{ draft }` — create v1 from a validated draft
