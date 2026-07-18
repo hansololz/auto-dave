@@ -92,10 +92,12 @@ class TestRuns:
             for i in range(len(steps)):
                 step_ev(i, "queued")
 
-            # Scratch dirs — memory copies the automation's when editing (§11).
+            # Scratch dirs — memory copies the draft's own memory when it exists
+            # (§4.4 Draft executions iterate on it), else the automation's (§11).
             mem_dir = root / "memory"
             if auto is not None:
-                src = store.auto_dir(auto) / "memory"
+                draft_mem = store.auto_dir(auto) / "draft" / "memory"
+                src = draft_mem if draft_mem.exists() else store.auto_dir(auto) / "memory"
                 if src.exists():
                     shutil.copytree(src, mem_dir)
             mem_dir.mkdir(parents=True, exist_ok=True)

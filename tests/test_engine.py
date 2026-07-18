@@ -296,6 +296,40 @@ def test_run_draft_version_lowercase_label(store):
     assert any("from the draft" in l["text"] for l in store.read_logs(h["id"]))
 
 
+def test_draft_execution_uses_draft_memory(store):
+    """§4.4: a Draft execution seeds draft/memory from the live memory once,
+    then iterates on it — the live memory dir is never written."""
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    a = store.create_automation(make_version(), "Drafty Mem", None)
+    live_mem = store.auto_dir(a) / "memory"
+    (live_mem / "seen.yaml").write_text("count: 1\n")
+
+    dver = make_version()
+    dver["steps"] = [
+        {"file": "01-bump.py", "name": "Bump", "desc": "",
+         "code": ('n = (memory.load("seen") or {}).get("count", 0)\n'
+                  'log(f"count was {n}")\n'
+                  'memory.save("seen", {"count": n + 1})\n')},
+    ]
+    store.save_draft(a, dver)
+
+    h1 = engine.start(a, "Manual", version_label="Draft")
+    wait_done(engine, h1["id"])
+    assert h1["status"] == "succeeded"
+    # seeded from live memory (count 1), bumped in the draft copy only
+    assert any("count was 1" in l["text"] for l in store.read_logs(h1["id"]))
+    assert (store.auto_dir(a) / "draft" / "memory" / "seen.yaml").exists()
+    assert (live_mem / "seen.yaml").read_text() == "count: 1\n"
+
+    # second Draft execution continues on the same draft memory
+    h2 = engine.start(a, "Manual", version_label="Draft")
+    wait_done(engine, h2["id"])
+    assert any("count was 2" in l["text"] for l in store.read_logs(h2["id"]))
+    assert (live_mem / "seen.yaml").read_text() == "count: 1\n"
+
+
 def test_runtime_import_allowlist_revalidated(store):
     """§6.2: the executor re-checks the curated allowlist before exec'ing a step."""
     from autodave.engine import Engine

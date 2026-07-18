@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -176,8 +177,6 @@ class Engine:
             src_ws = self.store.exec_dir(reuse_from["exec_id"]) / "workspace"
             dst_ws = self.store.exec_dir(h["id"]) / "workspace"
             if src_ws.exists():
-                import shutil
-
                 shutil.rmtree(dst_ws, ignore_errors=True)
                 shutil.copytree(src_ws, dst_ws)
         state = {"proc": None, "cancel": False}
@@ -222,7 +221,13 @@ class Engine:
 
     def _version_dir(self, auto: dict, label: str) -> Path:
         base = self.store.auto_dir(auto)
-        return base / "draft" if label.lower() == "draft" else base / "versions" / label
+        return base / "draft" / "automation" if label.lower() == "draft" else base / "versions" / label
+
+    def _memory_dir(self, auto: dict, label: str) -> Path:
+        """§4.4: Draft executions get the draft's own memory — the live dir is
+        never handed to a draft step."""
+        base = self.store.auto_dir(auto)
+        return base / "draft" / "memory" if label.lower() == "draft" else base / "memory"
 
     def _redact(self, h: dict, text: str, redactions: dict[str, str]) -> str:
         for val, name in redactions.items():
@@ -325,6 +330,18 @@ class Engine:
                 resolve_param_value(p, auto["param_values"], warns)
             for w in warns:
                 self._log(h, "wrn", w, redactions)
+
+            # §4.4: first Draft execution seeds draft/memory as a copy of the
+            # live memory; later Draft executions (and draft re-saves) reuse it.
+            if h["ver"] == "Draft" and not failed:
+                dmem = self._memory_dir(auto, "Draft")
+                if not dmem.exists():
+                    live_mem = self.store.auto_dir(auto) / "memory"
+                    if live_mem.exists() and any(live_mem.iterdir()):
+                        shutil.copytree(live_mem, dmem)
+                        self._log(h, "sys", "draft memory created — copied from the automation's memory", redactions)
+                    else:
+                        dmem.mkdir(parents=True, exist_ok=True)
 
             vdir = self._version_dir(auto, h["ver"])
             for i, s in enumerate(ver["steps"]):
@@ -456,7 +473,7 @@ class Engine:
             "allowed_secrets": auto["allowed_secrets"],
             "site_packages": str(pkglib.site_packages_dir()),
             "package_imports": [p["import"] for p in ver.get("packages") or []],
-            "memory_dir": str(self.store.auto_dir(auto) / "memory"),
+            "memory_dir": str(self._memory_dir(auto, h["ver"])),
             "workspace": str(self.store.exec_dir(h["id"]) / "workspace"),
             "result_dir": str(self.store.exec_dir(h["id"]) / "result"),
             "agent": agent_cfg,

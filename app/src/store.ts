@@ -42,6 +42,7 @@ export interface Model {
   ollamaPull: { model: string; line: string; done: boolean; ok?: boolean } | null
 
   boot(): Promise<void>
+  disconnect(): void
   refresh(): Promise<void>
   applyEvent(msg: Record<string, unknown>): void
   go(page: Page, ids?: { autoId?: string | null; execId?: string | null }): void
@@ -55,6 +56,7 @@ export interface Model {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
+let closeWs: (() => void) | null = null
 let passedOnboard = false
 let restoring = false
 
@@ -91,12 +93,21 @@ export const useStore = create<Model>((set, get) => ({
         surface: hash.includes('menubar') ? 'menubar' : onboarded ? 'app' : 'onboard',
       })
       if (onboarded) passedOnboard = true
-      openWs((msg) => get().applyEvent(msg))
+      // Exactly one live socket: a re-entrant boot (StrictMode re-mount,
+      // backend restart) must not stack subscriptions — every stacked socket
+      // applies each event once more (duplicate log lines, double toasts).
+      closeWs?.()
+      closeWs = openWs((msg) => get().applyEvent(msg))
       updateTrayAlert(s.autos)
     } catch {
       set({ connected: false })
       setTimeout(() => get().boot(), 1200)
     }
+  },
+
+  disconnect() {
+    closeWs?.()
+    closeWs = null
   },
 
   async refresh() {

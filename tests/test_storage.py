@@ -53,7 +53,14 @@ def test_draft_save_and_discard(store):
     a = store.create_automation(make_version(), "Drafty", None)
     store.save_draft(a, make_version(desc="draft desc"))
     assert a["draft"]["desc"] == "draft desc"
-    assert (store.auto_dir(a) / "draft" / "automation.yaml").exists()
+    assert (store.auto_dir(a) / "draft" / "automation" / "automation.yaml").exists()
+    # §4.4: draft/memory survives a re-save of the working copy…
+    dmem = store.auto_dir(a) / "draft" / "memory"
+    dmem.mkdir()
+    (dmem / "seen.yaml").write_text("x: 1")
+    store.save_draft(a, make_version(desc="draft desc 2"))
+    assert (dmem / "seen.yaml").exists()
+    # …and dies with the draft.
     store.delete_draft(a)
     assert a["draft"] is None
     assert not (store.auto_dir(a) / "draft").exists()

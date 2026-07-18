@@ -161,8 +161,8 @@ class Store:
                 m = re.fullmatch(r"v(\d+)", vd.name)
                 if m and (vd / "automation.yaml").exists():
                     a["versions"][int(m.group(1))] = self._load_version_folder(vd)
-        if (d / "draft" / "automation.yaml").exists():
-            a["draft"] = self._load_version_folder(d / "draft")
+        if (d / "draft" / "automation" / "automation.yaml").exists():
+            a["draft"] = self._load_version_folder(d / "draft" / "automation")
         if not a["versions"]:
             log.warning("automation %r at %s has no version folders — skipping it at load", a["name"], d)
             return None
@@ -331,8 +331,10 @@ class Store:
             return n
 
     def save_draft(self, a: dict, ver: dict) -> None:
+        # §5: draft/ is a container — only the automation/ working copy is
+        # rewritten; draft/memory/ (§4.4) survives re-saves from the editor.
         with self.lock:
-            dd = self.auto_dir(a) / "draft"
+            dd = self.auto_dir(a) / "draft" / "automation"
             if dd.exists():
                 shutil.rmtree(dd)
             self._write_version_folder(dd, ver)
@@ -396,7 +398,7 @@ class Store:
                 cur = a["versions"].get(a["current_version"], {})
                 hit = rewrite(self.auto_dir(a) / "versions" / f"v{a['current_version']}", cur)
                 if a["draft"]:
-                    hit = rewrite(self.auto_dir(a) / "draft", a["draft"]) or hit
+                    hit = rewrite(self.auto_dir(a) / "draft" / "automation", a["draft"]) or hit
                 if hit:
                     a["updated_at"] = datetime.now().isoformat(timespec="seconds")
                     self._write_toplevel(a)

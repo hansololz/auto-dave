@@ -259,6 +259,11 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
   explainer: "Executing an older version once doesn't change anything — triggers and Execute now
   always use the current version. To make an older version current, open Edit and restore it from
   the Version menu." Draft banner offers Execute draft / Resume editing / Discard.
+- **Execute draft executes on the draft's own memory** (`draft/memory/`, §5): seeded as a copy
+  of the automation's live memory the first time the draft executes, then reused by every later
+  Draft execution — so a draft iterates on one stable memory — and kept across draft re-saves
+  from the editor. It is deleted with the draft (discard, or save as vN+1: the new version
+  continues from the live memory, which no Draft execution ever wrote).
 
 ### 4.5 Execution (the stored record of one occurrence of an automation)
 
@@ -399,7 +404,13 @@ automations/<slug>/
                                # files) + memory/ (the recursive copy); no index file — the
                                # list is read from disk on demand; a dir without snapshot.yaml
                                # is a crash orphan (skipped, swept at the next creation)
-  draft/                       # unsaved edit working copy, same shape as a version folder
+  draft/                       # unsaved edit state — a container, not a version folder:
+    automation/                # the working copy, same shape as a version folder; rewritten
+                               # whole on every draft save
+    memory/                    # the draft's own working memory: created on the first Draft
+                               # execution as a copy of memory/, reused by every later Draft
+                               # execution and draft re-save, deleted with the draft — Draft
+                               # executions never touch the live memory/ dir
   versions/vN/                 # one folder per version — immutable once written
     automation.yaml            # when, note, desc, param definitions (§4.2: name, kind,
                                # label, help, default, …) + ordered steps manifest:
@@ -568,12 +579,13 @@ never used for lookups.
 - **Reading web pages** — 10 s timeout; ≥ 2 s between requests to the same site; retry twice;
   respect robots.txt; user agent "AutoDave/1.0".
 - **Workspace per execution** — every step executes with its cwd set to the execution's `workspace/`
-  directory; scripts are executed in place from their version folder (or `draft/`), never
+  directory; scripts are executed in place from their version folder (or `draft/automation/`), never
   copied. All steps of an execution share the one workspace; it is disposable scratch space,
   not guaranteed to exist after the retention window.
 - **Memory between executions** — one private `memory/` directory per automation, reachable from
   scripts via an injected path; scripts may store any files in any format there. Persists
-  across executions and versions. Durable writes go to `memory/` (deliberate) or `result/`
+  across executions and versions. Draft executions get `draft/memory/` instead (§4.4) — the
+  live directory is never read (past the one-time seed copy) or written by a draft. Durable writes go to `memory/` (deliberate) or `result/`
   (output files via `result.path`) — the workspace is for everything else.
 - **Notifications & results** — exactly one result per execution; at most one notification, at the end;
   notify only on changes (per the notifications setting). **Sender (decided):** the backend posts
@@ -721,7 +733,8 @@ destructive moments recoverable.
 - **Reasons** — `manual` (MEMORY-card button, optional name); `pre-clear` (automatic, taken
   before §9.2 "Clear memory" empties the dir); `pre-version` (automatic, taken by the engine
   right before the first execution of a version with no recorded execution yet — real "vN"
-  versions only, never Draft; `version` in the meta is the version about to execute);
+  versions only, never Draft — a Draft execution runs on `draft/memory/` (§4.4) and can't
+  touch the live dir; `version` in the meta is the version about to execute);
   `pre-restore` (automatic, current memory saved right before a restore replaces it).
 - **Empty memory is never snapshotted** — automatic reasons silently skip; a manual snapshot
   of empty memory answers 422.
@@ -1387,7 +1400,8 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   ("Test again" once a test has happened this editing session; Cancel while a test is
   executing) — never "Execute", which is reserved for real executions (§4.4 "Execute draft",
   §7 "Execute again"). A test uses: in-editor param values and grants, a throwaway workspace, and
-  **scratch memory** — edit mode copies the automation's memory dir, create mode starts empty —
+  **scratch memory** — edit mode copies the draft's memory (`draft/memory/`, §4.4) when it
+  exists, else the automation's memory dir; create mode starts empty —
   all discarded when the test ends, so a test can never poison the memory the deployed version
   reads (§4.1). **Test parameter values (create and edit mode):** when the draft has params,
   the card offers a collapsed "Set parameter values for this test" affordance; expanding it
@@ -1713,7 +1727,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   delete the snapshot; unknown `sid` answers 404
 - `POST /tests` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets?, paramValues? }`
   → `{ testId }` — the §11 Test: executes the sent draft's steps ephemerally (scratch memory
-  copied from `autoId`'s memory dir when given, else empty; no execution record); grant arrays
+  copied, when `autoId` is given, from its `draft/memory/` if present else its memory dir;
+  else empty; no execution record); grant arrays
   as in `/drafts`; param resolution uses the automation's stored values when `autoId` is given
   (else the draft's defaults), with `paramValues` (name → value, §5 matching rules) overriding
   on top for this test only — never stored; progress via the `test.*` WS events; on failure the

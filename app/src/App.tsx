@@ -121,9 +121,9 @@ function BootSplash({ waiting }: { waiting: boolean }) {
 }
 
 export default function App() {
-  const { connected, surface, toast, boot, createFrom } = useStore()
+  const { connected, surface, toast, boot, disconnect, createFrom } = useStore()
 
-  useEffect(() => { void boot() }, [])
+  useEffect(() => { void boot(); return disconnect }, [])
 
   if (connected === null || connected === false) {
     return <BootSplash waiting={connected === false} />
