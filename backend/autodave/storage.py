@@ -369,6 +369,40 @@ class Store:
             a["updated_at"] = datetime.now().isoformat(timespec="seconds")
             self._write_toplevel(a)
 
+    def update_package_pin(self, new_spec: str) -> list[str]:
+        """§6.2 pin update, manifest-first: rewrite the distribution's pip spec
+        in the current version folder and draft of every automation declaring
+        it — in place, no new version (a pin bump isn't a behavioral edit).
+        Older versions keep their pins. Returns the affected automation names."""
+        name = re.sub(r"[-_.]+", "-", new_spec.split("==", 1)[0]).lower()
+
+        def rewrite(vd: Path, ver: dict) -> bool:
+            hit = False
+            for p in ver.get("packages", []) or []:
+                spec = str(p.get("pip") or "")
+                if re.sub(r"[-_.]+", "-", spec.split("==", 1)[0]).lower() == name and spec != new_spec:
+                    p["pip"] = new_spec
+                    hit = True
+            if hit:
+                meta = load_yaml(vd / "automation.yaml", {}) or {}
+                meta["packages"] = [{"pip": p.get("pip"), "import": p.get("import")}
+                                    for p in ver.get("packages", []) or []]
+                save_yaml(vd / "automation.yaml", meta)
+            return hit
+
+        affected = []
+        with self.lock:
+            for a in self.autos.values():
+                cur = a["versions"].get(a["current_version"], {})
+                hit = rewrite(self.auto_dir(a) / "versions" / f"v{a['current_version']}", cur)
+                if a["draft"]:
+                    hit = rewrite(self.auto_dir(a) / "draft", a["draft"]) or hit
+                if hit:
+                    a["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                    self._write_toplevel(a)
+                    affected.append(a["name"])
+        return affected
+
     def consume_trigger(self, a: dict, trigger_id: str) -> None:
         """§4.3 one-shot consumption: a fired or skipped `time` trigger leaves the list."""
         with self.lock:

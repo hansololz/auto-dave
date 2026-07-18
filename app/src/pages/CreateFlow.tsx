@@ -1030,6 +1030,57 @@ export default function CreateFlow() {
     return () => { stale = true }
   }, [pkgKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // §11/§6.2 update badges: one read-only PyPI check per package list (§19
+  // /packages/outdated) — advisory, a failure just leaves the badges off.
+  useEffect(() => {
+    if (!rev || rev.packages.length === 0) return
+    let stale = false
+    void api.outdatedPackages(rev.packages.map(({ pip, import: imp }) => ({ pip, import: imp })))
+      .then(({ packages }) => {
+        if (stale) return
+        setRev((r) => r && ({
+          ...r,
+          packages: r.packages.map((p) => {
+            const c = packages.find((z) => z.pip === p.pip)
+            return c ? { ...p, latest: c.latest } : p
+          }),
+        }))
+      })
+      .catch(() => { /* badges stay off */ })
+    return () => { stale = true }
+  }, [pkgKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // §11/§6.2 Update / Update all — manifest-first: the §19 update call rewrites
+  // the pin across every automation declaring the distribution, then installs.
+  const updatePkgs = async (pips: string[]) => {
+    if (!rev || rev.pkgBusy) return
+    const pipName = (s: string) => s.split('==')[0].replace(/[-_.]+/g, '-').toLowerCase()
+    const targets = rev.packages.filter((p) => p.latest && pips.includes(p.pip))
+    if (targets.length === 0) return
+    const before = rev.packages
+    const list = targets.map((p) => ({ pip: `${p.pip.split('==')[0]}==${p.latest}`, import: p.import }))
+    up({
+      pkgBusy: true,
+      packages: rev.packages.map((p) => (targets.includes(p) ? { ...p, status: 'installing' as const, error: undefined } : p)),
+    })
+    try {
+      const { packages, updated } = await api.updatePackages(list)
+      setRev((r) => r && ({
+        ...r, pkgBusy: false,
+        packages: r.packages.map((p) => {
+          const c = p.status === 'installing' && packages.find((z) => pipName(z.pip) === pipName(p.pip))
+          return c ? { ...c, latest: undefined } : p
+        }),
+      }))
+      showToast(updated.length > 0
+        ? `Updated — the new pin now applies to ${updated.length === 1 ? '1 automation' : `${updated.length} automations`}.`
+        : 'Updated.', 3600)
+    } catch (e) {
+      setRev((r) => r && ({ ...r, pkgBusy: false, packages: before }))
+      showToast((e as Error).message)
+    }
+  }
+
   // §11: Install / Retry on the Packages card — the blocking §19 ensure; rows
   // show spinners while it runs. An install failure never blocks saving (§6.2).
   const installPkgs = async () => {
@@ -2159,6 +2210,8 @@ export default function CreateFlow() {
                     {rev.packages.length > 0 && (
                       <span style={{ font: "500 10.5px var(--mono)", color: 'var(--text-faintest)', whiteSpace: 'nowrap', flex: 'none' }}>
                         {rev.packages.filter((p) => p.status === 'installed').length} of {rev.packages.length} installed
+                        {rev.packages.filter((p) => p.latest).length > 0 &&
+                          ` · ${rev.packages.filter((p) => p.latest).length} update${rev.packages.filter((p) => p.latest).length === 1 ? '' : 's'}`}
                       </span>
                     )}
                   </div>
@@ -2177,7 +2230,12 @@ export default function CreateFlow() {
                       {rev.packages.map((p) => (
                         <div key={p.pip} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <div style={{ flex: 1, minWidth: 0, font: "500 12px var(--mono)", color: 'var(--text)' }}>{p.pip}</div>
+                            <div style={{ flex: 1, minWidth: 0, font: "500 12px var(--mono)", color: 'var(--text)' }}>
+                              {p.pip}
+                              {p.latest && p.status !== 'installing' && (
+                                <span style={{ color: 'var(--accent)', marginLeft: 8 }}>→ {p.latest}</span>
+                              )}
+                            </div>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 'none', whiteSpace: 'nowrap', font: "600 10px var(--mono)",
                               color: p.status === 'installed' ? 'var(--green)'
                                 : p.status === 'failed' ? 'var(--red)'
@@ -2188,12 +2246,29 @@ export default function CreateFlow() {
                               {p.status === 'failed' && 'failed'}
                               {!p.status && 'checking…'}
                             </span>
+                            {p.latest && p.status !== 'installing' && (
+                              <button className="ad-btn-soft" disabled={rev.pkgBusy || busyRewrite}
+                                onClick={() => void updatePkgs([p.pip])} style={{ flex: 'none', padding: '3px 9px' }}>
+                                Update
+                              </button>
+                            )}
                           </div>
                           {p.status === 'failed' && p.error && (
                             <div style={{ margin: '6px 0 0', font: "400 10.5px/1.5 var(--mono)", color: 'var(--red)', overflowWrap: 'break-word' }}>{p.error}</div>
                           )}
                         </div>
                       ))}
+                      {rev.packages.filter((p) => p.latest).length >= 2 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                          <span style={{ flex: 1, font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)' }}>
+                            Newer versions are available. Updating changes the pin for every automation that uses the package.
+                          </span>
+                          <button className="ad-btn-soft" disabled={rev.pkgBusy || busyRewrite}
+                            onClick={() => void updatePkgs(rev.packages.filter((p) => p.latest).map((p) => p.pip))} style={{ flex: 'none' }}>
+                            Update all
+                          </button>
+                        </div>
+                      )}
                       {rev.packages.some((p) => p.status === 'missing' || p.status === 'failed') && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
                           <span style={{ flex: 1, font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)' }}>

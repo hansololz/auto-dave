@@ -9,6 +9,7 @@ dependencies = [
     "websockets>=12.0",  # uvicorn's WS implementation — plain uvicorn rejects upgrades without it
     "PyYAML>=6.0",
     "keyring>=25.0",
+    "packaging>=24.0",  # §6.2 outdated check: version ordering + wheel-tag compatibility
     # Curated step packages (§6.2) — ship inside the bundled interpreter.
     "requests>=2.32",
     "httpx>=0.27",

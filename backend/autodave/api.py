@@ -290,6 +290,30 @@ def packages_install(body: dict) -> dict:
     return {"packages": pkglib.ensure(body.get("packages") or [])}
 
 
+@app.post("/packages/outdated", dependencies=[Depends(auth)])
+def packages_outdated(body: dict) -> dict:
+    # §6.2 update check — read-only PyPI lookups; failures just omit `latest`.
+    return {"packages": pkglib.outdated(body.get("packages") or [])}
+
+
+@app.post("/packages/update", dependencies=[Depends(auth)])
+def packages_update(body: dict) -> dict:
+    """§6.2 pin update: body carries the NEW pins. Manifest-first — rewrite the
+    pin across every automation declaring the distribution, then ensure."""
+    entries = body.get("packages") or []
+    for e in entries:
+        if not pkglib.PIP_SPEC_RE.match(str(e.get("pip") or "").strip()):
+            raise HTTPException(422, f"not an exactly-pinned name==version requirement: {e.get('pip')!r}")
+    updated: list[str] = []
+    for e in entries:
+        for name in store.update_package_pin(str(e["pip"]).strip()):
+            if name not in updated:
+                updated.append(name)
+    if updated:
+        hub.publish("auto.changed")
+    return {"packages": pkglib.ensure(entries), "updated": updated}
+
+
 # ---------- review checks (§11 decided semantics) ----------
 @app.post("/automations/{auto_id}/checks", dependencies=[Depends(auth)])
 def checks(auto_id: str, body: dict | None = None) -> dict:

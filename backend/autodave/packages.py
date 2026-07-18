@@ -2,7 +2,8 @@
 curated list install into `<app-support>/site-packages` via the bundled
 interpreter's pip — the user never runs pip. One idempotent `ensure` serves
 every call site: the §8 post-steps install stage, the §19 install endpoint,
-and the engine's pre-execution self-heal (§7)."""
+and the engine's pre-execution self-heal (§7). `outdated` backs the §11
+update badges — read-only PyPI lookups, never pip."""
 from __future__ import annotations
 
 import re
@@ -60,6 +61,77 @@ def check(entries: list[dict]) -> list[dict]:
         out.append({"pip": spec, "import": str(e.get("import") or "").strip(),
                     "status": "installed" if ok else "missing"})
     return out
+
+
+PYPI_TIMEOUT = 8  # seconds per package lookup
+
+
+def _latest_compatible(name: str) -> str | None:
+    """Newest stable, non-yanked PyPI version of `name` that ships a wheel
+    compatible with the bundled interpreter (§6.2 wheels-only applies to the
+    update check too). None on any lookup/parse failure — advisory feature."""
+    import json
+    import urllib.request
+
+    from packaging.tags import sys_tags
+    from packaging.utils import parse_wheel_filename
+    from packaging.version import InvalidVersion, Version
+
+    url = f"https://pypi.org/pypi/{_norm(name)}/json"
+    req = urllib.request.Request(url, headers={"User-Agent": "AutoDave/1.0"})
+    with urllib.request.urlopen(req, timeout=PYPI_TIMEOUT) as resp:
+        releases = json.load(resp).get("releases") or {}
+    supported = set(sys_tags())
+    candidates: list[tuple[Version, list]] = []
+    for ver_str, files in releases.items():
+        try:
+            v = Version(ver_str)
+        except InvalidVersion:
+            continue
+        if v.is_prerelease or v.is_devrelease or not files:
+            continue
+        candidates.append((v, files))
+    for v, files in sorted(candidates, reverse=True):
+        for f in files:
+            if f.get("yanked") or not str(f.get("filename", "")).endswith(".whl"):
+                continue
+            try:
+                tags = parse_wheel_filename(f["filename"])[3]
+            except Exception:  # noqa: BLE001 — odd filename, skip the file
+                continue
+            if tags & supported:
+                return str(v)
+    return None
+
+
+def outdated(entries: list[dict]) -> list[dict]:
+    """§19 POST /packages/outdated — read-only PyPI lookups, in parallel.
+    Each entry comes back as {pip, import, latest?}; `latest` is present only
+    when a newer installable version exists. Any failure → no `latest`."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from packaging.version import Version
+
+    def probe(e: dict) -> dict:
+        spec = str(e.get("pip") or "").strip()
+        out = {"pip": spec, "import": str(e.get("import") or "").strip()}
+        m = PIP_SPEC_RE.match(spec)
+        if not m:
+            return out
+        try:
+            pinned = Version(m.group(2))
+            latest = _latest_compatible(m.group(1))
+            if latest and Version(latest) > pinned:
+                out["latest"] = latest
+        except Exception:  # noqa: BLE001 — network/parse failure: badge stays off
+            pass
+        return out
+
+    items = list(entries or [])
+    if not items:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(items))) as pool:
+        return list(pool.map(probe, items))
 
 
 def ensure(entries: list[dict], on_progress=None) -> list[dict]:

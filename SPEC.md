@@ -670,6 +670,20 @@ step 1 with the §7 category. The shared directory holds one version of each dis
 later automation's different pin upgrades it for all (accepted: single-user app; if a real
 conflict ever shows up the fix is per-automation target dirs, not user-facing knobs).
 
+**Updating pins — the app checks, the user decides.** Pins never change on their own: an
+unattended automation must not change behavior because a library released overnight. On load
+the edit page's Packages card asks PyPI for updates (§19 `POST /packages/outdated`, read-only:
+per package, the newest stable non-yanked version that has a wheel compatible with the bundled
+interpreter — the wheels-only rule applies to the check too; a network failure just leaves the
+badges off). Installing an update stays behind an explicit per-row **Update** button (§11).
+An update is manifest-first (§19 `POST /packages/update`): the new pin is written into the
+current version's manifest and any draft of **every** automation declaring that distribution —
+never just one, or the shared directory would ping-pong between pins at each pre-execution
+ensure — and only then does the same ensure install it. The current version is edited in
+place: a pin bump is not a behavioral edit, and creating a new version of N automations per
+update would be worse. Older versions keep their pins, so restoring one restores its pin
+under the same last-writer-wins rule above.
+
 **Native tools (deliberately deferred).** System binaries (ffmpeg, tesseract, …) are not
 installable — pip is the only channel. When a task needs one, the drafting agent prefers a pip
 package that bundles a static binary (e.g. `imageio-ffmpeg` — binary ships inside the wheel;
@@ -1275,7 +1289,8 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   secrets missing from Keychain, each produce warnings with fix affordances. "X of Y allowed".
   Collapsible card, defaults open, forced open while a warning shows.
 - **PACKAGES** card — in the **right column**, below the Parameters card: display-only like
-  Triggers and Parameters — the drafting pipeline owns the list, the user never edits pins.
+  Triggers and Parameters — the drafting pipeline owns the list; the user's only write is the
+  §6.2 pin update below.
   One row per §6.2 declared package — the `pip` spec in mono plus a status chip:
   **installed** (green check) · **installing** (spinner) · **not installed** (amber — a
   saved automation whose packages went missing, found by the §19 check on page load) ·
@@ -1291,6 +1306,15 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   (§19 `POST /packages/check`); during a create/sync job the card fills from the job's draft
   payload statuses (§8). An install failure never blocks saving — executions self-heal (§7) —
   so the card carries the warning without gating Save.
+  **Updates (§6.2 semantics):** on load the page also asks PyPI once per package list
+  (§19 `POST /packages/outdated`, advisory — a failure leaves badges off). An outdated row
+  shows an accent-tinted "→ x.y.z" badge after the pin and an **Update** button on the row; two or more
+  outdated rows add an **Update all** row above the footer. The header appends "· K updates"
+  while any row is outdated (count hidden at zero). Clicking updates via §19
+  `POST /packages/update` — pin rewrite across every automation declaring the distribution,
+  then install; the affected rows show the installing spinner, then the new pin with its
+  fresh status, and a toast names how many automations were rewritten. Updates never force
+  the card open and never gate Save.
 - **Framework instructions** — read-only card showing `framework-instructions.md` **rendered
   as markdown** (the shared result-view Markdown component: headings, fenced code blocks,
   tables, lists; max-height 420 px with inner scroll). The file content itself is untouched —
@@ -1637,7 +1661,15 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   §11 Packages card's page-load check) · `POST /packages/install` (same body) →
   `{ packages: [{ pip, import, status: installed | failed, error? }] }` — the §6.2 ensure,
   blocking; installs only what's missing, one pip run at a time process-wide (backs the §11
-  Install/Retry button)
+  Install/Retry button) · `POST /packages/outdated` (same body) → `{ packages: [{ pip, import,
+  latest? }] }` — read-only PyPI query (§6.2: newest stable non-yanked version with a
+  compatible wheel); `latest` present only when newer than the pin, absent on any lookup
+  failure (backs the §11 page-load update check) · `POST /packages/update`
+  `{ packages: [{ pip, import }] }` with the **new** pins → `{ packages: [{ pip, import,
+  status: installed | failed, error? }], updated: [automation names] }` — the §6.2
+  manifest-first pin rewrite (current version + draft of every automation declaring the
+  distribution, in place), then the blocking ensure; publishes `auto.changed` when any
+  manifest was rewritten; a malformed pin → 422
 - `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
   the stored automation's for the §8 grants context; progress via

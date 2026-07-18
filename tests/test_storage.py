@@ -114,3 +114,39 @@ def test_retention_cleanup(store):
     assert h_old["id"] not in store.execs and h_new["id"] in store.execs
     store.settings["keepForever"] = True
     assert store.retention_cleanup() == 0
+
+
+def test_update_package_pin_rewrites_every_declarer(store):
+    from autodave.storage import Store
+
+    pkgs = [{"pip": "pandas==2.2.3", "import": "pandas"}]
+    a = store.create_automation(make_version(packages=pkgs), "Uses Pandas", None)
+    b = store.create_automation(
+        make_version(packages=[{"pip": "Pandas==2.1.0", "import": "pandas"},
+                               {"pip": "numpy==2.0.0", "import": "numpy"}]),
+        "Also Pandas", None)
+    c = store.create_automation(make_version(), "No Packages", None)
+    store.save_draft(b, make_version(packages=[{"pip": "pandas==2.0.0", "import": "pandas"}]))
+    # older version keeps its pin (§6.2): bump a to v2 first
+    store.save_new_version(a, make_version(packages=pkgs, note="Second"))
+
+    affected = store.update_package_pin("pandas==2.2.4")
+    assert sorted(affected) == ["Also Pandas", "Uses Pandas"]
+
+    s2 = Store()
+    s2.load_all()
+    a2, b2, c2 = s2.autos[a["id"]], s2.autos[b["id"]], s2.autos[c["id"]]
+    # current versions + draft rewritten (name matching is PEP 503-normalized)
+    assert a2["versions"][2]["packages"][0]["pip"] == "pandas==2.2.4"
+    assert b2["versions"][1]["packages"][0]["pip"] == "pandas==2.2.4"
+    assert b2["versions"][1]["packages"][1]["pip"] == "numpy==2.0.0"
+    assert b2["draft"]["packages"][0]["pip"] == "pandas==2.2.4"
+    # older version untouched; undeclaring automation untouched
+    assert a2["versions"][1]["packages"][0]["pip"] == "pandas==2.2.3"
+    assert c2["versions"][1].get("packages") == []
+
+
+def test_update_package_pin_noop_when_already_pinned(store):
+    store.create_automation(
+        make_version(packages=[{"pip": "pandas==2.2.4", "import": "pandas"}]), "Current", None)
+    assert store.update_package_pin("pandas==2.2.4") == []
