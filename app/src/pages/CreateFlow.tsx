@@ -1247,8 +1247,9 @@ export default function CreateFlow() {
   }
 
   // ---- test (§11: create and edit mode) — executes the draft's REAL steps ----
-  // §11 test values: seed from the automation's current values (draft default when
-  // a param is new to the draft) — edited copies live only in this card.
+  // §11 test values: seed from the automation's current values (draft default when a param
+  // is new to the draft; create mode has no automation, so pure draft defaults) — edited
+  // copies live only in this card.
   const seedTestParams = (): ParamDef[] => (rev?.params ?? []).map((d) => {
     const cur = (auto?.params ?? []).find((p) => p.name === d.name && p.kind === d.kind)
     if (d.kind === 'toggle') return { ...d, on: cur ? !!cur.on : !!d.default }
@@ -1272,7 +1273,7 @@ export default function CreateFlow() {
       const { testId } = await api.postTest({
         draft: serializeDraft(rev),
         ...(isEdit && auto ? { autoId: auto.id } : {}), // edit: scratch memory copies the automation's
-        ...(isEdit && testParams ? { paramValues: testParamValues(testParams) } : {}), // §11 test-only values
+        ...(testParams ? { paramValues: testParamValues(testParams) } : {}), // §11 test-only values
         agentId, // the drafting agent also handles the §8 issue analysis on failure
         enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
@@ -1283,13 +1284,6 @@ export default function CreateFlow() {
   }
   const cancelTest = () => {
     if (test?.status === 'executing') void api.cancelTest(test.testId).catch(() => { /* already done */ })
-  }
-
-  // Create-mode param editing (§4.2 behaviors): edits write both the merged display
-  // field and the definition's default — create_automation starts with empty
-  // param_values, so the default IS the initial value.
-  const updParam = (name: string, patch: Record<string, unknown>) => {
-    setRev((r) => r && ({ ...r, params: r.params.map((p) => (p.name === name ? { ...p, ...patch } : p)) }))
   }
 
   // ---------- render ----------
@@ -2143,55 +2137,34 @@ export default function CreateFlow() {
                   )}
                 </div>
 
-                {/* PARAMETERS */}
+                {/* PARAMETERS — display-only (§16): value input lives on the automation page,
+                    test-only values in the Test card */}
                 <div style={cardStyle}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
                     <span style={eyebrowStyle}>PARAMETERS · YOUR AI ASKED FOR THESE</span>
-                    {isEdit && (auto?.params ?? []).length > 0 && (
+                    {!drafting && rev.params.length > 0 && (
                       <span style={{ font: "500 10px var(--mono)", letterSpacing: '.06em', color: 'var(--text-faintest)' }}>READ-ONLY HERE</span>
                     )}
                   </div>
-                  {(() => {
-                    if (drafting) {
-                      return (
-                        <div style={{ padding: '14px 20px 16px', font: "400 12px var(--sans)", color: 'var(--text-faint)' }}>{stageLabel}</div>
-                      )
-                    }
-                    const params = isEdit ? auto?.params ?? [] : rev.params
-                    if (params.length === 0) {
-                      return (
-                        <div style={{ padding: '14px 20px 16px', font: "400 12.5px var(--sans)", color: 'var(--text-muted)' }}>
-                          No settings needed — your AI didn’t ask for any.
+                  {drafting ? (
+                    <div style={{ padding: '14px 20px 16px', font: "400 12px var(--sans)", color: 'var(--text-faint)' }}>{stageLabel}</div>
+                  ) : rev.params.length === 0 ? (
+                    <div style={{ padding: '14px 20px 16px', font: "400 12.5px var(--sans)", color: 'var(--text-muted)' }}>
+                      No settings needed — your AI didn’t ask for any.
+                    </div>
+                  ) : (
+                    <>
+                      {rev.params.map((p) => (
+                        <div key={p.name} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                          <div style={{ font: "600 12.5px var(--sans)" }}>{p.label}</div>
+                          <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>{p.help}</div>
                         </div>
-                      )
-                    }
-                    if (isEdit) {
-                      return (
-                        <>
-                          {params.map((p) => (
-                            <div key={p.name} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                              <div style={{ font: "600 12.5px var(--sans)" }}>{p.label}</div>
-                              <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>{p.help}</div>
-                            </div>
-                          ))}
-                          <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
-                            Values aren’t part of a version — change them on the automation page; they apply on the next execution.
-                          </div>
-                        </>
-                      )
-                    }
-                    // create mode: definitions editable inline (§4.2 edit behaviors)
-                    return (
-                      <div style={lockStyle}>
-                        {params.map((p) => (
-                          <ParamEditor key={p.name} p={p} upd={(patch) => updParam(p.name, patch)} />
-                        ))}
-                        <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
-                          After creation these move to the automation page — changes there apply on the next execution, no new version.
-                        </div>
+                      ))}
+                      <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
+                        Values aren’t part of a version — set them on the automation page after saving; for a test, set test-only values in the Test card.
                       </div>
-                    )
-                  })()}
+                    </>
+                  )}
                 </div>
 
                 {/* PACKAGES · PYTHON LIBRARIES (§6.2) — display-only, right column like
@@ -2306,22 +2279,23 @@ export default function CreateFlow() {
                         </button>
                       )}
                     </div>
-                    {/* §11 test parameter values (edit mode) — collapsed: the test uses the automation's stored values */}
-                    {isEdit && rev.params.length > 0 && (
+                    {/* §11 test parameter values (create + edit) — collapsed: the test uses the
+                        automation's stored values (edit) or the draft defaults (create) */}
+                    {rev.params.length > 0 && (
                       testParams === null ? (
-                        <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--hairline)' }}>
+                        <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--hairline)', ...lockStyle }}>
                           <button className="ad-btn-dashed" onClick={() => setTestParams(seedTestParams())}>
                             <i className="fa-solid fa-sliders" style={{ fontSize: 10 }} /> Set parameter values for this test
                           </button>
                         </div>
                       ) : (
-                        <div style={{ borderBottom: '1px solid var(--hairline)' }}>
+                        <div style={{ borderBottom: '1px solid var(--hairline)', ...lockStyle }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
                             <span style={{ font: "500 10px var(--mono)", letterSpacing: '.06em', color: 'var(--text-faintest)' }}>
                               PARAMETER VALUES · THIS TEST ONLY
                             </span>
                             <button className="ad-btn-soft" onClick={() => setTestParams(null)} style={{ padding: '3px 9px' }}>
-                              Use current values
+                              {isEdit ? 'Use current values' : 'Use defaults'}
                             </button>
                           </div>
                           {testParams.map((p) => (

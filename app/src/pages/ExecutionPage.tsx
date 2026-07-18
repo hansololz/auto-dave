@@ -248,6 +248,7 @@ export default function ExecutionPage() {
               {params.map((p) => (
                 <div key={p.name} style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,.05)' }}>
                   <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{p.label}</span>
+                  {p.help && <span style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-faintest)' }}>{p.help}</span>}
                   <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2em)' }}>{paramSummary(p)}</span>
                 </div>
               ))}

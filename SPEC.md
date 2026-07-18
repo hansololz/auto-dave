@@ -741,7 +741,8 @@ Homebrew is never bundled (custom prefixes forfeit bottles → source builds on 
 **Execution page:** back link, title row with status badge and
 Cancel / Execute-again actions; below the title a mono metadata line: full execution id (copyable) ·
 trigger · version · started · duration. Body is a two-column layout: a **STEPS sidebar** (per-step status
-dot, name, duration — compact, no inline log expansion) plus a parameters block ("Values as used
+dot, name, duration — compact, no inline log expansion) plus a parameters block — per param:
+label, its help description, and the §4.2 one-line summary value ("Values as used
 by this execution."), and a main pane with **Results / Logs tabs** (auto-select Logs when no result). On a failed
 execution a **failure notice** sits above the tabs: red-tinted card, "Failed at step
 `<name>`", the §4.5 possible reason as plain text when present, and the error message in mono.
@@ -1234,7 +1235,7 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   or an agent-ask spec rewrite is in flight, every input on the review screen is disabled:
   the spec Edit and Undo buttons, the ask box and its "Edit with agent" button, the
   agent-enablement and secret-allowance checkbox rows (and the missing-secret add row), the
-  build-instructions Edit button, the create-mode parameter editors, the Test card's "Test the draft"
+  build-instructions Edit button, the Test card's test-values editors and its "Test the draft"
   button, the version menu, the drafting-agent picker, and Discard draft / Start over. The only
   live control is the running job's Cancel button. Every disabled control shares one look:
   45 % opacity, default cursor, no hover response. The step list dims to the same 45 % opacity
@@ -1261,13 +1262,12 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   create mode it shows call 2's drafted triggers (the ones v1 gets); in edit mode the saved
   triggers (user-owned, §5 — a draft never changes them). Empty: "No triggers — executes only
   via Execute now and the menu bar."
-- **PARAMETERS · YOUR AI ASKED FOR THESE** card — in create mode the definitions are editable
-  inline (per-line URL rows with "NOT A VALID LINK" chips, toggle rows, "+ Add line"); in edit
-  mode (when the automation has params) the card is read-only with a "READ-ONLY HERE" tag,
-  listing only each parameter's name and description — never current values — and footer
-  "Values aren't part of a version — change them on the automation page; they apply on the
-  next execution." (create-mode footer: "After creation these move
-  to the automation page — changes there apply on the next execution, no new version."). Empty state:
+- **PARAMETERS · YOUR AI ASKED FOR THESE** card — display-only in **both** create and edit
+  mode, with a "READ-ONLY HERE" tag whenever the draft has params: it lists each draft
+  parameter's name and description — never values, never inline editors. Footer: "Values
+  aren't part of a version — set them on the automation page after saving; for a test, set
+  test-only values in the Test card." Value input lives on the §9.2 detail page (§4.2 edit
+  behaviors) and, test-only, in the Test card panel below. Empty state:
   "No settings needed — your AI didn't ask for any."
 - **Steps** — readable scripts with per-step read-only tags (same tag language as the §9.2
   detail page — never menus): an agent step shows a tag with its assigned agent's name (robot
@@ -1330,13 +1330,15 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   §7 "Execute again"). A test uses: in-editor param values and grants, a throwaway workspace, and
   **scratch memory** — edit mode copies the automation's memory dir, create mode starts empty —
   all discarded when the test ends, so a test can never poison the memory the deployed version
-  reads (§4.1). **Test parameter values (edit mode):** when the draft has params, the card
-  offers a collapsed "Set parameter values for this test" affordance; expanding it shows one
-  editor per param (§4.2 kinds), prefilled with the automation's current values (draft default
-  when a param is new). The edited values ride the §19 `paramValues` body field and apply to
-  this test only — nothing is stored, and the read-only Parameters card is untouched. Left
-  collapsed, the test uses the automation's stored values, exactly like executing the draft.
-  Create mode has no extra inputs — the editable Parameters card's values are the test's values. Side effects outside memory are real (emails send, files move, notifications
+  reads (§4.1). **Test parameter values (create and edit mode):** when the draft has params,
+  the card offers a collapsed "Set parameter values for this test" affordance; expanding it
+  shows one editor per param (§4.2 kinds), prefilled in edit mode with the automation's
+  current values (draft default when a param is new) and in create mode with the draft
+  defaults. The edited values ride the §19 `paramValues` body field and apply to this test
+  only — nothing is stored, and the read-only Parameters card is untouched. Left collapsed,
+  the test uses the automation's stored values (edit) or the draft defaults (create), exactly
+  like executing the draft. The collapse button reads "Use current values" in edit mode and
+  "Use defaults" in create mode. Side effects outside memory are real (emails send, files move, notifications
   post per settings) and the card says so plainly. Step statuses (§4.6 vocabulary) and log
   lines (secret values redacted, §6) stream into the card live over the §19 `test.*` WS
   events; the test stops at the first failed step and is cancellable from the card. A test
