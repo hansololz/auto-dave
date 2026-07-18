@@ -259,11 +259,11 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
   Resuming restores the grant checkboxes from the draft; the automation's live
   stepAgents/allowedSecrets stay untouched until the draft is saved as vN+1. A Draft
   execution honors the draft's grants when present, not the live ones.
-- In edit mode the review footer shows a **Keep draft** bordered button placed to the right
-  of the Save as vN+1 button — always the rightmost control in the footer (only while there
-  is something to keep: touched changes or a stored draft). It leaves the editor through the
-  same keep path as the header back button — so keeping the draft is a visible choice, not
-  an accident of which button you noticed.
+- In edit mode the review footer shows a **Keep draft** bordered button placed directly to
+  the left of the Save as vN+1 button (only while there is something to keep: touched
+  changes or a stored draft). It leaves the editor through the same keep path as the header
+  back button — so keeping the draft is a visible choice, not an accident of which button
+  you noticed.
 - Editor version menu lists: Draft ("your working copy — unsaved"), current vN ("current · …"),
   each older vN (date · note). Loading an old version shows a banner: "Loaded vX from history.
   Saving restores it as vN+1 — your draft stays in the Version menu." with a bordered

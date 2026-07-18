@@ -1499,16 +1499,16 @@ export default function CreateFlow() {
                 <button className="ad-btn-text dim" disabled={busyRewrite} onClick={() => void startOver()} style={{ font: "500 12.5px var(--sans)", padding: '6px 4px' }}>
                   {isEdit ? 'Discard draft' : 'Start over'}
                 </button>
-                <BtnPrimary onClick={() => void doSave()} disabled={saveBlocked} style={{ padding: '9px 16px' }}>
-                  {isEdit && auto
-                    ? (viewingOld ? `Restore v${rev.viewing} as v${auto.version + 1}` : `Save as v${auto.version + 1}`)
-                    : 'Create automation'}
-                </BtnPrimary>
                 {isEdit && (rev.touched || !!auto?.draft) && (
                   <button className="ad-btn-ghost" onClick={() => void close()} style={{ padding: '8px 15px' }}>
                     Keep draft
                   </button>
                 )}
+                <BtnPrimary onClick={() => void doSave()} disabled={saveBlocked} style={{ padding: '9px 16px' }}>
+                  {isEdit && auto
+                    ? (viewingOld ? `Restore v${rev.viewing} as v${auto.version + 1}` : `Save as v${auto.version + 1}`)
+                    : 'Create automation'}
+                </BtnPrimary>
               </div>
             </div>
             <p style={{ font: "400 13.5px/1.6 var(--sans)", color: 'var(--text-2)', margin: '0 0 20px' }}>
