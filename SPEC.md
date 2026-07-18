@@ -1140,7 +1140,7 @@ buttons out of the window), version dropdown (edit mode), agent picker, Start ov
 nothing executes until you create it." When an execution is live during an edit, a cyan pulsing banner
 shows: "An execution is happening right now on vN. Saving won't interrupt it — that execution finishes on vN.
 vN+1 takes over from the next execution (`<short label of the next trigger>`)." Sections (left column: spec, agents,
-secrets, instructions, framework; right column: steps, triggers, parameters, test):
+secrets, instructions, framework; right column: steps, triggers, parameters, packages, test):
 - **Spec** — collapsible card (caret + `SPEC` header toggle; defaults open on create — it is
   the drafting surface — and on edit; force-open while the spec is writing, showing
   clarification cards, or being edited, and the Edit/Cancel/Save
@@ -1257,17 +1257,20 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
 - **Secrets** — step code is scanned for `secrets.NAME`; secrets in Keychain but not allowed, and
   secrets missing from Keychain, each produce warnings with fix affordances. "X of Y allowed".
   Collapsible card, defaults open, forced open while a warning shows.
-- **PACKAGES** card — rendered only when the draft declares §6.2 packages (most automations
-  don't; they pay no UI). Read-only like the Triggers card: the drafting pipeline owns the
-  list, the user never edits pins. One row per package — the `pip` spec in mono plus a status
-  chip: **installed** (green check) · **installing** (spinner) · **not installed** (amber — a
+- **PACKAGES** card — in the **right column**, below the Parameters card: display-only like
+  Triggers and Parameters — the drafting pipeline owns the list, the user never edits pins.
+  One row per §6.2 declared package — the `pip` spec in mono plus a status chip:
+  **installed** (green check) · **installing** (spinner) · **not installed** (amber — a
   saved automation whose packages went missing, found by the §19 check on page load) ·
   **failed** (red; the plain-word error beneath in mono, e.g. the §7 category wording with the
-  pip stderr tail). Header counts "N of M installed". Amber and red rows share one **"Install"
-  / "Retry"** button (the §19 install call; rows show spinners while it runs). Collapsible:
-  defaults collapsed when everything is installed, forced open while any row is installing,
-  not installed, or failed. Footer: "Your AI picked these Python packages. They install
-  automatically — nothing for you to run." In edit mode the page checks statuses once on load
+  pip stderr tail). Header counts "N of M installed" (no count when the list is empty). Amber
+  and red rows share one **"Install" / "Retry"** button (the §19 install call; rows show
+  spinners while it runs). Collapsible: defaults collapsed when everything is installed,
+  forced open while any row is installing, not installed, or failed. Footer: "Your AI picked
+  these Python packages for the steps. They install automatically — nothing for you to run."
+  Empty state (like the Parameters card's): "No extra packages — the steps use only the
+  built-in libraries." While drafting, the card shows the right-column stage label like
+  Triggers/Parameters. In edit mode the page checks statuses once on load
   (§19 `POST /packages/check`); during a create/sync job the card fills from the job's draft
   payload statuses (§8). An install failure never blocks saving — executions self-heal (§7) —
   so the card carries the warning without gating Save.

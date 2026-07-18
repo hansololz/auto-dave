@@ -1835,68 +1835,6 @@ export default function CreateFlow() {
                   )}
                 </div>
 
-                {/* PACKAGES · PYTHON LIBRARIES (§6.2 — only when the draft declares any) */}
-                {rev.packages.length > 0 && (
-                  <div style={cardStyle}>
-                    <div
-                      onClick={() => up({ pkgSecOpen: !pkgSecOpenEff })}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 20px', cursor: 'pointer', userSelect: 'none' }}
-                    >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                        <i className={pkgSecOpenEff ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-right'} style={{ width: 14, flex: 'none', textAlign: 'center', fontSize: 10, color: '#4a515c' }} />
-                        <span style={eyebrowStyle}>PACKAGES · PYTHON LIBRARIES</span>
-                      </span>
-                      <span style={{ font: "500 10.5px var(--mono)", color: 'var(--text-faintest)', whiteSpace: 'nowrap', flex: 'none' }}>
-                        {rev.packages.filter((p) => p.status === 'installed').length} of {rev.packages.length} installed
-                      </span>
-                    </div>
-                    {!pkgSecOpenEff && (
-                      <div onClick={() => up({ pkgSecOpen: true })} style={{ padding: '0 20px 13px 43px', font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-faintest)', cursor: 'pointer', userSelect: 'none' }}>
-                        Python packages this automation needs. They install automatically — nothing for you to run.
-                      </div>
-                    )}
-                    {pkgSecOpenEff && (
-                      <div style={{ borderTop: '1px solid var(--hairline)' }}>
-                        {rev.packages.map((p) => (
-                          <div key={p.pip} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                              <div style={{ flex: 1, minWidth: 0, font: "500 12px var(--mono)", color: 'var(--text)' }}>{p.pip}</div>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 'none', whiteSpace: 'nowrap', font: "600 10px var(--mono)",
-                                color: p.status === 'installed' ? 'var(--green)'
-                                  : p.status === 'failed' ? 'var(--red)'
-                                    : p.status === 'missing' ? 'var(--amber)' : 'var(--text-faint)' }}>
-                                {p.status === 'installed' && <><i className="fa-solid fa-check" style={{ fontSize: 9 }} /> installed</>}
-                                {p.status === 'installing' && <><i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 9 }} /> installing…</>}
-                                {p.status === 'missing' && 'not installed'}
-                                {p.status === 'failed' && 'failed'}
-                                {!p.status && 'checking…'}
-                              </span>
-                            </div>
-                            {p.status === 'failed' && p.error && (
-                              <div style={{ margin: '6px 0 0', font: "400 10.5px/1.5 var(--mono)", color: 'var(--red)', overflowWrap: 'break-word' }}>{p.error}</div>
-                            )}
-                          </div>
-                        ))}
-                        {rev.packages.some((p) => p.status === 'missing' || p.status === 'failed') && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                            <span style={{ flex: 1, font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)' }}>
-                              {rev.packages.some((p) => p.status === 'failed')
-                                ? 'A package couldn’t be installed — check your connection, then retry. Saving still works; executions retry on their own too.'
-                                : 'Some packages aren’t installed yet. Executions install them automatically — or install now.'}
-                            </span>
-                            <button className="ad-btn-soft" disabled={rev.pkgBusy || busyRewrite} onClick={() => void installPkgs()} style={{ flex: 'none' }}>
-                              {rev.packages.some((p) => p.status === 'failed') ? 'Retry install' : 'Install'}
-                            </button>
-                          </div>
-                        )}
-                        <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
-                          Your AI picked these Python packages for the steps. They install automatically — nothing for you to run.
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* BUILD INSTRUCTIONS */}
                 <div style={cardStyle}>
                   <div
@@ -2203,6 +2141,76 @@ export default function CreateFlow() {
                       </div>
                     )
                   })()}
+                </div>
+
+                {/* PACKAGES · PYTHON LIBRARIES (§6.2) — display-only, right column like
+                    Triggers/Parameters: the drafting pipeline owns the list */}
+                <div style={cardStyle}>
+                  <div
+                    onClick={() => rev.packages.length > 0 && up({ pkgSecOpen: !pkgSecOpenEff })}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 20px', cursor: rev.packages.length > 0 ? 'pointer' : 'default', userSelect: 'none' }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                      {rev.packages.length > 0 && (
+                        <i className={pkgSecOpenEff ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-right'} style={{ width: 14, flex: 'none', textAlign: 'center', fontSize: 10, color: '#4a515c' }} />
+                      )}
+                      <span style={eyebrowStyle}>PACKAGES · PYTHON LIBRARIES</span>
+                    </span>
+                    {rev.packages.length > 0 && (
+                      <span style={{ font: "500 10.5px var(--mono)", color: 'var(--text-faintest)', whiteSpace: 'nowrap', flex: 'none' }}>
+                        {rev.packages.filter((p) => p.status === 'installed').length} of {rev.packages.length} installed
+                      </span>
+                    )}
+                  </div>
+                  {drafting ? (
+                    <div style={{ borderTop: '1px solid var(--hairline)', padding: '14px 20px 16px', font: "400 12px var(--sans)", color: 'var(--text-faint)' }}>{stageLabel}</div>
+                  ) : rev.packages.length === 0 ? (
+                    <div style={{ borderTop: '1px solid var(--hairline)', padding: '14px 20px 16px', font: "400 12.5px var(--sans)", color: 'var(--text-muted)' }}>
+                      No extra packages — the steps use only the built-in libraries.
+                    </div>
+                  ) : !pkgSecOpenEff ? (
+                    <div onClick={() => up({ pkgSecOpen: true })} style={{ padding: '0 20px 13px 43px', font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-faintest)', cursor: 'pointer', userSelect: 'none' }}>
+                      Python packages this automation needs. They install automatically — nothing for you to run.
+                    </div>
+                  ) : (
+                    <div style={{ borderTop: '1px solid var(--hairline)' }}>
+                      {rev.packages.map((p) => (
+                        <div key={p.pip} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ flex: 1, minWidth: 0, font: "500 12px var(--mono)", color: 'var(--text)' }}>{p.pip}</div>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 'none', whiteSpace: 'nowrap', font: "600 10px var(--mono)",
+                              color: p.status === 'installed' ? 'var(--green)'
+                                : p.status === 'failed' ? 'var(--red)'
+                                  : p.status === 'missing' ? 'var(--amber)' : 'var(--text-faint)' }}>
+                              {p.status === 'installed' && <><i className="fa-solid fa-check" style={{ fontSize: 9 }} /> installed</>}
+                              {p.status === 'installing' && <><i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 9 }} /> installing…</>}
+                              {p.status === 'missing' && 'not installed'}
+                              {p.status === 'failed' && 'failed'}
+                              {!p.status && 'checking…'}
+                            </span>
+                          </div>
+                          {p.status === 'failed' && p.error && (
+                            <div style={{ margin: '6px 0 0', font: "400 10.5px/1.5 var(--mono)", color: 'var(--red)', overflowWrap: 'break-word' }}>{p.error}</div>
+                          )}
+                        </div>
+                      ))}
+                      {rev.packages.some((p) => p.status === 'missing' || p.status === 'failed') && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                          <span style={{ flex: 1, font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)' }}>
+                            {rev.packages.some((p) => p.status === 'failed')
+                              ? 'A package couldn’t be installed — check your connection, then retry. Saving still works; executions retry on their own too.'
+                              : 'Some packages aren’t installed yet. Executions install them automatically — or install now.'}
+                          </span>
+                          <button className="ad-btn-soft" disabled={rev.pkgBusy || busyRewrite} onClick={() => void installPkgs()} style={{ flex: 'none' }}>
+                            {rev.packages.some((p) => p.status === 'failed') ? 'Retry install' : 'Install'}
+                          </button>
+                        </div>
+                      )}
+                      <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
+                        Your AI picked these Python packages for the steps. They install automatically — nothing for you to run.
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* TEST — §11: executes the draft's real steps, scratch memory */}
