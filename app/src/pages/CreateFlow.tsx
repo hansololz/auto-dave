@@ -2302,7 +2302,7 @@ export default function CreateFlow() {
                           onClick={() => void runTest()}
                           style={{ padding: '4px 10px' }}
                         >
-                          {test ? 'Execute again' : 'Execute the draft'}
+                          {test ? 'Test again' : 'Test the draft'}
                         </button>
                       )}
                     </div>

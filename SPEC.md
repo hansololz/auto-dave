@@ -1234,7 +1234,7 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   or an agent-ask spec rewrite is in flight, every input on the review screen is disabled:
   the spec Edit and Undo buttons, the ask box and its "Edit with agent" button, the
   agent-enablement and secret-allowance checkbox rows (and the missing-secret add row), the
-  build-instructions Edit button, the create-mode parameter editors, the Test card's execute
+  build-instructions Edit button, the create-mode parameter editors, the Test card's "Test the draft"
   button, the version menu, the drafting-agent picker, and Discard draft / Start over. The only
   live control is the running job's Cancel button. Every disabled control shares one look:
   45 % opacity, default cursor, no hover response. The step list dims to the same 45 % opacity
@@ -1324,7 +1324,10 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   Collapsed hint and footer copy: built-in instructions the AI reads before writing anything,
   word for word — they update with the app, nothing for the user to maintain.
 - **Test** — executes the draft's **real steps** through the same engine path as a real
-  execution (there is no simulation mode): in-editor param values and grants, a throwaway workspace, and
+  execution (there is no simulation mode). The card's header button reads **"Test the draft"**
+  ("Test again" once a test has happened this editing session; Cancel while a test is
+  executing) — never "Execute", which is reserved for real executions (§4.4 "Execute draft",
+  §7 "Execute again"). A test uses: in-editor param values and grants, a throwaway workspace, and
   **scratch memory** — edit mode copies the automation's memory dir, create mode starts empty —
   all discarded when the test ends, so a test can never poison the memory the deployed version
   reads (§4.1). **Test parameter values (edit mode):** when the draft has params, the card
