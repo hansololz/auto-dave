@@ -127,24 +127,38 @@ function MdTable({ lines, keyBase }: { lines: string[]; keyBase: string }) {
   const parse = (l: string) => l.replace(/^\||\|$/g, '').split('|').map((c) => c.trim())
   const header = parse(lines[0])
   const rows = lines.slice(2).map(parse)
-  const cols = `repeat(${header.length}, auto)`
+  const gutters = (j: number): React.CSSProperties => ({
+    paddingLeft: j === 0 ? 18 : 5,
+    paddingRight: j === header.length - 1 ? 18 : 5,
+  })
   return (
     <div style={{ margin: '4px -18px', borderTop: '1px solid var(--hairline)', borderBottom: '1px solid var(--hairline)', overflowX: 'auto' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, padding: '9px 18px', borderBottom: '1px solid var(--hairline)', background: 'var(--bg-inset)' }}>
-        {header.map((h, i) => <Eyebrow key={i} style={{ fontSize: 9.5 }}>{h.toUpperCase()}</Eyebrow>)}
-      </div>
-      {rows.map((r, i) => (
-        <div key={i} style={{
-          display: 'grid', gridTemplateColumns: cols, gap: 10, padding: '10px 18px', alignItems: 'center',
-          borderBottom: i < rows.length - 1 ? '1px solid var(--hairline)' : 'none',
-        }}>
-          {header.map((_, j) => (
-            <div key={j} style={{ fontSize: 12.5, color: j === 0 ? 'var(--text)' : 'var(--text-2)', fontWeight: j === 0 ? 500 : 400 }}>
-              {mdInline(r[j] ?? '', `${keyBase}-${i}-${j}`)}
-            </div>
+      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+        <thead>
+          <tr style={{ background: 'var(--bg-inset)' }}>
+            {header.map((h, i) => (
+              <th key={i} style={{ paddingTop: 9, paddingBottom: 9, textAlign: 'left', ...gutters(i) }}>
+                <Eyebrow style={{ fontSize: 9.5 }}>{h.toUpperCase()}</Eyebrow>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              {header.map((_, j) => (
+                <td key={j} style={{
+                  paddingTop: 10, paddingBottom: 10, ...gutters(j), verticalAlign: 'top',
+                  borderTop: '1px solid var(--hairline)', overflowWrap: 'break-word',
+                  fontSize: 12.5, lineHeight: 1.55, color: j === 0 ? 'var(--text)' : 'var(--text-2)', fontWeight: j === 0 ? 500 : 400,
+                }}>
+                  {mdInline(r[j] ?? '', `${keyBase}-${i}-${j}`)}
+                </td>
+              ))}
+            </tr>
           ))}
-        </div>
-      ))}
+        </tbody>
+      </table>
     </div>
   )
 }
