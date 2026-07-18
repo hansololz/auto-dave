@@ -208,6 +208,8 @@ class Store:
             "steps": steps,
             "spec": md_to_blocks(spec_md),
             "instr": instr,
+            "step_agents": meta.get("step_agents"),
+            "allowed_secrets": meta.get("allowed_secrets"),
         }
 
     def _refresh_exec_derived(self) -> None:
@@ -263,6 +265,9 @@ class Store:
             "desc": ver.get("desc", ""),
             "params": ver.get("params", []),
             **({"packages": pkgs} if pkgs else {}),
+            # §4.4 draft-only grant selections — never present for real versions
+            **({"step_agents": ver["step_agents"]} if ver.get("step_agents") is not None else {}),
+            **({"allowed_secrets": ver["allowed_secrets"]} if ver.get("allowed_secrets") is not None else {}),
             "steps": manifest_steps,
         })
         atomic_write_text(vd / "spec.md", blocks_to_md(ver.get("spec", [])))
@@ -694,7 +699,9 @@ class Store:
                 "spec": ver.get("spec", []), "instr": ver.get("instr") or "",
                 "steps": [self.step_json(a, s) for s in ver.get("steps", [])],
                 "params": ver.get("params", []),
-                "packages": ver.get("packages", [])}
+                "packages": ver.get("packages", []),
+                **({"stepAgents": ver["step_agents"]} if ver.get("step_agents") is not None else {}),
+                **({"allowedSecrets": ver["allowed_secrets"]} if ver.get("allowed_secrets") is not None else {})}
 
     def step_json(self, a: dict, s: dict) -> dict:
         out = {"name": s.get("name", ""), "desc": s.get("desc", ""), "code": s.get("code", ""), "file": s.get("file")}

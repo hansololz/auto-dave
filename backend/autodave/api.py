@@ -215,7 +215,13 @@ def save_version(auto_id: str, body: dict) -> dict:
 @app.put("/automations/{auto_id}/draft", dependencies=[Depends(auth)])
 def put_draft(auto_id: str, body: dict) -> dict:
     a = _auto_or_404(auto_id)
-    store.save_draft(a, _draft_to_version(body.get("draft") or {}))
+    d = body.get("draft") or {}
+    # §4.4: the draft snapshot carries the editor's grant selections as
+    # draft-only keys — never applied to the automation's live grants.
+    ver = _draft_to_version(d)
+    ver["step_agents"] = d.get("stepAgents")
+    ver["allowed_secrets"] = d.get("allowedSecrets")
+    store.save_draft(a, ver)
     hub.publish("auto.changed", autoId=auto_id)
     return {"ok": True}
 

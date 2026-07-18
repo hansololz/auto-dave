@@ -258,6 +258,15 @@ class Engine:
                           "dur": dur_label(s["dur_ms"]) if s.get("dur_ms") else ""})
 
     def _execute(self, auto: dict, ver: dict, h: dict, start_idx: int, state: dict) -> None:
+        # §4.4: a draft carries its own grant selections — a Draft execution
+        # honors them instead of the automation's live grants. Shadow copy only;
+        # the stored automation is never touched.
+        if ver.get("step_agents") is not None or ver.get("allowed_secrets") is not None:
+            auto = {**auto,
+                    "enabled_agents": ver["step_agents"] if ver.get("step_agents") is not None
+                    else auto["enabled_agents"],
+                    "allowed_secrets": ver["allowed_secrets"] if ver.get("allowed_secrets") is not None
+                    else auto["allowed_secrets"]}
         result: dict[str, Any] = {"status": "ok", "chip": None, "chips": [], "values": []}
         result_touched = False
         notify_text: str | None = None

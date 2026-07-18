@@ -249,7 +249,21 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
   `current_version` pointer flip, per §5), applies spec/steps/instr/stepAgents/allowedSecrets/
   agentId, sets `specMeta` to "vN · updated Today". Prior versions are untouched.
 - Leaving the editor with unsaved touched changes snapshots a **draft** onto the automation
-  (toast: "Draft kept — resume or execute it from this automation anytime.").
+  (toast: "Draft kept — resume or execute it from this automation anytime."). Every exit path
+  persists it — the header back button, system back/forward navigation, anything that closes
+  the editor — never just the header button. Discard draft and Save as vN+1 settle the draft:
+  leaving after either writes nothing (a discarded or saved draft is never resurrected).
+- The draft snapshot carries the **full working state**: spec, steps, instructions, params,
+  packages, and the editor's step-agents + allowed-secrets grant selections (stored as
+  draft-only `step_agents` / `allowed_secrets` keys in `draft/automation/automation.yaml`, §5).
+  Resuming restores the grant checkboxes from the draft; the automation's live
+  stepAgents/allowedSecrets stay untouched until the draft is saved as vN+1. A Draft
+  execution honors the draft's grants when present, not the live ones.
+- In edit mode the review footer shows a **Keep draft** bordered button placed to the right
+  of the Save as vN+1 button — always the rightmost control in the footer (only while there
+  is something to keep: touched changes or a stored draft). It leaves the editor through the
+  same keep path as the header back button — so keeping the draft is a visible choice, not
+  an accident of which button you noticed.
 - Editor version menu lists: Draft ("your working copy — unsaved"), current vN ("current · …"),
   each older vN (date · note). Loading an old version shows a banner: "Loaded vX from history.
   Saving restores it as vN+1 — your draft stays in the Version menu." with a bordered
@@ -406,7 +420,9 @@ automations/<slug>/
                                # is a crash orphan (skipped, swept at the next creation)
   draft/                       # unsaved edit state — a container, not a version folder:
     automation/                # the working copy, same shape as a version folder; rewritten
-                               # whole on every draft save
+                               # whole on every draft save; its automation.yaml also holds
+                               # draft-only step_agents / allowed_secrets keys (§4.4 — the
+                               # editor's grant selections; never written for real versions)
     memory/                    # the draft's own working memory: created on the first Draft
                                # execution as a copy of memory/, reused by every later Draft
                                # execution and draft re-save, deleted with the draft — Draft
@@ -1716,7 +1732,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `{ execId }` (409 while live)
 - `POST /automations` `{ draft }` — create v1 from a validated draft
 - `POST /automations/{id}/versions` `{ draft }` — save edit as vN+1
-- `PUT /automations/{id}/draft` · `DELETE /automations/{id}/draft` — the §4.4 draft snapshot
+- `PUT /automations/{id}/draft` · `DELETE /automations/{id}/draft` — the §4.4 draft snapshot;
+  the payload's stepAgents/allowedSecrets are stored as draft-only keys and echoed back on
+  the automation's `draft` object
 - `POST /automations/{id}/restore` `{ v }` — copy vX to vN+1 (§5)
 - `POST /automations/{id}/memory/clear` — §6.3 pre-clear snapshot, then empty the §4.1 memory
   directory (backs §9.2 "Clear memory")

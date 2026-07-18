@@ -325,10 +325,17 @@ function seedFromAuto(a: Auto, agents: Agent[], secretNames: string[]): Rev {
     packages: (src.packages ?? []).map((p) => ({ ...p })),
     triggers: a.triggers.map(({ kind, off, expr, at }) => ({ kind, off, expr, at })),
     instr: src.instr || '',
-    enabledAgents: a.stepAgents ? a.stepAgents.filter((id) => agents.some((g) => g.id === id)) : agents.map((g) => g.id),
-    allowedSecrets: a.allowedSecrets
-      ? a.allowedSecrets.filter((n) => secretNames.includes(n))
-      : refs.filter((r) => secretNames.includes(r.name)).map((r) => r.name),
+    // §4.4: a draft carries its own grant selections — resume restores them
+    enabledAgents: (() => {
+      const g = a.draft?.stepAgents ?? a.stepAgents
+      return g ? g.filter((id) => agents.some((x) => x.id === id)) : agents.map((x) => x.id)
+    })(),
+    allowedSecrets: (() => {
+      const g = a.draft?.allowedSecrets ?? a.allowedSecrets
+      return g
+        ? g.filter((n) => secretNames.includes(n))
+        : refs.filter((r) => secretNames.includes(r.name)).map((r) => r.name)
+    })(),
     touched: !!a.draft,
   }
 }
@@ -364,6 +371,8 @@ function serializeDraft(r: Rev): DraftPayload {
     spec: r.spec,
     instr: r.instr,
     triggers: r.triggers,
+    stepAgents: r.enabledAgents,
+    allowedSecrets: r.allowedSecrets,
   }
 }
 
@@ -684,6 +693,23 @@ export default function CreateFlow() {
   const applyBlockedRef = useRef(false)
   const draftSnap = useRef<Rev | null>(null)
   const seededRef = useRef(false)
+
+  // §4.4: any exit path keeps the draft — system back/forward unmounts the editor
+  // without going through close(), so the persist lives in unmount cleanup.
+  // Discard and save settle the draft so leaving afterwards writes nothing.
+  const revRef = useRef(rev)
+  revRef.current = rev
+  const autoRef = useRef(auto)
+  autoRef.current = auto
+  const draftSettled = useRef(false)
+  useEffect(() => () => {
+    const r = revRef.current
+    const a = autoRef.current
+    if (draftSettled.current || !isEdit || !a) return
+    if (r && r.viewing === 'draft' && (r.touched || a.draft)) {
+      void api.putDraft(a.id, serializeDraft(r)).catch(() => { /* backend restarting */ })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const up = (patch: Partial<Rev>) => setRev((r) => (r ? { ...r, ...patch } : r))
 
@@ -1178,6 +1204,7 @@ export default function CreateFlow() {
     if (isEdit && auto) {
       if (rev && rev.viewing === 'draft' && (rev.touched || auto.draft)) {
         try { await api.putDraft(auto.id, serializeDraft(rev)) } catch { /* backend restarting */ }
+        draftSettled.current = true
         showToast('Draft kept — resume or execute it from this automation anytime.', 3400)
       }
       setSurface('app')
@@ -1194,6 +1221,7 @@ export default function CreateFlow() {
       // Discard draft → back to detail
       try { await api.deleteDraft(auto.id) } catch { /* none saved yet */ }
       draftSnap.current = null
+      draftSettled.current = true
       setSurface('app')
       go('automation')
       showToast(`Changes discarded — back to v${auto.version} as saved.`, 3200)
@@ -1205,6 +1233,7 @@ export default function CreateFlow() {
   const doSave = async () => {
     if (!rev || saveBlocked) return
     try {
+      draftSettled.current = true
       if (isEdit && auto) {
         if (typeof rev.viewing === 'number' && rev.viewing !== auto.version) {
           const { version } = await api.restore(auto.id, rev.viewing)
@@ -1236,6 +1265,7 @@ export default function CreateFlow() {
         showToast('Created — nothing has executed yet. Press Execute now when you’re ready.', 3600)
       }
     } catch (e) {
+      draftSettled.current = false
       showToast((e as Error).message)
     }
   }
@@ -1474,6 +1504,11 @@ export default function CreateFlow() {
                     ? (viewingOld ? `Restore v${rev.viewing} as v${auto.version + 1}` : `Save as v${auto.version + 1}`)
                     : 'Create automation'}
                 </BtnPrimary>
+                {isEdit && (rev.touched || !!auto?.draft) && (
+                  <button className="ad-btn-ghost" onClick={() => void close()} style={{ padding: '8px 15px' }}>
+                    Keep draft
+                  </button>
+                )}
               </div>
             </div>
             <p style={{ font: "400 13.5px/1.6 var(--sans)", color: 'var(--text-2)', margin: '0 0 20px' }}>

@@ -67,6 +67,9 @@ export interface VersionInfo {
   steps: Step[]
   params: ParamDef[]
   packages: PackageDep[]
+  // §4.4 draft-only: the editor's grant selections; absent on real versions
+  stepAgents?: string[]
+  allowedSecrets?: string[]
 }
 
 // §4.3 trigger — cron or one-shot time; discord/imessage/pubsub are reserved
@@ -191,6 +194,9 @@ export interface DraftPayload {
   instr?: string | null
   triggers?: DraftTrigger[]  // §8: cron-only in drafts
   secretRefs?: string[]
+  // §4.4: grant selections carried by the draft snapshot
+  stepAgents?: string[]
+  allowedSecrets?: string[]
 }
 
 // §8 blocker envelope entry — a `blocked` job's payload.
