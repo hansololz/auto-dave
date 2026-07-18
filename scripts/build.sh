@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # ---- backend ----
 if [ ! -x "$ROOT/.venv/bin/python" ]; then
   echo "· creating venv"
-  python3.12 -m venv "$ROOT/.venv"
+  python3.14 -m venv "$ROOT/.venv"
 fi
 PY_STAMP="$ROOT/.venv/.backend-stamp"
 if [ ! -f "$PY_STAMP" ] || [ "$ROOT/backend/pyproject.toml" -nt "$PY_STAMP" ]; then

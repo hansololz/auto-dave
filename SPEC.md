@@ -48,7 +48,7 @@ Four components (per top-level README):
   secrets and agents. Headless operation is a supported mode (§3), not just a debug aid.
 
 **Stack (decided):** the Electron renderer is React 18 + TypeScript + Vite (state: one zustand
-store mirroring the §4 model). The backend is Python 3.12 + FastAPI/uvicorn (PyYAML, keyring for
+store mirroring the §4 model). The backend is Python 3.14 + FastAPI/uvicorn (PyYAML, keyring for
 Keychain; request/response bodies are plain dicts — pydantic is not used directly). Transport is localhost HTTP (JSON) plus one WebSocket for live events —
 the full API surface is §19. Packaging is decided — see §3. Storage is decided — see §5.
 
@@ -1527,7 +1527,7 @@ Dev workflow:
   what dev.sh uses.
 - **`./scripts/prod.sh`** — the production distribution (§3), under `build/` (gitignored).
   Invokes `build.sh` (full), then: downloads the pinned relocatable CPython
-  (python-build-standalone `20250612` / CPython `3.12.11`, arch from `uname -m`, tarball
+  (python-build-standalone `20260623` / CPython `3.14.6`, arch from `uname -m`, tarball
   cached in `build/cache/`, URL overridable via `AUTODAVE_PBS_URL`), pip-installs the backend
   + curated packages into it (inside the bundle the backend/CLI execute as
   `python3 -m autodave.main` / `-m autodave.cli` — pip's `bin/` entry scripts carry absolute
@@ -1576,7 +1576,7 @@ Dev workflow:
   `AUTODAVE_HOME` is set, §5); creates missing backend logs so `tail` starts clean.
   **`--clear`** truncates the logs in place first (`: >` — writers keep their open
   append-mode handles), then follows.
-- Backend: `python3.12 -m venv .venv && .venv/bin/pip install -e "backend[dev]"`; test with
+- Backend: `python3.14 -m venv .venv && .venv/bin/pip install -e "backend[dev]"`; test with
   `.venv/bin/python -m pytest tests/`; dev.sh launches the backend via `python -m autodave.main`
   (equivalent to the `autodave-backend` entry point); start an isolated backend (real agent CLIs,
   real Keychain, empty home) with `AUTODAVE_HOME=<dir> AUTODAVE_PORT=8799 .venv/bin/autodave-backend`.

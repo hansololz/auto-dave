@@ -25,8 +25,8 @@ case "$ARCH" in
 esac
 
 # ---- bundled relocatable CPython (python-build-standalone, pinned) ----
-PBS_TAG="20250612"
-PY_FULL="3.12.11"
+PBS_TAG="20260623"
+PY_FULL="3.14.6"
 PBS_URL="${AUTODAVE_PBS_URL:-https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_TAG/cpython-$PY_FULL+$PBS_TAG-$PBS_ARCH-install_only.tar.gz}"
 TARBALL="$CACHE/$(basename "$PBS_URL")"
 if [ ! -f "$TARBALL" ]; then

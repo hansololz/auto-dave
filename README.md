@@ -31,7 +31,7 @@ Manual pieces, if you need them separately:
 
 ```bash
 # backend + tests
-python3.12 -m venv .venv && .venv/bin/pip install -e "backend[dev]"
+python3.14 -m venv .venv && .venv/bin/pip install -e "backend[dev]"
 .venv/bin/python -m pytest tests/
 
 # isolated backend (real agent CLIs, real Keychain; starts empty)
