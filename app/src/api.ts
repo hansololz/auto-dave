@@ -56,6 +56,15 @@ export const api = {
     req<import('./types').Auto>('PATCH', `/automations/${autoId}`, patch),
   deleteAuto: (autoId: string) => req('DELETE', `/automations/${autoId}`),
   clearMemory: (autoId: string) => req('POST', `/automations/${autoId}/memory/clear`),
+  // §6.3 memory snapshots
+  createSnapshot: (autoId: string, name?: string) =>
+    req<{ snapshot: import('./types').MemorySnapshot }>('POST', `/automations/${autoId}/memory/snapshots`, { name }),
+  renameSnapshot: (autoId: string, sid: string, name: string | null) =>
+    req<{ snapshot: import('./types').MemorySnapshot }>('PATCH', `/automations/${autoId}/memory/snapshots/${sid}`, { name }),
+  restoreSnapshot: (autoId: string, sid: string) =>
+    req('POST', `/automations/${autoId}/memory/snapshots/${sid}/restore`),
+  deleteSnapshot: (autoId: string, sid: string) =>
+    req('DELETE', `/automations/${autoId}/memory/snapshots/${sid}`),
   createAuto: (body: Record<string, unknown>) => req<import('./types').Auto>('POST', '/automations', body),
   saveVersion: (autoId: string, body: Record<string, unknown>) =>
     req<{ version: number }>('POST', `/automations/${autoId}/versions`, body),

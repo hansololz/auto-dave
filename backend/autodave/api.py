@@ -332,7 +332,51 @@ def checks(auto_id: str, body: dict | None = None) -> dict:
 def clear_memory(auto_id: str) -> dict:
     # §9.2 MEMORY card: "Clear memory" — next execution starts fresh.
     a = _auto_or_404(auto_id)
+    store.snapshot_memory(a, "pre-clear")  # §6.3 — skips silently when memory is empty
     store.clear_memory(a)
+    hub.publish("auto.changed", autoId=auto_id)
+    return {"ok": True}
+
+
+@app.post("/automations/{auto_id}/memory/snapshots", dependencies=[Depends(auth)])
+def create_snapshot(auto_id: str, body: dict | None = None) -> dict:
+    # §6.3 manual snapshot — 409 while live, 422 when memory is empty.
+    a = _auto_or_404(auto_id)
+    if a.get("_live"):
+        raise HTTPException(409, "an execution is in progress")
+    meta = store.snapshot_memory(a, "manual", name=((body or {}).get("name") or "").strip() or None)
+    if meta is None:
+        raise HTTPException(422, "memory is empty")
+    hub.publish("auto.changed", autoId=auto_id)
+    return {"snapshot": store.snapshot_json(meta)}
+
+
+@app.patch("/automations/{auto_id}/memory/snapshots/{sid}", dependencies=[Depends(auth)])
+def rename_snapshot(auto_id: str, sid: str, body: dict | None = None) -> dict:
+    a = _auto_or_404(auto_id)
+    meta = store.rename_snapshot(a, sid, (body or {}).get("name"))
+    if meta is None:
+        raise HTTPException(404, "snapshot not found")
+    hub.publish("auto.changed", autoId=auto_id)
+    return {"snapshot": store.snapshot_json(meta)}
+
+
+@app.post("/automations/{auto_id}/memory/snapshots/{sid}/restore", dependencies=[Depends(auth)])
+def restore_snapshot(auto_id: str, sid: str) -> dict:
+    a = _auto_or_404(auto_id)
+    if a.get("_live"):
+        raise HTTPException(409, "an execution is in progress")
+    if store.restore_snapshot(a, sid) is None:
+        raise HTTPException(404, "snapshot not found")
+    hub.publish("auto.changed", autoId=auto_id)
+    return {"ok": True}
+
+
+@app.delete("/automations/{auto_id}/memory/snapshots/{sid}", dependencies=[Depends(auth)])
+def delete_snapshot(auto_id: str, sid: str) -> dict:
+    a = _auto_or_404(auto_id)
+    if not store.delete_snapshot(a, sid):
+        raise HTTPException(404, "snapshot not found")
     hub.publish("auto.changed", autoId=auto_id)
     return {"ok": True}
 

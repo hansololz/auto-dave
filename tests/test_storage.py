@@ -150,3 +150,87 @@ def test_update_package_pin_noop_when_already_pinned(store):
     store.create_automation(
         make_version(packages=[{"pip": "pandas==2.2.4", "import": "pandas"}]), "Current", None)
     assert store.update_package_pin("pandas==2.2.4") == []
+
+
+# ---------- §6.3 memory snapshots ----------
+
+def _write_memory(store, a, name="seen.yaml", text="items: [1]\n"):
+    d = store.auto_dir(a) / "memory"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text(text)
+
+
+def test_snapshot_create_layout_and_list(store, home):
+    a = store.create_automation(make_version(), "Snappy", None)
+    # empty memory is never snapshotted (§6.3)
+    assert store.snapshot_memory(a, "pre-clear") is None
+    assert store.list_snapshots(a) == []
+
+    _write_memory(store, a)
+    m = store.snapshot_memory(a, "manual", name="first")
+    d = home / "automations" / "snappy" / "memory-snapshots" / m["id"]
+    assert (d / "snapshot.yaml").exists()
+    assert (d / "memory" / "seen.yaml").read_text() == "items: [1]\n"
+    assert m["reason"] == "manual" and m["name"] == "first"
+    assert m["version"] == "v1" and m["files"] == 1 and m["size"] > 0
+
+    snaps = store.list_snapshots(a)
+    assert [s["id"] for s in snaps] == [m["id"]]
+    j = store.auto_json(a)["snapshots"][0]
+    assert j["id"] == m["id"] and j["name"] == "first" and j["files"] == 1
+    assert j["version"] == "v1" and j["reason"] == "manual"
+
+
+def test_snapshot_restore_takes_pre_restore_copy(store):
+    a = store.create_automation(make_version(), "Restorer", None)
+    _write_memory(store, a, text="v: old\n")
+    m = store.snapshot_memory(a, "manual")
+    _write_memory(store, a, text="v: new\n")
+
+    assert store.restore_snapshot(a, m["id"]) is not None
+    mem = store.auto_dir(a) / "memory"
+    assert (mem / "seen.yaml").read_text() == "v: old\n"
+    reasons = [s["reason"] for s in store.list_snapshots(a)]
+    # restored snapshot stays; current memory was saved as pre-restore first
+    assert sorted(reasons) == ["manual", "pre-restore"]
+    pre = next(s for s in store.list_snapshots(a) if s["reason"] == "pre-restore")
+    pre_dir = store.snapshots_dir(a) / pre["id"] / "memory"
+    assert (pre_dir / "seen.yaml").read_text() == "v: new\n"
+
+
+def test_snapshot_rename_and_delete(store):
+    a = store.create_automation(make_version(), "Renamer", None)
+    _write_memory(store, a)
+    m = store.snapshot_memory(a, "manual")
+    assert store.rename_snapshot(a, m["id"], "  pinned  ")["name"] == "pinned"
+    assert store.rename_snapshot(a, m["id"], "")["name"] is None
+    assert store.rename_snapshot(a, "0" * 36, "x") is None
+    # sid is validated before any path join — traversal shapes are rejected
+    assert store.get_snapshot(a, "../../../etc/passwd") is None
+    assert store.delete_snapshot(a, "../memory") is False
+    assert store.delete_snapshot(a, m["id"]) is True
+    assert store.list_snapshots(a) == []
+    assert store.delete_snapshot(a, m["id"]) is False
+
+
+def test_snapshot_retention_prunes_unnamed_keeps_named(store):
+    a = store.create_automation(make_version(), "Pruner", None)
+    _write_memory(store, a)
+    named = store.snapshot_memory(a, "manual", name="keep me")
+    for _ in range(8):
+        store.snapshot_memory(a, "manual")
+    snaps = store.list_snapshots(a)
+    unnamed = [s for s in snaps if not s["name"]]
+    assert len(unnamed) == 5  # §6.3: newest 5 unnamed survive
+    assert any(s["id"] == named["id"] for s in snaps)  # named never auto-deleted
+
+
+def test_snapshot_orphan_dirs_skipped_and_swept(store):
+    a = store.create_automation(make_version(), "Orphan", None)
+    _write_memory(store, a)
+    orphan = store.snapshots_dir(a) / "deadbeef-dead-dead-dead-deadbeefdead"
+    (orphan / "memory").mkdir(parents=True)
+    assert store.list_snapshots(a) == []  # no snapshot.yaml → skipped
+    store.snapshot_memory(a, "manual")
+    assert not orphan.exists()  # swept at the next creation
+    assert len(store.list_snapshots(a)) == 1

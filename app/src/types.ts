@@ -111,11 +111,23 @@ export interface Auto {
   latest?: (ExecResult & { execId: string; when: string }) | null
   params?: ParamDef[]
   memory?: { size: string; updated: string; path?: string }
+  snapshots?: MemorySnapshot[] // §6.3 — newest-first
   steps?: Step[]
   spec?: SpecBlock[]
   packages?: PackageDep[]    // §6.2 — the current version's declared packages
   versions?: VersionInfo[]
   draft?: VersionInfo | null
+}
+
+// §6.3 memory snapshot (API shape, §4.1)
+export interface MemorySnapshot {
+  id: string
+  name: string | null
+  reason: 'manual' | 'pre-clear' | 'pre-version' | 'pre-restore'
+  when: string
+  version: string
+  size: string
+  files: number
 }
 
 export interface ExecStep { name: string; status: Status; dur: string }

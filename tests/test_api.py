@@ -496,3 +496,64 @@ def test_packages_outdated_and_update(client, monkeypatch):
     # malformed pin → 422, nothing rewritten
     assert client.post("/packages/update",
                        json={"packages": [{"pip": "pandas>=2.0", "import": "pandas"}]}).status_code == 422
+
+
+def test_memory_snapshot_endpoints(client):
+    # §6.3/§19: manual snapshot, rename, restore, delete; pre-clear rides clear.
+    from autodave.storage import store
+
+    auto = client.post("/automations", json={"draft": _echo_draft()}).json()
+    a = store.autos[auto["id"]]
+    base = f"/automations/{auto['id']}/memory/snapshots"
+
+    # empty memory → 422; unknown automation → 404
+    assert client.post(base, json={"name": "x"}).status_code == 422
+    assert client.post("/automations/nope/memory/snapshots", json={}).status_code == 404
+
+    (store.auto_dir(a) / "memory" / "seen.yaml").write_text("v: old\n")
+    r = client.post(base, json={"name": "  before edit  "})
+    assert r.status_code == 200
+    snap = r.json()["snapshot"]
+    assert snap["name"] == "before edit" and snap["reason"] == "manual"
+
+    # full automation JSON carries the newest-first list (§4.1)
+    j = client.get(f"/automations/{auto['id']}").json()
+    assert [s["id"] for s in j["snapshots"]] == [snap["id"]]
+
+    # rename (empty clears), unknown sid → 404
+    assert client.patch(f"{base}/{snap['id']}", json={"name": "pinned"}).json()["snapshot"]["name"] == "pinned"
+    assert client.patch(f"{base}/{snap['id']}", json={"name": ""}).json()["snapshot"]["name"] is None
+    assert client.patch(f"{base}/{'0' * 36}", json={"name": "x"}).status_code == 404
+
+    # clear takes a pre-clear snapshot first (§6.3), then empties memory
+    assert client.post(f"/automations/{auto['id']}/memory/clear").status_code == 200
+    assert not (store.auto_dir(a) / "memory" / "seen.yaml").exists()
+    reasons = [s["reason"] for s in store.list_snapshots(a)]
+    assert "pre-clear" in reasons
+
+    # restore brings the snapshot's copy back (memory now empty → no pre-restore)
+    assert client.post(f"{base}/{snap['id']}/restore").status_code == 200
+    assert (store.auto_dir(a) / "memory" / "seen.yaml").read_text() == "v: old\n"
+    assert client.post(f"{base}/{'0' * 36}/restore").status_code == 404
+
+    # delete
+    assert client.delete(f"{base}/{snap['id']}").status_code == 200
+    assert client.delete(f"{base}/{snap['id']}").status_code == 404
+
+
+def test_memory_snapshot_409_while_live(client):
+    # §6.3: manual snapshot and restore are blocked while an execution is live.
+    from autodave.storage import store
+
+    auto = client.post("/automations", json={"draft": _echo_draft()}).json()
+    a = store.autos[auto["id"]]
+    (store.auto_dir(a) / "memory" / "seen.yaml").write_text("v: 1\n")
+    base = f"/automations/{auto['id']}/memory/snapshots"
+    snap = client.post(base, json={}).json()["snapshot"]
+
+    a["_live"] = "fake-exec-id"
+    try:
+        assert client.post(base, json={}).status_code == 409
+        assert client.post(f"{base}/{snap['id']}/restore").status_code == 409
+    finally:
+        a["_live"] = None

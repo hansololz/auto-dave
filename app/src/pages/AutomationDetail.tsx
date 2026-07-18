@@ -52,6 +52,16 @@ const inputBase: React.CSSProperties = {
   background: 'var(--bg-inset)', borderRadius: 8, color: 'var(--text)', outline: 'none',
 }
 
+// ---------- §9.2 MEMORY card button styles ----------
+
+const memBtn: React.CSSProperties = {
+  background: 'none', border: '1px solid rgba(255,255,255,.1)', borderRadius: 7,
+  color: 'var(--text-2)', fontWeight: 500, fontSize: 12, padding: '6px 12px',
+}
+const memRowBtn: React.CSSProperties = {
+  ...memBtn, border: 'none', color: 'var(--text-muted)', fontSize: 11.5, padding: '3px 7px',
+}
+
 // ---------- §9.2 Add-trigger editor (kind picker → cron expr / one-shot time) ----------
 
 const pickChipStyle = (active: boolean): React.CSSProperties => ({
@@ -455,10 +465,16 @@ export default function AutomationDetail() {
   const [stepOpen, setStepOpen] = useState<number | null>(null)
   const [specOpen, setSpecOpen] = useState(true)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [snapAsk, setSnapAsk] = useState(false)
+  const [snapName, setSnapName] = useState('')
+  const [snapRow, setSnapRow] = useState<{ sid: string; kind: 'restore' | 'rename' | 'delete' } | null>(null)
+  const [renameVal, setRenameVal] = useState('')
   const [, setTick] = useState(0)
 
   // Full record (params/steps/latest) only comes from the full fetch.
-  useEffect(() => { if (autoId) { void loadAuto(autoId); setConfirmClear(false) } }, [autoId])
+  useEffect(() => {
+    if (autoId) { void loadAuto(autoId); setConfirmClear(false); setSnapAsk(false); setSnapRow(null) }
+  }, [autoId])
   // §4.3: refresh the countdown every 30 s.
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 30000)
@@ -548,6 +564,58 @@ export default function AutomationDetail() {
       try {
         await api.clearMemory(auto.id)
         showToast('Memory cleared — the next execution starts fresh.')
+        void loadAuto(auto.id)
+      } catch (err) {
+        showToast((err as Error).message)
+      }
+    })()
+  }
+
+  // §6.3 memory snapshots
+  const doSnapshot = () => {
+    const name = snapName.trim()
+    setSnapAsk(false)
+    setSnapName('')
+    void (async () => {
+      try {
+        await api.createSnapshot(auto.id, name || undefined)
+        showToast('Snapshot saved.')
+        void loadAuto(auto.id)
+      } catch (err) {
+        showToast((err as Error).message)
+      }
+    })()
+  }
+  const doRestoreSnap = (sid: string) => {
+    setSnapRow(null)
+    void (async () => {
+      try {
+        await api.restoreSnapshot(auto.id, sid)
+        showToast('Memory restored — the next execution continues from the snapshot.')
+        void loadAuto(auto.id)
+      } catch (err) {
+        showToast((err as Error).message)
+      }
+    })()
+  }
+  const doRenameSnap = (sid: string) => {
+    const name = renameVal.trim()
+    setSnapRow(null)
+    void (async () => {
+      try {
+        await api.renameSnapshot(auto.id, sid, name || null)
+        void loadAuto(auto.id)
+      } catch (err) {
+        showToast((err as Error).message)
+      }
+    })()
+  }
+  const doDeleteSnap = (sid: string) => {
+    setSnapRow(null)
+    void (async () => {
+      try {
+        await api.deleteSnapshot(auto.id, sid)
+        showToast('Snapshot deleted.')
         void loadAuto(auto.id)
       } catch (err) {
         showToast((err as Error).message)
@@ -937,65 +1005,178 @@ export default function AutomationDetail() {
         </div>
       )}
 
-      {/* memory */}
+      {/* memory (§9.2 MEMORY card, snapshots per §6.3) */}
       {auto.memory && (
         <div style={{ marginBottom: 26 }}>
           <Eyebrow style={{ color: 'var(--text-faint)', marginBottom: 10 }}>MEMORY</Eyebrow>
           <div style={{
             background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12,
-            padding: '13px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+            padding: '13px 18px',
           }}>
-            <span className="ad-copy" style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-muted)' }}>
-              {auto.memory.size} · {auto.memory.updated}
-            </span>
-            <div style={{ flex: 1 }} />
-            {!confirmClear ? (
-              <>
-                <HoverBtn
-                  onClick={revealMemory}
-                  style={{
-                    background: 'none', border: '1px solid rgba(255,255,255,.1)', borderRadius: 7,
-                    color: 'var(--text-2)', fontWeight: 500, fontSize: 12, padding: '6px 12px',
-                  }}
-                  hoverStyle={{ color: 'var(--text)' }}
-                >
-                  Show in Finder
-                </HoverBtn>
-                <HoverBtn
-                  onClick={() => setConfirmClear(true)}
-                  style={{
-                    background: 'none', border: '1px solid rgba(255,255,255,.1)', borderRadius: 7,
-                    color: 'var(--text-2)', fontWeight: 500, fontSize: 12, padding: '6px 12px',
-                  }}
-                  hoverStyle={{ border: '1px solid oklch(0.7 0.19 25 / .5)', color: 'oklch(0.74 0.17 25)' }}
-                >
-                  Clear memory
-                </HoverBtn>
-              </>
-            ) : (
-              <>
-                <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>Next execution starts fresh, like the first time.</span>
-                <HoverBtn
-                  onClick={doClearMemory}
-                  style={{
-                    background: 'oklch(0.7 0.19 25 / .16)', border: '1px solid oklch(0.7 0.19 25 / .4)',
-                    borderRadius: 7, color: 'oklch(0.78 0.15 25)', fontWeight: 600, fontSize: 12, padding: '6px 13px',
-                  }}
-                  hoverStyle={{ background: 'oklch(0.7 0.19 25 / .26)' }}
-                >
-                  Clear
-                </HoverBtn>
-                <HoverBtn
-                  onClick={() => setConfirmClear(false)}
-                  style={{
-                    background: 'none', border: '1px solid rgba(255,255,255,.1)', borderRadius: 7,
-                    color: 'var(--text-2)', fontWeight: 500, fontSize: 12, padding: '6px 12px',
-                  }}
-                  hoverStyle={{ color: 'var(--text)' }}
-                >
-                  Keep
-                </HoverBtn>
-              </>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span className="ad-copy" style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-muted)' }}>
+                {auto.memory.size} · {auto.memory.updated}
+              </span>
+              <div style={{ flex: 1 }} />
+              {confirmClear ? (
+                <>
+                  <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>
+                    Next execution starts fresh, like the first time. Current memory is snapshotted first.
+                  </span>
+                  <HoverBtn
+                    onClick={doClearMemory}
+                    style={{
+                      background: 'oklch(0.7 0.19 25 / .16)', border: '1px solid oklch(0.7 0.19 25 / .4)',
+                      borderRadius: 7, color: 'oklch(0.78 0.15 25)', fontWeight: 600, fontSize: 12, padding: '6px 13px',
+                    }}
+                    hoverStyle={{ background: 'oklch(0.7 0.19 25 / .26)' }}
+                  >
+                    Clear
+                  </HoverBtn>
+                  <HoverBtn onClick={() => setConfirmClear(false)} style={memBtn} hoverStyle={{ color: 'var(--text)' }}>
+                    Keep
+                  </HoverBtn>
+                </>
+              ) : snapAsk ? (
+                <>
+                  <input
+                    value={snapName}
+                    onChange={(e) => setSnapName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') doSnapshot() }}
+                    placeholder="Name — optional"
+                    autoFocus
+                    style={{ ...inputBase, width: 220, fontSize: 12, padding: '6px 10px', border: '1px solid rgba(255,255,255,.1)' }}
+                  />
+                  <HoverBtn
+                    onClick={doSnapshot}
+                    style={{ ...memBtn, border: '1px solid oklch(0.74 0.155 52 / .4)', color: 'var(--accent)', fontWeight: 600 }}
+                    hoverStyle={{ background: 'var(--accent-bg)' }}
+                  >
+                    Save
+                  </HoverBtn>
+                  <HoverBtn
+                    onClick={() => { setSnapAsk(false); setSnapName('') }}
+                    style={memBtn} hoverStyle={{ color: 'var(--text)' }}
+                  >
+                    Cancel
+                  </HoverBtn>
+                </>
+              ) : (
+                <>
+                  <HoverBtn onClick={revealMemory} style={memBtn} hoverStyle={{ color: 'var(--text)' }}>
+                    Show in Finder
+                  </HoverBtn>
+                  {auto.memory.size === 'empty' ? (
+                    <span title="Memory is empty" style={{ ...memBtn, color: 'var(--text-faintest)', cursor: 'default' }}>
+                      Snapshot
+                    </span>
+                  ) : (
+                    <HoverBtn onClick={() => setSnapAsk(true)} style={memBtn} hoverStyle={{ color: 'var(--text)' }}>
+                      Snapshot
+                    </HoverBtn>
+                  )}
+                  <HoverBtn
+                    onClick={() => setConfirmClear(true)}
+                    style={memBtn}
+                    hoverStyle={{ border: '1px solid oklch(0.7 0.19 25 / .5)', color: 'oklch(0.74 0.17 25)' }}
+                  >
+                    Clear memory
+                  </HoverBtn>
+                </>
+              )}
+            </div>
+            {(auto.snapshots ?? []).length > 0 && (
+              <div style={{ marginTop: 12, borderTop: '1px solid rgba(255,255,255,.06)' }}>
+                {(auto.snapshots ?? []).map((s) => (
+                  <div
+                    key={s.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                      padding: '9px 0', borderBottom: '1px solid rgba(255,255,255,.04)',
+                    }}
+                  >
+                    {snapRow?.sid === s.id && snapRow.kind === 'restore' ? (
+                      <>
+                        <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>
+                          Replaces current memory — the current state is snapshotted first.
+                        </span>
+                        <div style={{ flex: 1 }} />
+                        <HoverBtn
+                          onClick={() => { if (!auto.live) doRestoreSnap(s.id) }}
+                          style={{
+                            ...memBtn, border: '1px solid oklch(0.74 0.155 52 / .4)',
+                            color: auto.live ? 'var(--text-faintest)' : 'var(--accent)', fontWeight: 600,
+                          }}
+                          hoverStyle={auto.live ? {} : { background: 'var(--accent-bg)' }}
+                        >
+                          Restore
+                        </HoverBtn>
+                        <HoverBtn onClick={() => setSnapRow(null)} style={memBtn} hoverStyle={{ color: 'var(--text)' }}>
+                          Keep
+                        </HoverBtn>
+                      </>
+                    ) : snapRow?.sid === s.id && snapRow.kind === 'rename' ? (
+                      <>
+                        <input
+                          value={renameVal}
+                          onChange={(e) => setRenameVal(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') doRenameSnap(s.id) }}
+                          placeholder="Name — optional"
+                          autoFocus
+                          style={{ ...inputBase, width: 220, fontSize: 12, padding: '5px 10px', border: '1px solid rgba(255,255,255,.1)' }}
+                        />
+                        <div style={{ flex: 1 }} />
+                        <HoverBtn onClick={() => doRenameSnap(s.id)} style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}>
+                          Save
+                        </HoverBtn>
+                        <HoverBtn onClick={() => setSnapRow(null)} style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}>
+                          Cancel
+                        </HoverBtn>
+                      </>
+                    ) : snapRow?.sid === s.id && snapRow.kind === 'delete' ? (
+                      <>
+                        <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>Delete this snapshot?</span>
+                        <div style={{ flex: 1 }} />
+                        <HoverBtn
+                          onClick={() => doDeleteSnap(s.id)}
+                          style={{ ...memRowBtn, color: 'oklch(0.74 0.17 25)', fontWeight: 600 }}
+                          hoverStyle={{ background: 'oklch(0.7 0.19 25 / .12)' }}
+                        >
+                          Delete
+                        </HoverBtn>
+                        <HoverBtn onClick={() => setSnapRow(null)} style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}>
+                          Keep
+                        </HoverBtn>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-2)' }}>
+                          {s.name ?? 'Snapshot'}
+                        </span>
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-faint)' }}>
+                          {s.reason} · {s.version} · {s.size} · {s.files} {s.files === 1 ? 'file' : 'files'} · {s.when}
+                        </span>
+                        <div style={{ flex: 1 }} />
+                        <HoverBtn onClick={() => setSnapRow({ sid: s.id, kind: 'restore' })} style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}>
+                          Restore
+                        </HoverBtn>
+                        <HoverBtn
+                          onClick={() => { setRenameVal(s.name ?? ''); setSnapRow({ sid: s.id, kind: 'rename' }) }}
+                          style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}
+                        >
+                          Rename
+                        </HoverBtn>
+                        <HoverBtn
+                          onClick={() => setSnapRow({ sid: s.id, kind: 'delete' })}
+                          style={memRowBtn} hoverStyle={{ color: 'oklch(0.74 0.17 25)' }}
+                        >
+                          Delete
+                        </HoverBtn>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>

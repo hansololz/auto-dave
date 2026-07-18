@@ -548,3 +548,31 @@ def test_failure_reason_missing_secret_before_step_one(store):
     assert h["error"]["step"] is None
     assert "isn't in your Keychain" in h["error"]["message"]
     assert "Keychain" in h["error"]["reason"]
+
+
+def test_pre_version_snapshot_on_first_execution(store):
+    # §6.3: the engine snapshots memory right before the first execution of a
+    # version with no recorded execution yet — real versions only, never Draft.
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    a = store.create_automation(make_version(), "Snap Ver", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert store.list_snapshots(a) == []  # memory was empty → skipped
+
+    (store.auto_dir(a) / "memory" / "seen.yaml").write_text("x: 1\n")
+    h2 = engine.start(a, "Manual")
+    wait_done(engine, h2["id"])
+    assert store.list_snapshots(a) == []  # v1 already executed → not a first execution
+
+    n = store.save_new_version(a, make_version())
+    h3 = engine.start(a, "Manual")
+    wait_done(engine, h3["id"])
+    snaps = store.list_snapshots(a)
+    assert [s["reason"] for s in snaps] == ["pre-version"]
+    assert snaps[0]["version"] == f"v{n}"
+
+    h4 = engine.start(a, "Manual")
+    wait_done(engine, h4["id"])
+    assert len(store.list_snapshots(a)) == 1  # vN's later executions don't snapshot again

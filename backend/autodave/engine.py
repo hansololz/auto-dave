@@ -157,6 +157,12 @@ class Engine:
         ver = self._resolve_version(auto, ver_label)
         if ver is None:
             raise RuntimeError(f"version {ver_label} not found")
+        # §6.3 pre-version snapshot: first execution of a real version with no recorded
+        # execution yet — memory as the previous version left it, restorable after rollback.
+        if ver_label != "Draft" and not any(
+                x["auto_id"] == auto["id"] and x["ver"] == ver_label
+                for x in self.store.execs.values()):
+            self.store.snapshot_memory(auto, "pre-version", version=ver_label)
         steps = [{"name": s["name"], "status": "queued", "dur_ms": None} for s in ver["steps"]]
         start_idx = 0
         if reuse_from:

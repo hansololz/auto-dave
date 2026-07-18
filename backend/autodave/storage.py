@@ -568,6 +568,103 @@ class Store:
             shutil.rmtree(d)
         d.mkdir(parents=True, exist_ok=True)
 
+    # ---------- memory snapshots (§6.3) ----------
+    def snapshots_dir(self, a: dict) -> Path:
+        return self.auto_dir(a) / "memory-snapshots"
+
+    def _snapshot_dir(self, a: dict, sid: str) -> Path | None:
+        if not re.fullmatch(r"[0-9a-f-]{36}", sid):
+            return None
+        return self.snapshots_dir(a) / sid
+
+    def _memory_file_stats(self, d: Path) -> tuple[int, int]:
+        size = files = 0
+        if d.exists():
+            for f in d.rglob("*"):
+                if f.is_file():
+                    size += f.stat().st_size
+                    files += 1
+        return size, files
+
+    def list_snapshots(self, a: dict) -> list[dict]:
+        """§6.3: read from disk on demand, newest first; orphan dirs (no snapshot.yaml) skipped."""
+        out = []
+        root = self.snapshots_dir(a)
+        if root.exists():
+            for d in root.iterdir():
+                if d.is_dir():
+                    meta = load_yaml(d / "snapshot.yaml")
+                    if meta:
+                        out.append(meta)
+        return sorted(out, key=lambda m: m.get("created_at") or "", reverse=True)
+
+    def get_snapshot(self, a: dict, sid: str) -> dict | None:
+        d = self._snapshot_dir(a, sid)
+        return (load_yaml(d / "snapshot.yaml") or None) if d else None
+
+    def snapshot_memory(self, a: dict, reason: str, name: str | None = None,
+                        version: str | None = None) -> dict | None:
+        """§6.3 create: memory copy first, snapshot.yaml last; empty memory → None.
+        Sweeps crash orphans, then prunes unnamed snapshots beyond the newest 5."""
+        with self.lock:
+            mem = self.auto_dir(a) / "memory"
+            size, files = self._memory_file_stats(mem)
+            if files == 0:
+                return None
+            root = self.snapshots_dir(a)
+            root.mkdir(parents=True, exist_ok=True)
+            for d in root.iterdir():
+                if d.is_dir() and not (d / "snapshot.yaml").exists():
+                    shutil.rmtree(d, ignore_errors=True)
+            sid = new_id()
+            shutil.copytree(mem, root / sid / "memory")
+            meta = {"id": sid, "name": name or None, "reason": reason,
+                    "created_at": datetime.now().isoformat(timespec="seconds"),
+                    "version": version or f"v{a['current_version']}",
+                    "size": size, "files": files}
+            save_yaml(root / sid / "snapshot.yaml", meta)
+            unnamed = [m for m in self.list_snapshots(a) if not m.get("name")]
+            for m in unnamed[5:]:
+                shutil.rmtree(root / m["id"], ignore_errors=True)
+            return meta
+
+    def rename_snapshot(self, a: dict, sid: str, name: str | None) -> dict | None:
+        with self.lock:
+            meta = self.get_snapshot(a, sid)
+            if not meta:
+                return None
+            meta["name"] = (name or "").strip() or None
+            save_yaml(self.snapshots_dir(a) / sid / "snapshot.yaml", meta)
+            return meta
+
+    def delete_snapshot(self, a: dict, sid: str) -> bool:
+        with self.lock:
+            d = self._snapshot_dir(a, sid)
+            if not d or not (d / "snapshot.yaml").exists():
+                return False
+            shutil.rmtree(d)
+            return True
+
+    def restore_snapshot(self, a: dict, sid: str) -> dict | None:
+        """§6.3 restore: pre-restore snapshot of current memory, then replace it."""
+        with self.lock:
+            meta = self.get_snapshot(a, sid)
+            src = self.snapshots_dir(a) / sid / "memory"
+            if not meta or not src.exists():
+                return None
+            self.snapshot_memory(a, "pre-restore")
+            mem = self.auto_dir(a) / "memory"
+            if mem.exists():
+                shutil.rmtree(mem)
+            shutil.copytree(src, mem)
+            return meta
+
+    def snapshot_json(self, m: dict) -> dict:
+        dt = datetime.fromisoformat(m["created_at"])
+        return {"id": m["id"], "name": m.get("name"), "reason": m["reason"],
+                "when": timefmt.ago_label(dt), "version": m.get("version"),
+                "size": _size_label(int(m.get("size") or 0)), "files": int(m.get("files") or 0)}
+
     def merged_params(self, a: dict, ver: dict) -> list[dict]:
         out = []
         for d in ver.get("params", []):
@@ -662,6 +759,7 @@ class Store:
                 "latest": self.latest_result_json(a),
                 "params": self.merged_params(a, cur),
                 "memory": self.memory_stats(a),
+                "snapshots": [self.snapshot_json(m) for m in self.list_snapshots(a)],
                 "steps": [self.step_json(a, s) for s in cur.get("steps", [])],
                 "spec": cur.get("spec", []),
                 "packages": cur.get("packages", []),

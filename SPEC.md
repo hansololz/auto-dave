@@ -149,6 +149,10 @@ lastExecLabel: "just now" | "Xm ago" | "Xh ago" | "yesterday" | "Jun 28" | "exec
 latest: last execution's result object + when-label, for the detail page
 params: parameter list (§4.2)
 memory: { size, updated } — per-automation memory directory between executions (any files/formats)
+snapshots: [{ id, name, reason, when, version, size, files }] — the §6.3 memory snapshots,
+  newest-first; name = user label | null, reason ∈ manual | pre-clear | pre-version |
+  pre-restore, when = humanized time label, version = "vN" current at capture (pre-version:
+  the version about to execute), size = humanized byte label, files = file count
 steps: [{ name, desc, code, agent?, agentId?, why? }] — code is human-readable script; agent marks
   a step that makes a query-only runtime model call (§6) — the script itself still does any changes
 spec: block list [{ k: h1|h2|p|li, text }] — the human-readable spec
@@ -387,6 +391,11 @@ automations/<slug>/
   memory/                      # memory directory carried between executions (engine contract, §6) — scripts
                                # store whatever files and formats they need; shared across
                                # versions
+  memory-snapshots/<uuid>/     # §6.3 point-in-time memory copies, each self-describing:
+                               # snapshot.yaml (id, name, reason, created_at, version, size,
+                               # files) + memory/ (the recursive copy); no index file — the
+                               # list is read from disk on demand; a dir without snapshot.yaml
+                               # is a crash orphan (skipped, swept at the next creation)
   draft/                       # unsaved edit working copy, same shape as a version folder
   versions/vN/                 # one folder per version — immutable once written
     automation.yaml            # when, note, desc, param definitions (§4.2: name, kind,
@@ -693,6 +702,40 @@ a `tools:` manifest channel backed by a bundled micromamba installing exactly-pi
 conda-forge packages into `<app-support>/env/`, with the same ensure semantics (§8 install
 stage, §7 pre-execution self-heal, §11 card rows) and `env/bin` prepended to step `PATH`.
 Homebrew is never bundled (custom prefixes forfeit bottles → source builds on user machines).
+
+### 6.3 Memory snapshots (decided)
+
+Point-in-time copies of an automation's `memory/` directory, restorable from the §9.2 MEMORY
+card. Memory is the app's only mutable state with no version history; snapshots make its
+destructive moments recoverable.
+
+- **Layout** — `memory-snapshots/<uuid4>/` beside `memory/` (§5 tree): `snapshot.yaml`
+  (`id` = the dir name, `name` = user label | null, `reason`, `created_at` ISO-8601 local,
+  `version` = "vN" label, `size` = total bytes, `files` = file count) plus `memory/`, the
+  recursive copy. Each snapshot is self-describing; there is deliberately no index file. The
+  list is read from disk on demand, newest `created_at` first — nothing cached, per the §5
+  rebuild-from-disk model.
+- **Reasons** — `manual` (MEMORY-card button, optional name); `pre-clear` (automatic, taken
+  before §9.2 "Clear memory" empties the dir); `pre-version` (automatic, taken by the engine
+  right before the first execution of a version with no recorded execution yet — real "vN"
+  versions only, never Draft; `version` in the meta is the version about to execute);
+  `pre-restore` (automatic, current memory saved right before a restore replaces it).
+- **Empty memory is never snapshotted** — automatic reasons silently skip; a manual snapshot
+  of empty memory answers 422.
+- **Write order** — the `memory/` copy first, `snapshot.yaml` last. A dir without
+  `snapshot.yaml` is a crash orphan: listing skips it, the next snapshot creation deletes it.
+- **Restore** — 409 while an execution is live. Takes a `pre-restore` snapshot of current
+  memory (when non-empty), then replaces `memory/` with the snapshot's copy. The restored
+  snapshot itself stays — restore is repeatable and, via `pre-restore`, undoable.
+- **Manual snapshot** — 409 while live (a mid-execution copy could catch a half-written
+  file). Automatic reasons never race an execution: `pre-version` runs before step 1,
+  `pre-clear` rides the clear request (§7: one execution at a time per automation).
+- **Retention** — at each creation, unnamed snapshots beyond the newest 5 are pruned. Named
+  snapshots are never auto-deleted — naming pins one until the user deletes it (or the
+  automation is deleted). Renaming to empty returns a snapshot to the unnamed pool.
+- **Lifecycle** — snapshots live inside `automations/<slug>/`, so deleting the automation
+  removes them (the §9.2 delete copy — memory goes with it — already covers this). "Clear
+  memory" empties `memory/` only; snapshots survive it by design.
 
 ## 7. Execution lifecycle
 
@@ -1042,9 +1085,20 @@ Sections top to bottom:
   the next execution — no new version, no AI involved."
 - **RECENT EXECUTIONS** — execution history rows (status, trigger·version, time, duration, note text when
   present), linking to execution pages.
-- **MEMORY** card — mono size/updated info line, "Show in Finder" and "Clear memory" buttons;
-  Clear swaps to an inline confirm: "Next execution starts fresh, like the first time." with red
-  Clear / quiet Keep.
+- **MEMORY** card — mono size/updated info line; "Show in Finder", "Snapshot" and "Clear
+  memory" buttons. Clear swaps the button row to an inline confirm: "Next execution starts
+  fresh, like the first time. Current memory is snapshotted first." with red Clear / quiet
+  Keep. Snapshot swaps it to a name input (placeholder "Name — optional", Enter saves) with
+  Save / quiet Cancel; the button is disabled when memory is empty (title "Memory is empty").
+  Below the info row, the §6.3 snapshot list (absent when there are none): one row per
+  snapshot — title (the name, else "Snapshot"), mono meta "reason · version · size · files ·
+  when", quiet row actions Restore / Rename / Delete. Restore swaps the row to an inline
+  confirm "Replaces current memory — the current state is snapshotted first." (accent
+  Restore / quiet Keep; blocked while an execution is live — the 409 surfaces as a toast);
+  Rename swaps to a name input (Save / Cancel; empty clears the name back to "Snapshot");
+  Delete swaps to "Delete this snapshot?" (red Delete / quiet Keep). Toasts: "Snapshot
+  saved." / "Memory restored — the next execution continues from the snapshot." / "Snapshot
+  deleted."
 - **STEPS** card — read-only step rows (number, name, desc, view/hide script with §11 `PyCode`
   highlighting; agent steps show the "Why an agent" note when expanded). Step tags are
   display-only — never menus: an agent step carries a tag with the assigned agent's name (robot
@@ -1645,8 +1699,13 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `POST /automations/{id}/versions` `{ draft }` — save edit as vN+1
 - `PUT /automations/{id}/draft` · `DELETE /automations/{id}/draft` — the §4.4 draft snapshot
 - `POST /automations/{id}/restore` `{ v }` — copy vX to vN+1 (§5)
-- `POST /automations/{id}/memory/clear` — empty the §4.1 memory directory (backs §9.2 "Clear
-  memory")
+- `POST /automations/{id}/memory/clear` — §6.3 pre-clear snapshot, then empty the §4.1 memory
+  directory (backs §9.2 "Clear memory")
+- `POST /automations/{id}/memory/snapshots` `{ name? }` — §6.3 manual snapshot (409 while
+  live, 422 when memory is empty) · `PATCH /automations/{id}/memory/snapshots/{sid}`
+  `{ name }` — rename; null/"" clears · `POST /automations/{id}/memory/snapshots/{sid}/restore`
+  — §6.3 restore (409 while live) · `DELETE /automations/{id}/memory/snapshots/{sid}` —
+  delete the snapshot; unknown `sid` answers 404
 - `POST /tests` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets?, paramValues? }`
   → `{ testId }` — the §11 Test: executes the sent draft's steps ephemerally (scratch memory
   copied from `autoId`'s memory dir when given, else empty; no execution record); grant arrays
