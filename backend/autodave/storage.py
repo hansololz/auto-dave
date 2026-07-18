@@ -559,7 +559,7 @@ class Store:
                     size += st.st_size
                     newest = max(newest or 0, st.st_mtime)
         label = (f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB") if size else "empty"
-        updated = timefmt.ago_label(datetime.fromtimestamp(newest)) if newest else "never written"
+        updated = timefmt.date_label(datetime.fromtimestamp(newest)) if newest else "never written"
         return {"size": label, "updated": updated, "path": str(d)}
 
     def clear_memory(self, a: dict) -> None:
@@ -662,7 +662,7 @@ class Store:
     def snapshot_json(self, m: dict) -> dict:
         dt = datetime.fromisoformat(m["created_at"])
         return {"id": m["id"], "name": m.get("name"), "reason": m["reason"],
-                "when": timefmt.ago_label(dt), "version": m.get("version"),
+                "when": timefmt.date_label(dt), "version": m.get("version"),
                 "size": _size_label(int(m.get("size") or 0)), "files": int(m.get("files") or 0)}
 
     def merged_params(self, a: dict, ver: dict) -> list[dict]:
@@ -730,10 +730,7 @@ class Store:
         spec_meta = f"v{a['current_version']}"
         if when:
             dt = datetime.fromisoformat(when)
-            days = (datetime.now().date() - dt.date()).days
-            ago = "today" if days == 0 else ("yesterday" if days == 1 else
-                  (f"{days} days ago" if days < 30 else dt.strftime("%B %Y")))
-            spec_meta += f" · updated {ago}"
+            spec_meta += f" · updated {timefmt.date_label(dt)}"
         out: dict[str, Any] = {
             "id": a["id"],
             "name": a["name"],
@@ -748,7 +745,7 @@ class Store:
             "live": live,
             "resultChip": chip,
             "resultStatus": chip_status,
-            "lastExecLabel": "executing…" if live else timefmt.last_exec_label(last_dt),
+            "lastExecLabel": "executing…" if live else (timefmt.date_label(last_dt) if last_dt else ""),
             "agentId": a["agent_id"],
             "stepAgents": a["enabled_agents"],
             "allowedSecrets": a["allowed_secrets"],

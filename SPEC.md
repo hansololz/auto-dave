@@ -145,7 +145,10 @@ resultChip: short summary chip ("2 new chapters") | null — the chip is optiona
 resultStatus: changes | ok | attention | null — tints resultChip with the §7 chip colors
   everywhere it appears (list rows included); null whenever resultChip is null; "attention" for
   failed automations
-lastExecLabel: "today" | "Xm ago" | "Xh ago" | "yesterday" | "Jun 28" | "executing…"
+lastExecLabel: shared time label (below) | "executing…"
+  Every relative time label in the app uses one shared scheme: "Today" | "Yesterday" | full
+  weekday name ("Thursday", 2–6 days back) | the date in the user's locale format (year,
+  month, day — e.g. "7/18/2026"). Labels that carry a clock time append it: "Today, 8:00 AM".
 latest: last execution's result object + when-label, for the detail page
 params: parameter list (§4.2)
 memory: { size, updated } — per-automation memory directory between executions (any files/formats)
@@ -156,7 +159,7 @@ snapshots: [{ id, name, reason, when, version, size, files }] — the §6.3 memo
 steps: [{ name, desc, code, agent?, agentId?, why? }] — code is human-readable script; agent marks
   a step that makes a query-only runtime model call (§6) — the script itself still does any changes
 spec: block list [{ k: h1|h2|p|li, text }] — the human-readable spec
-specMeta: "v3 · updated 2 days ago"
+specMeta: "v3 · updated Yesterday" (shared time label)
 versions: [{ v, when, note, spec, steps, instr, params }] — prior-version history, newest-first
   (the current version is not repeated in this list)
 draft: unsaved edit snapshot (create-flow shape) | null
@@ -244,7 +247,7 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
 
 - Saving an edit creates version N+1 (on disk: a fresh `versions/vN+1/` folder, then the
   `current_version` pointer flip, per §5), applies spec/steps/instr/stepAgents/allowedSecrets/
-  agentId, sets `specMeta` to "vN · updated today". Prior versions are untouched.
+  agentId, sets `specMeta` to "vN · updated Today". Prior versions are untouched.
 - Leaving the editor with unsaved touched changes snapshots a **draft** onto the automation
   (toast: "Draft kept — resume or execute it from this automation anytime.").
 - Editor version menu lists: Draft ("your working copy — unsaved"), current vN ("current · …"),
@@ -750,7 +753,7 @@ destructive moments recoverable.
   execution before any step with the package category below.
 - Streaming: each step queued → executing (sys log "▸ Step N — `<name>`", then step logs) →
   terminal status with duration. Then the execution gets its final status, duration, result
-  object; automation gets latest/resultChip/lastExecLabel "today"; toast summarizes.
+  object; automation gets latest/resultChip/lastExecLabel "Today"; toast summarizes.
 - Cancel: kills timers/processes; execution cancelled, all executing/queued steps cancelled, sys
   log "execution cancelled by you — nothing else will happen".
 - **Failure diagnostics:** when a step fails, the executor reports the exception as a structured
