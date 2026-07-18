@@ -159,7 +159,26 @@ One entry per distribution: `pip` is the exactly-pinned requirement
 module it provides. The app installs declared packages automatically — never
 write installation code or steps yourself. The engine rejects any import that
 is neither stdlib, curated, nor declared; never declare a stdlib or curated
-module.
+module. Only packages with prebuilt wheels install — never declare a
+source-only distribution.
+
+System binaries (ffmpeg, tesseract, …) cannot be installed. When a tool needs
+one, declare a pip package that bundles a static binary and pass its path to
+the tool explicitly — e.g. video downloads needing ffmpeg:
+
+```yaml
+packages:
+  - { pip: "yt-dlp==2025.6.30", import: yt_dlp }
+  - { pip: "imageio-ffmpeg==0.6.0", import: imageio_ffmpeg }
+```
+
+```python
+import imageio_ffmpeg
+ydl_opts = {"ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe(), ...}
+```
+
+When the needed binary exists in no pip wheel, return a blocker naming the
+tool — never write steps that assume a binary is on the machine.
 
 ## Triggers
 

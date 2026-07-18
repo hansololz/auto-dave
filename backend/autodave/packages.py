@@ -84,9 +84,13 @@ def ensure(entries: list[dict], on_progress=None) -> list[dict]:
             if on_progress:
                 on_progress(r["pip"])
             try:
+                # §6.2: wheels only — a source-only package would need a
+                # compiler users don't have; fail fast with pip's clear
+                # "no matching distribution" instead of a build traceback.
                 proc = subprocess.run(
                     [sys.executable, "-m", "pip", "install", "--upgrade",
                      "--no-input", "--disable-pip-version-check",
+                     "--only-binary", ":all:",
                      "--target", str(target), r["pip"]],
                     capture_output=True, text=True, timeout=INSTALL_TIMEOUT)
             except subprocess.TimeoutExpired:

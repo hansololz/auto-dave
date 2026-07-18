@@ -645,7 +645,9 @@ hand-edited step files that never went through drafting.
 
 **Install model — the user never runs pip.** Declared packages install into one shared,
 user-writable directory, `<app-support>/site-packages` (§5), via the bundled interpreter's
-`python -m pip install --target`. The bundle inside the .app is never written to (read-only,
+`python -m pip install --target`, wheels only (`--only-binary :all:` — a source-only
+distribution fails fast with pip's "no matching distribution" rather than hitting a compiler
+users don't have). The bundle inside the .app is never written to (read-only,
 replaced whole on update). The executor prepends this directory to `sys.path` for every step,
 so deleting it (or an app update) is always recoverable. Installing is one idempotent "ensure"
 operation shared by every call site: a fast installed-check first (distribution + exact version
@@ -662,6 +664,16 @@ An install failure never blocks saving (§11); at execution time it fails the ex
 step 1 with the §7 category. The shared directory holds one version of each distribution — a
 later automation's different pin upgrades it for all (accepted: single-user app; if a real
 conflict ever shows up the fix is per-automation target dirs, not user-facing knobs).
+
+**Native tools (deliberately deferred).** System binaries (ffmpeg, tesseract, …) are not
+installable — pip is the only channel. When a task needs one, the drafting agent prefers a pip
+package that bundles a static binary (e.g. `imageio-ffmpeg` — binary ships inside the wheel;
+the step passes its path to the tool) and returns a §8 blocker when no such wheel exists.
+Future escalation, to build only when a real automation is blocked on a binary with no wheel:
+a `tools:` manifest channel backed by a bundled micromamba installing exactly-pinned
+conda-forge packages into `<app-support>/env/`, with the same ensure semantics (§8 install
+stage, §7 pre-execution self-heal, §11 card rows) and `env/bin` prepended to step `PATH`.
+Homebrew is never bundled (custom prefixes forfeit bottles → source builds on user machines).
 
 ## 7. Execution lifecycle
 
