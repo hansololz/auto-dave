@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import keychain, notify
+from . import keychain, notify, packages as pkglib
 from .events import hub
 from .executor import CTRL
 from .storage import SECRET_REF_RE, Store, resolve_param_value
@@ -292,6 +292,26 @@ class Engine:
                         if part.strip():
                             redactions.setdefault(part, name)
 
+            # §7: ensure the version's declared packages (§6.2) before step 1 —
+            # the fast check costs milliseconds when everything is present;
+            # self-heals after an app update or a cleared site-packages dir.
+            declared = ver.get("packages") or []
+            if declared and not failed:
+                missing = [p for p in pkglib.check(declared) if p["status"] != "installed"]
+                if missing:
+                    self._log(h, "sys", "installing packages: "
+                              + ", ".join(p["pip"] for p in missing), redactions)
+                    bad = [p for p in pkglib.ensure(declared) if p["status"] != "installed"]
+                    if bad:
+                        msg = "; ".join(f"{p['pip']}: {p.get('error') or 'install failed'}"
+                                        for p in bad)
+                        self._log(h, "err", f"package install failed — {msg}", redactions)
+                        h["error"] = {"step": None, "message": self._redact(h, msg, redactions),
+                                      "reason": "A required package couldn't be installed — check "
+                                                "your connection, then execute again or retry from "
+                                                "the edit page."}
+                        failed = True
+
             params = {p["name"]: resolve_param_value(p, auto["param_values"])
                       for p in ver.get("params", [])}
             warns: list[str] = []
@@ -428,6 +448,8 @@ class Engine:
             "params": params,
             "secrets": step_secrets,
             "allowed_secrets": auto["allowed_secrets"],
+            "site_packages": str(pkglib.site_packages_dir()),
+            "package_imports": [p["import"] for p in ver.get("packages") or []],
             "memory_dir": str(self.store.auto_dir(auto) / "memory"),
             "workspace": str(self.store.exec_dir(h["id"]) / "workspace"),
             "result_dir": str(self.store.exec_dir(h["id"]) / "result"),

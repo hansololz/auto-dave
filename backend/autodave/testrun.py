@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from . import harness, notify, keychain
+from . import harness, notify, keychain, packages as pkglib
 from .drafting import CONTRACT_PREAMBLE, parse_blockers, spec_as_md
 from .engine import run_step_process
 from .events import hub
@@ -130,6 +130,22 @@ class TestRuns:
                         if part.strip():
                             redactions.setdefault(part, name)
 
+            # §6.2/§7: a test executes the same engine path — ensure the draft's
+            # declared packages before step 1, exactly like a real execution.
+            declared = draft.get("packages") or []
+            if declared:
+                missing = [p for p in pkglib.check(declared) if p["status"] != "installed"]
+                if missing:
+                    log("sys", "installing packages: " + ", ".join(p["pip"] for p in missing))
+                    bad = [p for p in pkglib.ensure(declared) if p["status"] != "installed"]
+                    if bad:
+                        msg = ("package install failed — "
+                               + "; ".join(f"{p['pip']}: {p.get('error') or 'install failed'}"
+                                           for p in bad))
+                        fix = "Check your connection, then retry from the Packages card or test again."
+                        self._prestep_fail(test_id, state, log, msg, fix)
+                        return
+
             # §19: stored values (edit) under the test-only paramValues overrides.
             values = {**(auto["param_values"] if auto else {}), **(param_values or {})}
             warns: list[str] = []
@@ -168,6 +184,8 @@ class TestRuns:
                     "params": params,
                     "secrets": {k: v for k, v in secret_values.items() if k in step_refs},
                     "allowed_secrets": list(allowed_secrets),
+                    "site_packages": str(pkglib.site_packages_dir()),
+                    "package_imports": [p["import"] for p in draft.get("packages") or []],
                     "memory_dir": str(mem_dir),
                     "workspace": str(root / "workspace"),
                     "result_dir": str(root / "result"),

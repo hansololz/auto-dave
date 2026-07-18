@@ -1,27 +1,30 @@
 """Curated-import allowlist (§6.2), shared by draft-time validation and the
-runtime executor. Step scripts may import the Python stdlib plus the curated
-packages — nothing else."""
+runtime executor. Step scripts may import the Python stdlib, the curated
+packages, and the version's declared §6.2 packages — nothing else."""
 from __future__ import annotations
 
 import ast
 import sys
+from typing import Iterable
 
 ALLOWED_IMPORTS = set(sys.stdlib_module_names) | {
     "autodave", "requests", "httpx", "bs4", "lxml", "feedparser", "dateutil", "yaml",
 }
 
 
-def disallowed_imports(code: str) -> list[str]:
+def disallowed_imports(code: str, extra: Iterable[str] = ()) -> list[str]:
     """Module names imported by `code` that aren't on the §6.2 allowlist.
 
     Same rule as §8 draft validation: every `import X` / `from X import …`
     (absolute, any nesting) is checked by its top-level package name.
+    `extra` is the version's declared package imports (§6.2), accepted on top.
     Unparseable code returns [] — the syntax error surfaces at exec time.
     """
     try:
         tree = ast.parse(code)
     except SyntaxError:
         return []
+    allowed = ALLOWED_IMPORTS | set(extra)
     bad: list[str] = []
     for node in ast.walk(tree):
         mods: list[str] = []
@@ -30,6 +33,6 @@ def disallowed_imports(code: str) -> list[str]:
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             mods = [node.module.split(".")[0]]
         for mod in mods:
-            if mod not in ALLOWED_IMPORTS and mod not in bad:
+            if mod not in allowed and mod not in bad:
                 bad.append(mod)
     return bad

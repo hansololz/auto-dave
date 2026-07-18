@@ -65,6 +65,11 @@ export const api = {
   // §19 test: executes the sent draft's steps ephemerally; progress via test.* WS events
   postTest: (body: Record<string, unknown>) => req<{ testId: string }>('POST', '/tests', body),
   cancelTest: (testId: string) => req('DELETE', `/tests/${testId}`),
+  // §6.2 declared packages: fast installed-check / blocking ensure (§19)
+  checkPackages: (packages: { pip: string; import: string }[]) =>
+    req<{ packages: import('./types').PackageDep[] }>('POST', '/packages/check', { packages }),
+  installPackages: (packages: { pip: string; import: string }[]) =>
+    req<{ packages: import('./types').PackageDep[] }>('POST', '/packages/install', { packages }),
   postDraftJob: (body: Record<string, unknown>) => req<{ jobId: string }>('POST', '/drafts', body),
   getDraftJob: (jobId: string) => req<DraftJob>('GET', `/drafts/${jobId}`),
   cancelDraftJob: (jobId: string) => req('DELETE', `/drafts/${jobId}`),

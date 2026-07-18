@@ -374,6 +374,9 @@ secrets.yaml                   # names + metadata only; values live in the macOS
 backend.json                   # port+token discovery handshake (§3), rewritten each backend start
 electron/                      # Electron's Chromium profile (Cache, Cookies, Local Storage, …) —
                                # main.cjs redirects userData here so the root stays app data only
+site-packages/                 # §6.2 declared packages, installed by the app via
+                               # `pip install --target` — user-writable, survives app updates,
+                               # safe to delete (re-ensured before the next execution)
 automations/<slug>/
   automation.yaml              # unversioned, mutable — user/operational state: id, name,
                                # current_version (pointer: current = versions/v<N>/),
@@ -389,6 +392,8 @@ automations/<slug>/
     automation.yaml            # when, note, desc, param definitions (§4.2: name, kind,
                                # label, help, default, …) + ordered steps manifest:
                                # steps: [{file, name, desc, agent?, agent_id, why}]
+                               # + declared packages (§6.2, absent when none):
+                               # packages: [{pip: "pandas==2.2.3", import: pandas}]
     spec.md                    # the version's spec as plain markdown (h1/h2/li/p blocks)
     instructions.md            # user's free-text instructions to the agent (§4.1 instr),
                                # plain markdown; absent when none were given
@@ -621,15 +626,42 @@ processes a step spawns can self-identify: `AUTODAVE_AUTOMATION_ID`, `AUTODAVE_A
 `AUTODAVE_WORKSPACE`, `AUTODAVE_MEMORY_DIR`, `AUTODAVE_RESULT_DIR`. Param values, secret values,
 and agent config never enter the environment; the executor never reads env as input.
 
-### 6.2 Curated packages (decided)
+### 6.2 Curated & declared packages (decided)
 
-Step scripts may import: Python stdlib, `autodave`, and: `requests`, `httpx`,
+Step scripts may import: Python stdlib, `autodave`, and the curated packages: `requests`, `httpx`,
 `beautifulsoup4` (`bs4`), `lxml`, `feedparser`, `python-dateutil` (`dateutil`), `PyYAML` (`yaml`).
-The list ships with the app (installed in the bundled interpreter) and is included verbatim in the
-§8 contract preamble; §8 validation rejects any other import. The executor re-validates the step's
-top-level imports at execution time with the same rule (shared module `imports_check.py`) and
-fails the step on violation — the allowlist holds even for hand-edited step files that never went
-through drafting.
+The curated list ships with the app (installed in the bundled interpreter) and is included
+verbatim in the §8 contract preamble.
+
+**Declared packages.** When a task genuinely needs a library beyond the curated list (the
+task-solving ladder still prefers stdlib + curated first), the drafting agent declares it in
+`manifest.yaml` (§8): `packages: [{ pip: "pandas==2.2.3", import: pandas }]` — one entry per
+distribution, the exactly-pinned pip requirement (`name==version`, no ranges) plus the top-level
+module it provides. Declared packages extend the import allowlist for that version's steps only:
+§8 validation and the executor's runtime re-check both accept stdlib + curated + `autodave` +
+the version's declared imports (shared module `imports_check.py`, which takes the declared
+names as an extra allowlist) and fail the step on anything else — the allowlist holds even for
+hand-edited step files that never went through drafting.
+
+**Install model — the user never runs pip.** Declared packages install into one shared,
+user-writable directory, `<app-support>/site-packages` (§5), via the bundled interpreter's
+`python -m pip install --target`. The bundle inside the .app is never written to (read-only,
+replaced whole on update). The executor prepends this directory to `sys.path` for every step,
+so deleting it (or an app update) is always recoverable. Installing is one idempotent "ensure"
+operation shared by every call site: a fast installed-check first (distribution + exact version
+present in the directory), pip runs only for missing or version-changed entries, and one
+process-wide lock serializes pip runs. It happens at two moments through the same code path:
+
+- right after a §8 steps call validates (job stage "Installing the packages"; per-package
+  statuses ride the draft payload and render in the §11 Packages card) — the user learns about
+  an install failure while still on the edit page, not when a trigger fires;
+- before an execution's first step (§7) — self-healing after an app update, a cleared
+  directory, or a save that skipped a failed install.
+
+An install failure never blocks saving (§11); at execution time it fails the execution before
+step 1 with the §7 category. The shared directory holds one version of each distribution — a
+later automation's different pin upgrades it for all (accepted: single-user app; if a real
+conflict ever shows up the fix is per-automation target dirs, not user-facing knobs).
 
 ## 7. Execution lifecycle
 
@@ -638,6 +670,10 @@ through drafting.
 - Start: execution record created with all steps queued; automation gets live id, lastStatus
   executing, lastExecLabel "executing…"; the execution appears at top of Executions; sidebar counts
   and menu-bar rows update live.
+- Before step 1 the engine ensures the version's declared packages (§6.2): the fast
+  installed-check costs milliseconds when everything is present; anything missing installs with
+  a sys log line ("installing packages: `pandas==2.2.3`…"). An install failure fails the
+  execution before any step with the package category below.
 - Streaming: each step queued → executing (sys log "▸ Step N — `<name>`", then step logs) →
   terminal status with duration. Then the execution gets its final status, duration, result
   object; automation gets latest/resultChip/lastExecLabel "just now"; toast summarizes.
@@ -649,7 +685,9 @@ through drafting.
   redacted like any log line), and a plain-word **possible reason** when the failure matches a
   known category, null otherwise. Categories (deterministic, from exit code / exception type /
   message — never an agent call): step timed out ("The step hit its `N` s time limit.") ·
-  disallowed import ("The step imports a package outside the allowed list.") · missing secret
+  disallowed import ("The step imports a package outside the allowed list.") · package install
+  failed ("A required package couldn't be installed — check your connection, then execute
+  again or retry from the edit page.") · missing secret
   ("The script references a secret that doesn't exist.") · agent call failed ("The step's agent
   call failed — the agent may be unreachable or misconfigured.") · network failure —
   connection, DNS, timeout ("A network request failed — the site may be down, blocking, or
@@ -801,6 +839,8 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
      - cron: "0 8 * * *"             # the spec names no time (no triggers — manual/menu bar only)
    params:                           # full definitions per §4.2, each with a default
      - { name: sources, kind: list, label: Manga URLs, help: ..., validate: true }
+   packages:                         # §6.2 declared packages — beyond curated only, exactly
+     - { pip: "pandas==2.2.3", import: pandas }   # pinned; omit the key when none are needed
    steps:                            # ordered; file names NN-name.py, two-digit, gapless
      - { file: 01-fetch.py, name: Fetch pages, desc: ... }
      - { file: 02-classify.py, name: Classify updates, desc: ..., agent: true,
@@ -830,12 +870,20 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    call 2 is a validation error (the spec is already settled).
 3. `manifest.yaml` is schema-valid: kinds from §4.2 only, every param carries a default, steps
    nonempty, `steps[].file` ↔ file blocks match 1:1, filenames follow `NN-name.py` ordering.
-4. Every step file passes `ast.parse`; imports ⊆ stdlib + curated packages + `autodave`.
-5. Step code is scanned for `secrets.NAME` references → drives the Review-screen secret warnings
+4. Every step file passes `ast.parse`; imports ⊆ stdlib + curated packages + `autodave` + the
+   manifest's declared package imports (§6.2).
+5. `packages` is optional: a list of `{ pip, import }` entries — `pip` an exactly-pinned
+   requirement (`name==version`, no ranges or extras), `import` a valid module name that is not
+   already stdlib or curated (declaring one that is, is a validation error — the list stays
+   meaningful). After validation the job enters stage "Installing the packages" and runs the
+   §6.2 ensure; per-package results ride the draft payload as
+   `packages: [{ pip, import, status: installed | failed, error? }]`. An install failure does
+   **not** fail the job — the draft lands with the failure visible in the §11 Packages card.
+6. Step code is scanned for `secrets.NAME` references → drives the Review-screen secret warnings
    (§11). Unknown or un-allowed secret references are Review warnings, not validation failures.
-6. Steps carry only `agent: true` as the query-only marker (§6); the backend assigns `agent_id`
+7. Steps carry only `agent: true` as the query-only marker (§6); the backend assigns `agent_id`
    from the automation's enabled agents. `why` is required when `agent` is true.
-7. `triggers` is optional and cron-only: a list of `{ cron: expr }` entries, each expression
+8. `triggers` is optional and cron-only: a list of `{ cron: expr }` entries, each expression
    valid per the §4.3 dialect. The agent derives them from the spec's words and omits the key
    when the spec names no time (no triggers — the automation executes only via Execute now /
    menu bar). Applied only when creating (v1's triggers, each `off: false`, shown on Review); on
@@ -870,8 +918,10 @@ raw response and the machine-generated validation errors. A second invalid respo
 draft, surfaced in the §11 drafting cards (spec call: "The spec didn't validate — try again or
 rephrase."; steps call: "The steps didn't validate — …"). Per-call timeout 5 minutes; cancelling
 the job (Start over, or an edit that supersedes an in-flight steps call, §11) kills the harness
-process. The job's `stage` tracks the pipeline ("Writing the spec" → "Generating the steps" —
-the §11 drafting-card labels; sync jobs start at the second, edit jobs end after the first). On
+process. The job's `stage` tracks the pipeline ("Writing the spec" → "Generating the steps" →
+"Installing the packages" — the §11 drafting-card labels; sync jobs start at the second, edit
+jobs end after the first, and the install stage only appears when the manifest declares
+packages). On
 a create job, call 1's validated spec rides the job payload as soon as the spec call completes
 (§19), so the §11 spec card can render it while the steps call is still working. Every
 invocation's full prompt and raw response are logged to the app log as a §5 BEGIN/END-framed
@@ -1169,7 +1219,7 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   repeats the sync; closing the modal leaves the workflow out of sync with
   the sync panel still showing it. Disabled Save shows an amber hint ("Sync and review the steps before saving." /
   "Finish editing the spec first…" / "Syncing steps…" / "Rewriting the spec…" /
-  "Writing the spec…" / "Generating the steps…"); saving is also
+  "Writing the spec…" / "Generating the steps…" / "Installing the packages…"); saving is also
   blocked while any §8 job is in flight, and the sync panel's button disables while one is. Picking a different agent for a single
   step does **not** dirty the workflow — it only marks the draft touched (toast "Step N now
   calls `<agent>` · `<model>`."); disabling an enabled agent that steps still call does dirty it
@@ -1190,8 +1240,10 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
   "No settings needed — your AI didn't ask for any."
 - **Steps** — readable scripts with per-step read-only tags (same tag language as the §9.2
   detail page — never menus): an agent step shows a tag with its assigned agent's name (robot
-  icon; red "no agent" tag when no enabled agent covers it), and a step whose code references
-  `secrets.NAME` shows one key-icon tag per secret name. Which agent a step calls is decided by
+  icon; red "no agent" tag when no enabled agent covers it), a step whose code references
+  `secrets.NAME` shows one key-icon tag per secret name, and a step that imports a declared
+  §6.2 package (its top-level `import` name appears in the step's code) shows one box-icon tag
+  per package, labeled with the import name. Which agent a step calls is decided by
   the draft's `agentId` (fallback: first enabled agent) — changing it happens through the
   agent-enablement card plus sync, not per step. An expanded step ("view script") renders its
   `code` with Python syntax highlighting — a self-contained tokenizer (`PyCode` in `ui.tsx`, no
@@ -1205,6 +1257,20 @@ secrets, instructions, framework; right column: steps, triggers, parameters, tes
 - **Secrets** — step code is scanned for `secrets.NAME`; secrets in Keychain but not allowed, and
   secrets missing from Keychain, each produce warnings with fix affordances. "X of Y allowed".
   Collapsible card, defaults open, forced open while a warning shows.
+- **PACKAGES** card — rendered only when the draft declares §6.2 packages (most automations
+  don't; they pay no UI). Read-only like the Triggers card: the drafting pipeline owns the
+  list, the user never edits pins. One row per package — the `pip` spec in mono plus a status
+  chip: **installed** (green check) · **installing** (spinner) · **not installed** (amber — a
+  saved automation whose packages went missing, found by the §19 check on page load) ·
+  **failed** (red; the plain-word error beneath in mono, e.g. the §7 category wording with the
+  pip stderr tail). Header counts "N of M installed". Amber and red rows share one **"Install"
+  / "Retry"** button (the §19 install call; rows show spinners while it runs). Collapsible:
+  defaults collapsed when everything is installed, forced open while any row is installing,
+  not installed, or failed. Footer: "Your AI picked these Python packages. They install
+  automatically — nothing for you to run." In edit mode the page checks statuses once on load
+  (§19 `POST /packages/check`); during a create/sync job the card fills from the job's draft
+  payload statuses (§8). An install failure never blocks saving — executions self-heal (§7) —
+  so the card carries the warning without gating Save.
 - **Framework instructions** — read-only card showing `framework-instructions.md` **rendered
   as markdown** (the shared result-view Markdown component: headings, fenced code blocks,
   tables, lists; max-height 420 px with inner scroll). The file content itself is untouched —
@@ -1546,6 +1612,12 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   (param sanity, URL reachability, secret allow/Keychain state, agent availability, memory
   and notification plan), streamed as advisory lines over the `checks.*` WS events; the
   in-editor grant arrays, when present, override the saved ones
+- `POST /packages/check` `{ packages: [{ pip, import }] }` → `{ packages: [{ pip, import,
+  status: installed | missing }] }` — the fast §6.2 installed-check, never runs pip (backs the
+  §11 Packages card's page-load check) · `POST /packages/install` (same body) →
+  `{ packages: [{ pip, import, status: installed | failed, error? }] }` — the §6.2 ensure,
+  blocking; installs only what's missing, one pip run at a time process-wide (backs the §11
+  Install/Retry button)
 - `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
   the stored automation's for the §8 grants context; progress via

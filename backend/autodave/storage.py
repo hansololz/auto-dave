@@ -204,6 +204,7 @@ class Store:
             "note": meta.get("note"),
             "desc": meta.get("desc", ""),
             "params": meta.get("params", []) or [],
+            "packages": meta.get("packages", []) or [],
             "steps": steps,
             "spec": md_to_blocks(spec_md),
             "instr": instr,
@@ -252,11 +253,16 @@ class Store:
                 entry["why"] = s.get("why", "")
             manifest_steps.append(entry)
             atomic_write_text(vd / fname, s.get("code", ""))
+        # §6.2: statuses are transient (draft payload / API only) — the stored
+        # manifest keeps just the declaration; absent when none are declared.
+        pkgs = [{"pip": p.get("pip"), "import": p.get("import")}
+                for p in ver.get("packages", []) or []]
         save_yaml(vd / "automation.yaml", {
             "when": ver.get("when"),
             "note": ver.get("note"),
             "desc": ver.get("desc", ""),
             "params": ver.get("params", []),
+            **({"packages": pkgs} if pkgs else {}),
             "steps": manifest_steps,
         })
         atomic_write_text(vd / "spec.md", blocks_to_md(ver.get("spec", [])))
@@ -554,7 +560,8 @@ class Store:
         return {"v": n, "when": when_label, "note": ver.get("note"),
                 "spec": ver.get("spec", []), "instr": ver.get("instr") or "",
                 "steps": [self.step_json(a, s) for s in ver.get("steps", [])],
-                "params": ver.get("params", [])}
+                "params": ver.get("params", []),
+                "packages": ver.get("packages", [])}
 
     def step_json(self, a: dict, s: dict) -> dict:
         out = {"name": s.get("name", ""), "desc": s.get("desc", ""), "code": s.get("code", ""), "file": s.get("file")}
@@ -623,6 +630,7 @@ class Store:
                 "memory": self.memory_stats(a),
                 "steps": [self.step_json(a, s) for s in cur.get("steps", [])],
                 "spec": cur.get("spec", []),
+                "packages": cur.get("packages", []),
                 "versions": [self.version_json(a, n, v)
                              for n, v in sorted(a["versions"].items(), reverse=True)
                              if n != a["current_version"]],

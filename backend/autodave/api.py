@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocket
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from . import __version__, harness, keychain, paths
-from . import drafting, schedule
+from . import drafting, packages as pkglib, schedule
 from .drafting import draft_jobs
 from .engine import Engine
 from .events import hub
@@ -172,7 +172,8 @@ def delete_auto(auto_id: str) -> dict:
 
 def _draft_to_version(d: dict) -> dict:
     return {"desc": d.get("desc", ""), "note": d.get("note", ""),
-            "params": d.get("params", []), "steps": d.get("steps", []),
+            "params": d.get("params", []), "packages": d.get("packages", []),
+            "steps": d.get("steps", []),
             "spec": d.get("spec") or [], "instr": d.get("instr")}
 
 
@@ -274,6 +275,19 @@ def post_test(body: dict) -> dict:
 @app.delete("/tests/{test_id}", dependencies=[Depends(auth)])
 def cancel_test(test_id: str) -> dict:
     return {"ok": test_runs.cancel(test_id)}
+
+
+# ---------- declared packages (§6.2 — §19 /packages/*) ----------
+@app.post("/packages/check", dependencies=[Depends(auth)])
+def packages_check(body: dict) -> dict:
+    return {"packages": pkglib.check(body.get("packages") or [])}
+
+
+@app.post("/packages/install", dependencies=[Depends(auth)])
+def packages_install(body: dict) -> dict:
+    # Blocking §6.2 ensure — FastAPI runs sync endpoints on a worker thread,
+    # and the module lock serializes concurrent pip runs.
+    return {"packages": pkglib.ensure(body.get("packages") or [])}
 
 
 # ---------- review checks (§11 decided semantics) ----------

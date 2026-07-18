@@ -252,6 +252,10 @@ def main() -> int:
     script = sys.argv[1]
     ctx = json.load(sys.stdin)
     ctx.setdefault("secret_names_with_values", list(ctx.get("secrets", {}).keys()))
+    # §6.2: declared packages live in the user-writable site-packages dir — the
+    # bundled interpreter never has them installed directly.
+    if ctx.get("site_packages"):
+        sys.path.insert(0, str(ctx["site_packages"]))
     workspace = Path(ctx["workspace"])
     workspace.mkdir(parents=True, exist_ok=True)
     import os
@@ -309,12 +313,14 @@ def main() -> int:
     sys.stderr = _LineWriter("err")  # type: ignore[assignment]
     try:
         source = Path(script).read_text(encoding="utf-8")
-        # §6.2: re-validate the curated import allowlist at runtime — the
-        # draft-time check alone doesn't cover hand-edited or stale scripts.
-        bad = disallowed_imports(source)
+        # §6.2: re-validate the import allowlist at runtime — the draft-time
+        # check alone doesn't cover hand-edited or stale scripts. The version's
+        # declared packages extend the allowlist.
+        bad = disallowed_imports(source, ctx.get("package_imports") or [])
         if bad:
             msg = (f"import {', '.join(bad)} isn't allowed — steps may only import "
-                   f"the Python stdlib and the curated packages (§6.2)")
+                   f"the Python stdlib, the curated packages, and this automation's "
+                   f"declared packages (§6.2)")
             emit("error", type="DisallowedImport", message=msg)
             emit("log", k="err", text=msg)
             return 4

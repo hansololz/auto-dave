@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
+import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, PackageDep, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
 import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, resultChipColors, usePopover, validUrl } from '../ui'
 import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown } from '../result'
@@ -215,6 +215,7 @@ interface Rev {
   spec: SpecBlock[]
   steps: Step[]
   params: NonNullable<DraftPayload['params']>
+  packages: PackageDep[]    // §6.2 declared packages — display-only, the pipeline owns the list
   triggers: DraftTrigger[]  // §11 TRIGGERS card is display-only — user-owned after save (§5)
   instr: string
   enabledAgents: string[]
@@ -233,6 +234,10 @@ interface Rev {
   ask: string
   syncBusy: boolean
   askBusy: boolean
+  // §11 Packages card: an install/retry call in flight; the §8 job's live stage
+  // (drives the "Installing the packages…" skeleton + save-hint labels)
+  pkgBusy: boolean
+  genStage: string | null
   // §11 drafting-on-Review (create): call-1/call-2 in-flight flags drive the
   // spec-card spinner and the right-column skeletons; a spec-call blocker is
   // the clarification case (editable cards inside the spec card); spec/steps
@@ -255,6 +260,7 @@ interface Rev {
   specSecOpen: boolean | null
   agSecOpen: boolean | null
   secSecOpen: boolean | null
+  pkgSecOpen: boolean | null
   instrSecOpen: boolean | null
   fwOpen: boolean
 }
@@ -265,12 +271,13 @@ const revDefaults = {
   specUndo: null as Rev['specUndo'],
   instrEdit: false, instrDraft: null as string | null,
   ask: '', syncBusy: false, askBusy: false,
+  pkgBusy: false, genStage: null as string | null,
   specBusy: false, stepsBusy: false,
   specBlockers: null as Rev['specBlockers'], specErr: null as Rev['specErr'], stepsErr: null as Rev['stepsErr'],
   repair: null as Rev['repair'], resolved: [] as string[], askBlockers: null as Rev['askBlockers'],
   stepOpen: null as number | null,
   viewing: 'draft' as Rev['viewing'],
-  specSecOpen: null as boolean | null, agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
+  specSecOpen: null as boolean | null, agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, pkgSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
 }
 
 // §11 drafting-on-Review: the Review page mounts empty the moment the create
@@ -280,7 +287,7 @@ function seedDrafting(agents: Agent[]): Rev {
   return {
     ...revDefaults,
     name: 'New automation', desc: '', note: '',
-    spec: [], steps: [], params: [],
+    spec: [], steps: [], params: [], packages: [],
     triggers: [],
     instr: defaultBuildCache,
     enabledAgents: agents.map((g) => g.id),
@@ -294,6 +301,7 @@ function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
     ...revDefaults,
     name: d.name || 'New automation', desc: d.desc || '', note: d.note || '',
     spec: d.spec ?? [], steps: d.steps ?? [], params: d.params ?? [],
+    packages: d.packages ?? [],
     triggers: d.triggers ?? [],
     instr: d.instr ?? defaultBuildCache, // backend seeds instr from default-build-instructions.md
     enabledAgents: agents.map((g) => g.id),
@@ -302,8 +310,11 @@ function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
 }
 
 function seedFromAuto(a: Auto, agents: Agent[], secretNames: string[]): Rev {
-  const src: Pick<VersionInfo, 'spec' | 'steps' | 'instr'> & { params?: VersionInfo['params'] } =
-    a.draft ?? { spec: a.spec ?? [], steps: a.steps ?? [], instr: a.instr || '', params: a.params }
+  const src: Pick<VersionInfo, 'spec' | 'steps' | 'instr'> & { params?: VersionInfo['params']; packages?: VersionInfo['packages'] } =
+    a.draft ?? {
+      spec: a.spec ?? [], steps: a.steps ?? [], instr: a.instr || '', params: a.params,
+      packages: a.packages,
+    }
   const refs = secretRefsOf(a.steps ?? [])
   return {
     ...revDefaults,
@@ -311,6 +322,7 @@ function seedFromAuto(a: Auto, agents: Agent[], secretNames: string[]): Rev {
     spec: (src.spec ?? []).map((b) => ({ ...b })),
     steps: (src.steps ?? []).map((s) => ({ ...s })),
     params: (src.params ?? a.params ?? []).map((p) => ({ ...p })),
+    packages: (src.packages ?? []).map((p) => ({ ...p })),
     triggers: a.triggers.map(({ kind, off, expr, at }) => ({ kind, off, expr, at })),
     instr: src.instr || '',
     enabledAgents: a.stepAgents ? a.stepAgents.filter((id) => agents.some((g) => g.id === id)) : agents.map((g) => g.id),
@@ -321,12 +333,13 @@ function seedFromAuto(a: Auto, agents: Agent[], secretNames: string[]): Rev {
   }
 }
 
-function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr: string; params?: VersionInfo['params'] }, viewing: Rev['viewing']): Rev {
+function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr: string; params?: VersionInfo['params']; packages?: VersionInfo['packages'] }, viewing: Rev['viewing']): Rev {
   return {
     ...r,
     spec: (snap.spec ?? []).map((b) => ({ ...b })),
     steps: (snap.steps ?? []).map((s) => ({ ...s })),
     params: snap.params ? snap.params.map((p) => ({ ...p })) : r.params,
+    packages: (snap.packages ?? []).map((p) => ({ ...p })),
     instr: snap.instr || '',
     specEdit: false, specText: '', specTextOrig: '', specUndo: null, instrEdit: false, instrDraft: null,
     dirty: false, dirtyWhy: null, syncBusy: false, askBusy: false,
@@ -346,6 +359,7 @@ function serializeDraft(r: Rev): DraftPayload {
   return {
     name: r.name, desc: r.desc, note: r.note,
     params: r.params,
+    packages: r.packages.map(({ pip, import: imp }) => ({ pip, import: imp })),
     steps: finalizeSteps(r.steps, r.enabledAgents),
     spec: r.spec,
     instr: r.instr,
@@ -355,14 +369,16 @@ function serializeDraft(r: Rev): DraftPayload {
 
 // ---------- step row (read-only agent + secret tags) ----------
 
-function StepRow({ step, i, open, onToggle, availAgents }: {
+function StepRow({ step, i, open, onToggle, availAgents, pkgImports }: {
   step: Step; i: number; open: boolean; onToggle: () => void
   availAgents: Agent[]
+  pkgImports: string[]  // §6.2 declared package import names — tagged when the step imports one
 }) {
   const asg = step.agent
     ? (step.agentId ? availAgents.find((g) => g.id === step.agentId) ?? null : availAgents[0] ?? null)
     : null
   const stepSecrets = [...new Set([...(step.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]))]
+  const stepPkgs = pkgImports.filter((n) => new RegExp(`\\b(?:import|from)\\s+${n}\\b`).test(step.code || ''))
   return (
     <div style={{ borderBottom: '1px solid rgba(255,255,255,.05)' }}>
       <div
@@ -401,6 +417,20 @@ function StepRow({ step, i, open, onToggle, availAgents }: {
                 }}
               >
                 <i className="fa-solid fa-key" style={{ fontSize: 8.5 }} /> {name}
+              </span>
+            ))}
+            {stepPkgs.map((name) => (
+              <span
+                key={name}
+                title={`This step uses the ${name} Python package — installed automatically`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
+                  borderRadius: 6, padding: '2px 8px', font: "600 10px var(--mono)",
+                  color: 'var(--text-muted)', whiteSpace: 'nowrap',
+                }}
+              >
+                <i className="fa-solid fa-cube" style={{ fontSize: 8.5 }} /> {name}
               </span>
             ))}
           </div>
@@ -671,10 +701,17 @@ export default function CreateFlow() {
     stopPoll()
     jobIdRef.current = jobId
     let specDelivered = false
+    let lastStage: string | null = null
     pollRef.current = setInterval(() => {
       void (async () => {
         try {
           const j = await api.getDraftJob(jobId)
+          // §8/§11: the job's live stage drives the skeleton + save-hint labels
+          // ("Installing the packages…" after the steps land).
+          if (j.status === 'building' && j.stage !== lastStage) {
+            lastStage = j.stage
+            setRev((r) => (r ? { ...r, genStage: j.stage } : r))
+          }
           if (onSpec && !specDelivered && j.status === 'building' && j.draft?.spec) {
             specDelivered = true
             onSpec(j.draft.spec)
@@ -836,6 +873,10 @@ export default function CreateFlow() {
     || ((rev?.specSecOpen ?? null) == null ? true : !!rev?.specSecOpen)
   const agSecOpenEff = ((rev?.agSecOpen ?? null) == null ? true : !!rev?.agSecOpen) || agWarn
   const secSecOpenEff = ((rev?.secSecOpen ?? null) == null ? true : !!rev?.secSecOpen) || secWarn
+  // §11 Packages card: default collapsed when everything is installed; forced
+  // open while any row is installing, not installed, or failed.
+  const pkgProblem = !!rev && rev.packages.some((p) => p.status && p.status !== 'installed')
+  const pkgSecOpenEff = (((rev?.pkgSecOpen ?? null) == null ? pkgProblem : !!rev?.pkgSecOpen) || pkgProblem || !!rev?.pkgBusy)
   const instrOpenEff = (rev?.instrSecOpen ?? null) == null ? isEdit : !!rev?.instrSecOpen
   const viewingOld = isEdit && !!rev && !!auto && rev.viewing !== 'draft' && rev.viewing !== auto.version
   const drafting = !!rev && (rev.specBusy || rev.stepsBusy)
@@ -849,7 +890,9 @@ export default function CreateFlow() {
   // buttons get `disabled`, non-button rows get this style. One shared look.
   const lockStyle: React.CSSProperties | undefined = busyRewrite ? { opacity: 0.45, pointerEvents: 'none' } : undefined
   // Right-column skeleton label — §11 drafting stages
-  const stageLabel = rev?.specBusy ? 'Waiting for the spec…' : 'Generating the steps…'
+  const installingPkgs = rev?.genStage === 'Installing the packages'
+  const stageLabel = rev?.specBusy ? 'Waiting for the spec…'
+    : installingPkgs ? 'Installing the packages…' : 'Generating the steps…'
 
   // ---- review: agent-ask + sync jobs ----
   const currentSerialized = () => (rev ? serializeDraft(rev) : null)
@@ -924,7 +967,7 @@ export default function CreateFlow() {
     if (!rev || rev.syncBusy || rev.askBusy) return
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // discard unsaved edits
-      syncBusy: true, touched: true, stepsErr: null,
+      syncBusy: true, genStage: null, touched: true, stepsErr: null,
       // §11 spec undo: a repair amend replaces the spec outside the undo flow
       ...(specOverride ? { spec: specOverride, specUndo: null } : {}),
     })
@@ -944,8 +987,8 @@ export default function CreateFlow() {
               agentId: s.agent && s.agentId && !r.enabledAgents.includes(s.agentId) ? r.enabledAgents[0] ?? null : s.agentId,
             }))
             return {
-              ...r, syncBusy: false, dirty: false, dirtyWhy: null, specUndo: null,
-              steps, params: d.params ?? r.params, stepOpen: null,
+              ...r, syncBusy: false, genStage: null, dirty: false, dirtyWhy: null, specUndo: null,
+              steps, params: d.params ?? r.params, packages: d.packages ?? [], stepOpen: null,
             }
           })
           showToast('Steps synced with the spec — review them, then save.', 3600)
@@ -961,6 +1004,52 @@ export default function CreateFlow() {
       )
     } catch (e) {
       up({ syncBusy: false })
+      showToast((e as Error).message)
+    }
+  }
+
+  // §11 Packages card: check statuses once per package list (§19 /packages/check,
+  // fast, no pip) — a saved automation whose packages went missing shows
+  // "not installed" without waiting for an execution to self-heal.
+  const pkgKey = rev ? rev.packages.map((p) => p.pip).join('\n') : ''
+  useEffect(() => {
+    if (!rev || rev.packages.length === 0 || !rev.packages.some((p) => !p.status)) return
+    let stale = false
+    void api.checkPackages(rev.packages.map(({ pip, import: imp }) => ({ pip, import: imp })))
+      .then(({ packages }) => {
+        if (stale) return
+        setRev((r) => r && ({
+          ...r,
+          packages: r.packages.map((p) => {
+            const c = packages.find((z) => z.pip === p.pip)
+            return p.status || !c ? p : { ...p, status: c.status }
+          }),
+        }))
+      })
+      .catch(() => { /* statuses stay unknown; the engine still ensures at execution (§7) */ })
+    return () => { stale = true }
+  }, [pkgKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // §11: Install / Retry on the Packages card — the blocking §19 ensure; rows
+  // show spinners while it runs. An install failure never blocks saving (§6.2).
+  const installPkgs = async () => {
+    if (!rev || rev.pkgBusy) return
+    const list = rev.packages.map(({ pip, import: imp }) => ({ pip, import: imp }))
+    up({
+      pkgBusy: true,
+      packages: rev.packages.map((p) => (p.status === 'installed' ? p : { ...p, status: 'installing' as const, error: undefined })),
+    })
+    try {
+      const { packages } = await api.installPackages(list)
+      setRev((r) => r && ({
+        ...r, pkgBusy: false,
+        packages: r.packages.map((p) => packages.find((z) => z.pip === p.pip) ?? p),
+      }))
+    } catch (e) {
+      setRev((r) => r && ({
+        ...r, pkgBusy: false,
+        packages: r.packages.map((p) => (p.status === 'installing' ? { ...p, status: 'missing' as const } : p)),
+      }))
       showToast((e as Error).message)
     }
   }
@@ -1325,8 +1414,8 @@ export default function CreateFlow() {
                 {saveBlocked && (
                   <span style={{ font: "400 12px var(--sans)", color: 'var(--amber)' }}>
                     {rev.specBusy ? 'Writing the spec…'
-                      : rev.stepsBusy ? 'Generating the steps…'
-                        : rev.syncBusy ? 'Syncing steps…'
+                      : rev.stepsBusy ? (installingPkgs ? 'Installing the packages…' : 'Generating the steps…')
+                        : rev.syncBusy ? (installingPkgs ? 'Installing the packages…' : 'Syncing steps…')
                           : rev.askBusy ? 'Rewriting the spec…'
                             : rev.specEdit ? 'Finish editing the spec first — save or cancel your edits'
                               : 'Sync and review the steps before saving'}
@@ -1746,6 +1835,68 @@ export default function CreateFlow() {
                   )}
                 </div>
 
+                {/* PACKAGES · PYTHON LIBRARIES (§6.2 — only when the draft declares any) */}
+                {rev.packages.length > 0 && (
+                  <div style={cardStyle}>
+                    <div
+                      onClick={() => up({ pkgSecOpen: !pkgSecOpenEff })}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 20px', cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                        <i className={pkgSecOpenEff ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-right'} style={{ width: 14, flex: 'none', textAlign: 'center', fontSize: 10, color: '#4a515c' }} />
+                        <span style={eyebrowStyle}>PACKAGES · PYTHON LIBRARIES</span>
+                      </span>
+                      <span style={{ font: "500 10.5px var(--mono)", color: 'var(--text-faintest)', whiteSpace: 'nowrap', flex: 'none' }}>
+                        {rev.packages.filter((p) => p.status === 'installed').length} of {rev.packages.length} installed
+                      </span>
+                    </div>
+                    {!pkgSecOpenEff && (
+                      <div onClick={() => up({ pkgSecOpen: true })} style={{ padding: '0 20px 13px 43px', font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-faintest)', cursor: 'pointer', userSelect: 'none' }}>
+                        Python packages this automation needs. They install automatically — nothing for you to run.
+                      </div>
+                    )}
+                    {pkgSecOpenEff && (
+                      <div style={{ borderTop: '1px solid var(--hairline)' }}>
+                        {rev.packages.map((p) => (
+                          <div key={p.pip} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <div style={{ flex: 1, minWidth: 0, font: "500 12px var(--mono)", color: 'var(--text)' }}>{p.pip}</div>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 'none', whiteSpace: 'nowrap', font: "600 10px var(--mono)",
+                                color: p.status === 'installed' ? 'var(--green)'
+                                  : p.status === 'failed' ? 'var(--red)'
+                                    : p.status === 'missing' ? 'var(--amber)' : 'var(--text-faint)' }}>
+                                {p.status === 'installed' && <><i className="fa-solid fa-check" style={{ fontSize: 9 }} /> installed</>}
+                                {p.status === 'installing' && <><i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 9 }} /> installing…</>}
+                                {p.status === 'missing' && 'not installed'}
+                                {p.status === 'failed' && 'failed'}
+                                {!p.status && 'checking…'}
+                              </span>
+                            </div>
+                            {p.status === 'failed' && p.error && (
+                              <div style={{ margin: '6px 0 0', font: "400 10.5px/1.5 var(--mono)", color: 'var(--red)', overflowWrap: 'break-word' }}>{p.error}</div>
+                            )}
+                          </div>
+                        ))}
+                        {rev.packages.some((p) => p.status === 'missing' || p.status === 'failed') && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                            <span style={{ flex: 1, font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)' }}>
+                              {rev.packages.some((p) => p.status === 'failed')
+                                ? 'A package couldn’t be installed — check your connection, then retry. Saving still works; executions retry on their own too.'
+                                : 'Some packages aren’t installed yet. Executions install them automatically — or install now.'}
+                            </span>
+                            <button className="ad-btn-soft" disabled={rev.pkgBusy || busyRewrite} onClick={() => void installPkgs()} style={{ flex: 'none' }}>
+                              {rev.packages.some((p) => p.status === 'failed') ? 'Retry install' : 'Install'}
+                            </button>
+                          </div>
+                        )}
+                        <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
+                          Your AI picked these Python packages for the steps. They install automatically — nothing for you to run.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* BUILD INSTRUCTIONS */}
                 <div style={cardStyle}>
                   <div
@@ -1971,6 +2122,7 @@ export default function CreateFlow() {
                         open={rev.stepOpen === i}
                         onToggle={() => up({ stepOpen: rev.stepOpen === i ? null : i })}
                         availAgents={availAgents}
+                        pkgImports={rev.packages.map((p) => p.import)}
                       />
                     ))}
                   </div>

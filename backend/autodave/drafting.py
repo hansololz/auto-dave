@@ -19,9 +19,9 @@ from pathlib import Path
 
 import yaml
 
-from . import harness, schedule
+from . import harness, packages as pkglib, schedule
 from .events import hub
-from .imports_check import disallowed_imports
+from .imports_check import ALLOWED_IMPORTS, disallowed_imports
 from .specmd import blocks_to_md, md_to_blocks
 from .storage import SECRET_REF_RE
 
@@ -70,6 +70,8 @@ desc: One-line description
 note: One-line version note for the history menu
 params:                                # each param MUST carry a default
   - { name: snake_case_name, kind: toggle|list|kv|number|text, label: ..., help: ..., default: ... }
+packages:                              # extra PyPI packages beyond the allowed list (see Allowed imports);
+  - { pip: "pandas==2.2.3", import: pandas }   # exactly pinned name==version; omit the key when none are needed
 triggers:                              # cron entries only (see Triggers above); omit the whole key if the spec names no time (no triggers -> manual / menu bar only)
   - cron: "0 8 * * *"
 steps:                                 # ordered; file names NN-name.py, two-digit, gapless from 01
@@ -265,6 +267,27 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
         if p["kind"] == "number" and "min" not in p:
             p["min"] = 0
 
+    # §6.2/§8: declared packages — {pip, import}, exactly pinned, beyond
+    # stdlib/curated only. Their import names extend the step allowlist below.
+    raw_pkgs = manifest.get("packages") or []
+    norm_pkgs: list[dict] = []
+    if not isinstance(raw_pkgs, list):
+        errors.append("packages must be a list of { pip, import } entries")
+        raw_pkgs = []
+    for e in raw_pkgs:
+        if not isinstance(e, dict) or not e.get("pip") or not e.get("import"):
+            errors.append(f"packages entry malformed: {e!r} — need {{ pip: name==version, import: module }}")
+            continue
+        spec, imp = str(e["pip"]).strip(), str(e["import"]).strip()
+        if not pkglib.PIP_SPEC_RE.match(spec):
+            errors.append(f"packages: {spec!r} must be exactly pinned name==version")
+        if not imp.isidentifier():
+            errors.append(f"packages: import {imp!r} isn't a valid module name")
+        elif imp in ALLOWED_IMPORTS:
+            errors.append(f"packages: {imp} is already available — don't declare it")
+        norm_pkgs.append({"pip": spec, "import": imp})
+    pkg_imports = [p["import"] for p in norm_pkgs]
+
     steps = manifest.get("steps") or []
     if not steps:
         errors.append("steps must be nonempty")
@@ -289,7 +312,7 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
         code = files.get(s.get("file", ""), "")
         try:
             ast.parse(code)
-            for mod in disallowed_imports(code):
+            for mod in disallowed_imports(code, pkg_imports):
                 errors.append(f"{s.get('file')}: import {mod} isn't allowed")
         except SyntaxError as e:
             errors.append(f"{s.get('file')}: syntax error — {e.msg} (line {e.lineno})")
@@ -321,6 +344,7 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
         "desc": manifest.get("desc", ""),
         "note": manifest.get("note", ""),
         "params": params,
+        "packages": norm_pkgs,
         "steps": norm_steps,
         "secretRefs": sorted({m for st in norm_steps for m in SECRET_REF_RE.findall(st["code"])}),
     }
@@ -428,6 +452,16 @@ class DraftJobs:
                                blockers, {"spec": spec_blocks} if spec_blocks else None)
         if errors:
             return self._fail(job, "The steps didn't validate — try again or rephrase.", errors)
+
+        if draft.get("packages"):
+            # §8: ensure the declared packages right after the steps land — the
+            # user learns about an install failure on the edit page, not when a
+            # trigger fires. A failure never fails the job (§6.2): the statuses
+            # ride the draft payload and render in the §11 Packages card.
+            self._stage(job, "Installing the packages")
+            draft["packages"] = pkglib.ensure(draft["packages"])
+            if job["_cancel"]:
+                return True
 
         draft["spec"] = spec_blocks  # None on sync — the spec never changes there
         if mode == "create":

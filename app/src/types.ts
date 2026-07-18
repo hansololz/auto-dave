@@ -32,6 +32,16 @@ export interface Step {
   why?: string
 }
 
+// §6.2 declared package — a pinned pip requirement plus the module it provides.
+// `status` is transient (§19 check/install responses and §8 draft payloads);
+// 'installing' exists client-side only, while an install call is in flight.
+export interface PackageDep {
+  pip: string
+  import: string
+  status?: 'installed' | 'missing' | 'failed' | 'installing'
+  error?: string
+}
+
 export interface ResultValue { name: string; value: string | string[] }
 export interface ResultFile { name: string; size: string }
 
@@ -53,6 +63,7 @@ export interface VersionInfo {
   instr: string
   steps: Step[]
   params: ParamDef[]
+  packages: PackageDep[]
 }
 
 // §4.3 trigger — cron or one-shot time; discord/imessage/pubsub are reserved
@@ -99,6 +110,7 @@ export interface Auto {
   memory?: { size: string; updated: string; path?: string }
   steps?: Step[]
   spec?: SpecBlock[]
+  packages?: PackageDep[]    // §6.2 — the current version's declared packages
   versions?: VersionInfo[]
   draft?: VersionInfo | null
 }
@@ -158,6 +170,7 @@ export interface DraftPayload {
   desc?: string
   note?: string
   params?: ParamDef[]
+  packages?: PackageDep[]    // §6.2 — statuses attached after the install stage
   steps?: Step[]
   spec: SpecBlock[] | null
   instr?: string | null
