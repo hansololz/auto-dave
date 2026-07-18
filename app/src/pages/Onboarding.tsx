@@ -45,9 +45,9 @@ function freshOb(): Ob {
     phase: resumeAtConnect ? 'connect' : 'welcome',
     smStarted: false,
     smSteps: [
-      { name: 'Checking settings', status: 'pending', dur: '' },
-      { name: 'Preparing folders', status: 'pending', dur: '' },
-      { name: 'Loading data', status: 'pending', dur: '' },
+      { name: 'Checking your settings', status: 'pending', dur: '' },
+      { name: 'Loading your automations', status: 'pending', dur: '' },
+      { name: 'Starting the execution engine', status: 'pending', dur: '' },
     ],
     smShowResult: false,
     smDone: false,

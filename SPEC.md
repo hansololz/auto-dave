@@ -1122,8 +1122,8 @@ bypass it: step 1 always renders. When prior data exists (any agent or any autom
 Continue goes straight to the app shell instead of step 2.
 
 **Step 1 — Welcome.** Logo, headline "Recurring jobs, done exactly the same way every time.",
-then a live self-check card "Getting Auto Dave ready" with three steps (Checking settings,
-Preparing folders, Loading data) with pulsing dots and durations, ending in a "READY / All set"
+then a live self-check card "Getting Auto Dave ready" with three steps (Checking your settings,
+Loading your automations, Starting the execution engine) with pulsing dots and durations, ending in a "READY / All set"
 well with chips (Settings created, Folders in place, plus "Agent found" if an agent is already
 configured and "Automations found" if automations already exist). Continue appears only when
 done; its label is "Continue →" when prior data exists (going straight to the app), otherwise
