@@ -637,7 +637,12 @@ verbatim in the §8 contract preamble.
 task-solving ladder still prefers stdlib + curated first), the drafting agent declares it in
 `manifest.yaml` (§8): `packages: [{ pip: "pandas==2.2.3", import: pandas }]` — one entry per
 distribution, the exactly-pinned pip requirement (`name==version`, no ranges) plus the top-level
-module it provides. Declared packages extend the import allowlist for that version's steps only:
+module it provides. Python transitive dependencies are pip's job and are never declared; what
+must be declared is every **runtime companion** the task's usage needs beyond that — optional
+extras and binary-bundling wheels (e.g. yt-dlp merging streams needs ffmpeg → declare
+`imageio-ffmpeg` alongside it and wire its path in the step). The §8 contract instructs the
+drafting agent to declare the complete set a task needs, so an execution never discovers a
+missing companion at runtime. Declared packages extend the import allowlist for that version's steps only:
 §8 validation and the executor's runtime re-check both accept stdlib + curated + `autodave` +
 the version's declared imports (shared module `imports_check.py`, which takes the declared
 names as an extra allowlist) and fail the step on anything else — the allowlist holds even for

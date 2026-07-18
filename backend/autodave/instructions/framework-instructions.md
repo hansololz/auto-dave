@@ -162,6 +162,16 @@ is neither stdlib, curated, nor declared; never declare a stdlib or curated
 module. Only packages with prebuilt wheels install — never declare a
 source-only distribution.
 
+Declare the COMPLETE set the task needs. A package's own Python dependencies
+install automatically — never list those. But anything a tool needs at
+runtime beyond them must be declared too: companion tools (yt-dlp needs
+ffmpeg to merge or convert — declare `imageio-ffmpeg` with it, always, unless
+the spec limits downloads to single-format files), and any package behind an
+optional extra you rely on (relying on `requests[socks]` behavior → declare
+`pysocks`). Before finishing, re-read each step and ask: if this ran on a
+machine with only the declared packages, does anything break? A missing
+companion fails at execution time, long after the user stopped watching.
+
 System binaries (ffmpeg, tesseract, …) cannot be installed. When a tool needs
 one, declare a pip package that bundles a static binary and pass its path to
 the tool explicitly — e.g. video downloads needing ffmpeg:
