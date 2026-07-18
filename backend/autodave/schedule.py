@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 DOW_LONG = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"]
 DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
@@ -85,6 +86,41 @@ def cron_next(expr: str, after: datetime | None = None) -> datetime | None:
     return None
 
 
+# ---------- timezone (§4.3 `tz`): wall clock in the trigger's zone ----------
+
+def zone_of(t: dict) -> ZoneInfo | None:
+    """The trigger's zone, None when local. Assumes a validated `tz`."""
+    return ZoneInfo(t["tz"]) if t.get("tz") else None
+
+
+def _to_wall(local: datetime, tz: ZoneInfo) -> datetime:
+    """Local naive → the zone's naive wall clock."""
+    return local.astimezone(tz).replace(tzinfo=None)
+
+
+def _to_local(wall: datetime, tz: ZoneInfo) -> datetime:
+    """The zone's naive wall clock → local naive."""
+    return wall.replace(tzinfo=tz).astimezone().replace(tzinfo=None)
+
+
+def tz_error(tz) -> str | None:
+    """Error message for an unusable `tz` value, None when valid (or absent)."""
+    if tz is None:
+        return None
+    try:
+        if not isinstance(tz, str):
+            raise ValueError
+        ZoneInfo(tz)
+    except Exception:  # noqa: BLE001 — ZoneInfoNotFoundError, ValueError, ...
+        return f"unknown timezone {tz!r} — use an IANA name like Asia/Tokyo"
+    return None
+
+
+def _tz_suffix(tz: str | None) -> str:
+    """§4.3: labels append the zone's city — last IANA segment, _ → space."""
+    return f" ({tz.rsplit('/', 1)[-1].replace('_', ' ')})" if tz else ""
+
+
 # ---------- triggers (§4.3) ----------
 
 def validate_trigger(t: dict) -> str | None:
@@ -93,17 +129,22 @@ def validate_trigger(t: dict) -> str | None:
     if kind in RESERVED_KINDS:
         return f"{kind} triggers are coming soon"
     if kind == "cron":
+        if err := tz_error(t.get("tz")):
+            return err
         try:
             parse_cron(t.get("expr") or "")
         except CronError as e:
             return str(e)
         return None
     if kind == "time":
+        if err := tz_error(t.get("tz")):
+            return err
         try:
             at = datetime.fromisoformat(t.get("at") or "")
         except (TypeError, ValueError):
             return "invalid timestamp — use local ISO format like 2026-07-20T15:00"
-        if at <= datetime.now():
+        tz = zone_of(t)
+        if (_to_local(at, tz) if tz else at) <= datetime.now():
             return "the time must be in the future"
         return None
     return f"unknown trigger kind {kind!r}"
@@ -124,6 +165,8 @@ def normalize_triggers(raw: list) -> tuple[list[dict], str | None]:
             n["expr"] = t["expr"].strip()
         else:
             n["at"] = t["at"]
+        if t.get("tz"):
+            n["tz"] = t["tz"]
         out.append(n)
     return out, None
 
@@ -132,30 +175,32 @@ def _hm(hour: int, minute: int) -> str:
     return f"{hour}:{minute:02d}"
 
 
-def cron_display(expr: str) -> tuple[str, str]:
+def cron_display(expr: str, tz: str | None = None) -> tuple[str, str]:
     """§4.3 humanized labels — exactly two simple shapes get words."""
+    sfx = _tz_suffix(tz)
     p = expr.split()
     if len(p) == 5 and p[0].isdigit() and p[1].isdigit() and p[2] == "*" and p[3] == "*":
         t = _hm(int(p[1]), int(p[0]))
         if p[4] == "*":
-            return f"Daily at {t}", f"Daily {t}"
+            return f"Daily at {t}{sfx}", f"Daily {t}{sfx}"
         if p[4].isdigit():
             d = int(p[4])
-            return f"{DOW_LONG[d]} at {t}", f"{DOW_SHORT[d]} {t}"
-    return expr, expr
+            return f"{DOW_LONG[d]} at {t}{sfx}", f"{DOW_SHORT[d]} {t}{sfx}"
+    return expr + sfx, expr + sfx
 
 
-def time_display(at: str) -> tuple[str, str]:
+def time_display(at: str, tz: str | None = None) -> tuple[str, str]:
     dt = datetime.fromisoformat(at)
+    sfx = _tz_suffix(tz)
     ampm = f"{(dt.hour % 12) or 12}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
     day = f"{dt.strftime('%b')} {dt.day}"
-    return f"Once at {day}, {ampm}", f"Once {day} {_hm(dt.hour, dt.minute)}"
+    return f"Once at {day}, {ampm}{sfx}", f"Once {day} {_hm(dt.hour, dt.minute)}{sfx}"
 
 
 def trigger_display(t: dict) -> tuple[str, str]:
     if t["kind"] == "cron":
-        return cron_display(t["expr"])
-    return time_display(t["at"])
+        return cron_display(t["expr"], t.get("tz"))
+    return time_display(t["at"], t.get("tz"))
 
 
 def trigger_exec_label(t: dict) -> str:
@@ -164,11 +209,19 @@ def trigger_exec_label(t: dict) -> str:
 
 
 def trigger_next(t: dict, after: datetime | None = None) -> datetime | None:
-    """Next occurrence of one trigger strictly after `after` (off is the caller's concern)."""
+    """Next occurrence of one trigger strictly after `after`, both local naive.
+    A `tz` trigger is evaluated on its zone's wall clock (off is the caller's concern)."""
+    tz = zone_of(t)
+    base = after or datetime.now()
     if t["kind"] == "cron":
-        return cron_next(t["expr"], after)
+        if not tz:
+            return cron_next(t["expr"], base)
+        nxt = cron_next(t["expr"], _to_wall(base, tz))
+        return _to_local(nxt, tz) if nxt else None
     at = datetime.fromisoformat(t["at"])
-    return at if at > (after or datetime.now()) else None
+    if tz:
+        at = _to_local(at, tz)
+    return at if at > base else None
 
 
 def next_at(triggers: list[dict], after: datetime | None = None) -> datetime | None:

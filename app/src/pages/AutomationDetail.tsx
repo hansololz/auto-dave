@@ -7,7 +7,7 @@ import {
   Badge, BtnPrimary, ConfirmModal, Eyebrow, FailureNotice, PyCode, Toggle,
   nextIn, usePopover, validUrl,
 } from '../ui'
-import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, triggerShort } from '../cron'
+import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, timeAt, triggerShort, tzSuffix } from '../cron'
 import { ResultSection } from '../result'
 
 const EXECUTING_TOAST = 'Already executing — one execution at a time. A trigger firing now would be skipped.'
@@ -87,20 +87,23 @@ const pickChipStyle = (active: boolean): React.CSSProperties => ({
   color: active ? 'var(--accent)' : 'var(--text-2em)', borderRadius: 6, padding: '4px 10px', flex: 'none',
 })
 
-function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: string; at?: string }) => void }) {
+const TZ_LIST: string[] = Intl.supportedValuesOf('timeZone')
+
+function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: string; at?: string; tz?: string }) => void }) {
   const [open, setOpen] = useState(false)
   const [kind, setKind] = useState<'cron' | 'time'>('cron')
   const [expr, setExpr] = useState('')
   const [at, setAt] = useState('')
+  const [tz, setTz] = useState('') // '' → local time, no tz stored (§4.3)
   const exprOk = cronValid(expr)
-  const atDate = at ? new Date(at) : null
+  const atDate = at ? timeAt(at, tz || undefined) : null
   const atOk = !!atDate && !Number.isNaN(atDate.getTime()) && atDate > new Date()
   const canAdd = kind === 'cron' ? exprOk : atOk
-  const nxt = kind === 'cron' && exprOk ? cronNext(expr) : null
+  const nxt = kind === 'cron' && exprOk ? cronNext(expr, undefined, tz || undefined) : null
   const preview = kind === 'cron'
-    ? (exprOk ? `${cronLabels(expr).label}${nxt ? ` · next: ${fmtMoment(nxt)}` : ''}` : (expr ? 'Not a valid cron expression' : ''))
-    : (atOk ? `Once at ${fmtMoment(atDate)}` : (at ? 'Pick a time in the future' : ''))
-  const reset = () => { setOpen(false); setKind('cron'); setExpr(''); setAt('') }
+    ? (exprOk ? `${cronLabels(expr, tz || undefined).label}${nxt ? ` · next: ${fmtMoment(nxt)}` : ''}` : (expr ? 'Not a valid cron expression' : ''))
+    : (atOk ? `Once at ${fmtMoment(new Date(at))}${tzSuffix(tz || undefined)}` : (at ? 'Pick a time in the future' : ''))
+  const reset = () => { setOpen(false); setKind('cron'); setExpr(''); setAt(''); setTz('') }
 
   if (!open) {
     return (
@@ -156,6 +159,19 @@ function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: stri
           }}
         />
       )}
+      <select
+        value={tz}
+        onChange={(e) => setTz(e.target.value)}
+        title="Timezone the trigger's times read in"
+        style={{
+          ...inputBase, display: 'block', marginTop: 8, fontFamily: 'var(--mono)', fontSize: 12,
+          padding: '6px 10px', border: '1px solid rgba(255,255,255,.1)', colorScheme: 'dark',
+          color: tz ? 'var(--text)' : 'var(--text-muted)',
+        }}
+      >
+        <option value="">Local time</option>
+        {TZ_LIST.map((z) => <option key={z} value={z}>{z}</option>)}
+      </select>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
         <span style={{
           flex: 1, minWidth: 0, fontFamily: 'var(--mono)', fontSize: 11,
@@ -164,7 +180,7 @@ function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: stri
           {preview}
         </span>
         <HoverBtn
-          onClick={() => { onAdd(kind === 'cron' ? { kind, expr: expr.trim() } : { kind, at }); reset() }}
+          onClick={() => { onAdd({ ...(kind === 'cron' ? { kind, expr: expr.trim() } : { kind, at }), ...(tz ? { tz } : {}) }); reset() }}
           disabled={!canAdd}
           style={{
             background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',

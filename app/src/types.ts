@@ -78,8 +78,9 @@ export interface Trigger {
   id: string
   kind: 'cron' | 'time'
   off: boolean
-  expr?: string   // cron: 5-field expression, local time
-  at?: string     // time: local wall-clock ISO timestamp
+  expr?: string   // cron: 5-field expression
+  at?: string     // time: wall-clock ISO timestamp
+  tz?: string     // §4.3 IANA zone the wall clock reads in; absent → local
   label: string   // backend-derived display strings (§4.3)
   short: string
 }
@@ -90,6 +91,7 @@ export interface DraftTrigger {
   off: boolean
   expr?: string
   at?: string
+  tz?: string
 }
 
 export interface Auto {

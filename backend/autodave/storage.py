@@ -184,7 +184,8 @@ class Store:
             if isinstance(t, dict) and schedule.validate_trigger(t) is None:
                 out.append({"id": t.get("id") or new_id(), "kind": t["kind"],
                             "off": bool(t.get("off", False)),
-                            **({"expr": t["expr"]} if t["kind"] == "cron" else {"at": t["at"]})})
+                            **({"expr": t["expr"]} if t["kind"] == "cron" else {"at": t["at"]}),
+                            **({"tz": t["tz"]} if t.get("tz") else {})})
             elif isinstance(t, dict) and t.get("kind") == "time":
                 # A past one-shot found on disk was missed while the backend was
                 # down — consumed (§4.3), never loaded.

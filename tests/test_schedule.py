@@ -82,6 +82,49 @@ def test_time_trigger_validation_and_next():
     assert trigger_next(t, after=datetime.fromisoformat(future)) is None  # spent
 
 
+def test_tz_validation():
+    assert validate_trigger({"kind": "cron", "expr": "0 8 * * *", "tz": "Asia/Tokyo"}) is None
+    assert "unknown timezone" in validate_trigger({"kind": "cron", "expr": "0 8 * * *", "tz": "Mars/Olympus"})
+    assert "unknown timezone" in validate_trigger({"kind": "time", "at": "2099-01-01T00:00", "tz": 5})
+    norm, err = normalize_triggers([{"kind": "cron", "expr": "0 8 * * *", "tz": "UTC"}])
+    assert err is None and norm[0]["tz"] == "UTC"
+    norm, err = normalize_triggers([{"kind": "cron", "expr": "0 8 * * *"}])
+    assert err is None and "tz" not in norm[0]
+
+
+def test_tz_cron_next_is_zone_wall_clock():
+    from datetime import timezone
+    now = datetime(2026, 7, 10, 9, 0)
+    # "0 8 * * *" in UTC: next 08:00 UTC after `now` (local), expressed in local naive time.
+    got = trigger_next({"id": "1", "kind": "cron", "off": False, "expr": "0 8 * * *", "tz": "UTC"}, after=now)
+    now_utc = now.astimezone(timezone.utc).replace(tzinfo=None)
+    nxt_utc = now_utc.replace(hour=8, minute=0, second=0, microsecond=0)
+    if nxt_utc <= now_utc:
+        nxt_utc += timedelta(days=1)
+    assert got == nxt_utc.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+
+
+def test_tz_time_trigger():
+    from datetime import timezone
+    wall = datetime.now(timezone.utc) + timedelta(hours=2)
+    at = wall.replace(tzinfo=None).isoformat(timespec="minutes")
+    t = {"id": "1", "kind": "time", "off": False, "at": at, "tz": "UTC"}
+    assert validate_trigger(t) is None
+    got = trigger_next(t)
+    expect = datetime.fromisoformat(at).replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+    assert got == expect
+    past = (datetime.now(timezone.utc) - timedelta(hours=2)).replace(tzinfo=None).isoformat(timespec="minutes")
+    assert "future" in validate_trigger({"kind": "time", "at": past, "tz": "UTC"})
+
+
+def test_tz_labels():
+    assert cron_display("0 8 * * *", "Asia/Tokyo") == ("Daily at 8:00 (Tokyo)", "Daily 8:00 (Tokyo)")
+    assert cron_display("0 9 * * 1", "America/New_York")[1] == "Mon 9:00 (New York)"
+    assert cron_display("*/15 * * * *", "UTC") == ("*/15 * * * * (UTC)", "*/15 * * * * (UTC)")
+    assert time_display("2026-07-20T15:00", "Asia/Tokyo") == (
+        "Once at Jul 20, 3:00 PM (Tokyo)", "Once Jul 20 15:00 (Tokyo)")
+
+
 def test_reserved_and_unknown_kinds_rejected():
     for kind in ("discord", "imessage", "pubsub"):
         assert "coming soon" in validate_trigger({"kind": kind})

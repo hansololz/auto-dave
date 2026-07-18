@@ -6,7 +6,42 @@ export interface TriggerLike {
   kind: 'cron' | 'time'
   expr?: string
   at?: string
+  tz?: string
   off?: boolean
+}
+
+// ---------- §4.3 `tz`: wall clock in the trigger's zone ----------
+
+/** §4.3 label suffix — the zone's city: last IANA segment, _ → space. */
+export function tzSuffix(tz?: string): string {
+  return tz ? ` (${tz.split('/').pop()!.replace(/_/g, ' ')})` : ''
+}
+
+/** Wall clock of instant `d` in `tz`, carried in a "fake local" Date's components. */
+function wallInZone(d: Date, tz: string): Date {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(d)
+  const g = (t: string) => Number(parts.find((p) => p.type === t)!.value)
+  return new Date(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'), g('second'))
+}
+
+/** Fake-local wall-clock Date in `tz` → the real instant (two-pass offset fixpoint). */
+function zoneWallToDate(wall: Date, tz: string): Date {
+  const target = Date.UTC(wall.getFullYear(), wall.getMonth(), wall.getDate(), wall.getHours(), wall.getMinutes(), 0)
+  let utc = target
+  for (let i = 0; i < 2; i++) {
+    const w = wallInZone(new Date(utc), tz)
+    utc += target - Date.UTC(w.getFullYear(), w.getMonth(), w.getDate(), w.getHours(), w.getMinutes(), w.getSeconds())
+  }
+  return new Date(utc)
+}
+
+/** A one-shot's real moment: `at`'s wall clock read in `tz` (local when absent). */
+export function timeAt(at: string, tz?: string): Date {
+  const wall = new Date(at)
+  return tz && !Number.isNaN(wall.getTime()) ? zoneWallToDate(wall, tz) : wall
 }
 
 const DOW_LONG = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
@@ -61,12 +96,13 @@ export function cronValid(expr: string): boolean {
   return parseCron(expr) !== null
 }
 
-/** Next match strictly after `after` (default now); null if invalid/unsatisfiable. */
-export function cronNext(expr: string, after?: Date): Date | null {
+/** Next match strictly after `after` (default now), as a real local-time Date;
+ * with `tz` the expression reads as the zone's wall clock. Null if invalid/unsatisfiable. */
+export function cronNext(expr: string, after?: Date, tz?: string): Date | null {
   const f = parseCron(expr)
   if (!f) return null
   const [mins, hours, doms, months, dows] = f
-  const t = new Date(after ?? new Date())
+  const t = tz ? wallInZone(after ?? new Date(), tz) : new Date(after ?? new Date())
   t.setSeconds(0, 0)
   t.setMinutes(t.getMinutes() + 1)
   const hhmm: [number, number][] = []
@@ -87,7 +123,7 @@ export function cronNext(expr: string, after?: Date): Date | null {
         for (const [hh, mm] of hhmm) {
           const cand = new Date(day)
           cand.setHours(hh, mm, 0, 0)
-          if (!sameDay || cand >= t) return cand
+          if (!sameDay || cand >= t) return tz ? zoneWallToDate(cand, tz) : cand
         }
       }
     }
@@ -99,17 +135,18 @@ export function cronNext(expr: string, after?: Date): Date | null {
 const hm = (h: number, m: number) => `${h}:${String(m).padStart(2, '0')}`
 
 /** §4.3 humanized labels — exactly two simple shapes get words. */
-export function cronLabels(expr: string): { label: string; short: string } {
+export function cronLabels(expr: string, tz?: string): { label: string; short: string } {
+  const sfx = tzSuffix(tz)
   const p = expr.trim().split(/\s+/)
   if (p.length === 5 && /^\d+$/.test(p[0]) && /^\d+$/.test(p[1]) && p[2] === '*' && p[3] === '*') {
     const t = hm(Number(p[1]), Number(p[0]))
-    if (p[4] === '*') return { label: `Daily at ${t}`, short: `Daily ${t}` }
+    if (p[4] === '*') return { label: `Daily at ${t}${sfx}`, short: `Daily ${t}${sfx}` }
     if (/^\d$/.test(p[4]) && Number(p[4]) <= 6) {
       const d = Number(p[4])
-      return { label: `${DOW_LONG[d]} at ${t}`, short: `${DOW_SHORT[d]} ${t}` }
+      return { label: `${DOW_LONG[d]} at ${t}${sfx}`, short: `${DOW_SHORT[d]} ${t}${sfx}` }
     }
   }
-  return { label: expr.trim(), short: expr.trim() }
+  return { label: expr.trim() + sfx, short: expr.trim() + sfx }
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -120,16 +157,17 @@ export function fmtMoment(d: Date): string {
   return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${ampm}`
 }
 
-export function timeLabels(at: string): { label: string; short: string } {
-  const d = new Date(at)
+export function timeLabels(at: string, tz?: string): { label: string; short: string } {
+  const d = new Date(at) // the wall clock as written — labels show the trigger zone's time
+  const sfx = tzSuffix(tz)
   return {
-    label: `Once at ${fmtMoment(d)}`,
-    short: `Once ${MONTHS[d.getMonth()]} ${d.getDate()} ${hm(d.getHours(), d.getMinutes())}`,
+    label: `Once at ${fmtMoment(d)}${sfx}`,
+    short: `Once ${MONTHS[d.getMonth()]} ${d.getDate()} ${hm(d.getHours(), d.getMinutes())}${sfx}`,
   }
 }
 
 export function triggerShort(t: TriggerLike): string {
-  return t.kind === 'cron' ? cronLabels(t.expr ?? '').short : timeLabels(t.at ?? '').short
+  return t.kind === 'cron' ? cronLabels(t.expr ?? '', t.tz).short : timeLabels(t.at ?? '', t.tz).short
 }
 
 /** Short label of the soonest enabled trigger (§4.3 nextAt's trigger), null when none. */
@@ -137,7 +175,7 @@ export function nextTriggerShort(triggers: TriggerLike[]): string | null {
   let best: { at: Date; t: TriggerLike } | null = null
   for (const t of triggers) {
     if (t.off) continue
-    const at = t.kind === 'cron' ? cronNext(t.expr ?? '') : new Date(t.at ?? '')
+    const at = t.kind === 'cron' ? cronNext(t.expr ?? '', undefined, t.tz) : timeAt(t.at ?? '', t.tz)
     if (!at || Number.isNaN(at.getTime()) || at <= new Date()) continue
     if (!best || at < best.at) best = { at, t }
   }

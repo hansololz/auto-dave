@@ -203,9 +203,18 @@ strings `label` and `short`. The backend assigns `id` to entries that arrive wit
 
 | kind | fields | fires | label / short |
 |---|---|---|---|
-| `cron` | `expr`: 5-field cron expression, local time | at every match | humanized when simple (below), else the raw expression in mono |
-| `time` | `at`: local wall-clock ISO timestamp ("2026-07-20T15:00") | once, then the trigger is consumed | "Once at Jul 20, 3:00 PM" / "Once Jul 20 15:00" |
+| `cron` | `expr`: 5-field cron expression · optional `tz` | at every match | humanized when simple (below), else the raw expression in mono |
+| `time` | `at`: wall-clock ISO timestamp ("2026-07-20T15:00") · optional `tz` | once, then the trigger is consumed | "Once at Jul 20, 3:00 PM" / "Once Jul 20 15:00" |
 | `discord` · `imessage` · `pubsub` | — | future message triggers | — |
+
+**Timezone (`tz`)** — optional IANA zone name (e.g. `Asia/Tokyo`) on `cron` and `time`
+triggers. Absent → the machine's local time (labels unchanged). Present → `expr` matches and
+`at` reads as wall clock **in that zone** (DST rules below apply in that zone); occurrences
+convert to local time for `nextAt`, countdowns, and the scheduler. An unknown zone name is
+rejected at the API (422), never stored. When `tz` is set, both display strings append the
+zone's city — the last `/` segment of the IANA name, `_` → space — in parentheses:
+"Daily at 8:00 (Tokyo)" / "Daily 8:00 (Tokyo)"; the raw-expression fallback and one-shot
+labels get the same suffix.
 
 Message triggers are reserved kinds only: they appear as "coming soon" in the UI (§9.2) and the
 API rejects writing them with 422. Nothing else about them is specified yet.
@@ -214,16 +223,18 @@ API rejects writing them with 422. Nothing else about them is specified yet.
 fields — minute, hour, day-of-month, month, day-of-week (0–6, Sun = 0) — each `*` or a comma
 list of numbers, ranges (`a-b`), and steps (`*/n`, `a-b/n`). Numbers only: no month/day names,
 no `@daily` macros, no seconds field. Standard Vixie rule: when day-of-month and day-of-week are
-both restricted, a date matching either one fires. Times are local wall clock; an occurrence
-erased by DST (spring forward) fires at the next valid minute, and one repeated by fall-back
-fires once. Invalid expressions are rejected at the API (422), never stored.
+both restricted, a date matching either one fires. Times are wall clock in the trigger's zone
+(`tz`, default local); an occurrence erased by DST (spring forward) fires at the next valid
+minute, and one repeated by fall-back fires once. Invalid expressions are rejected at the API
+(422), never stored.
 
 **Humanized cron labels** — exactly two shapes get words; everything else displays the raw
 expression:
 - `M H * * *` → "Daily at 8:00" / short "Daily 8:00"
 - `M H * * D` (single day) → "Mondays at 9:00" / short "Mon 9:00"
 
-**One-shot semantics** (`time`): `at` must be strictly in the future when saved (422 otherwise).
+**One-shot semantics** (`time`): `at` must be strictly in the future when saved (422 otherwise;
+the check reads `at` in the trigger's `tz`).
 The trigger is consumed — removed from the list — when it fires, and equally when its moment is
 skipped (backend down when it passed, or superseded mid-execution, §6). It never lingers spent.
 
@@ -956,6 +967,7 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    note: Version note for the history menu (§4.4)
    triggers:                         # cron entries only (§4.3 dialect); omit the whole key if
      - cron: "0 8 * * *"             # the spec names no time (no triggers — manual/menu bar only)
+     - { cron: "0 9 * * 1", tz: Asia/Tokyo }   # tz optional — only when the spec names a zone
    params:                           # full definitions per §4.2, each with a default
      - { name: sources, kind: list, label: Manga URLs, help: ..., validate: true }
    packages:                         # §6.2 declared packages — beyond curated only, exactly
@@ -1002,10 +1014,11 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    (§11). Unknown or un-allowed secret references are Review warnings, not validation failures.
 7. Steps carry only `agent: true` as the query-only marker (§6); the backend assigns `agent_id`
    from the automation's enabled agents. `why` is required when `agent` is true.
-8. `triggers` is optional and cron-only: a list of `{ cron: expr }` entries, each expression
-   valid per the §4.3 dialect. The agent derives them from the spec's words and omits the key
-   when the spec names no time (no triggers — the automation executes only via Execute now /
-   menu bar). Applied only when creating (v1's triggers, each `off: false`, shown on Review); on
+8. `triggers` is optional and cron-only: a list of `{ cron: expr }` or
+   `{ cron: expr, tz: zone }` entries — expression valid per the §4.3 dialect, `tz` a known
+   IANA zone included only when the spec names one. The agent derives them from the spec's
+   words and omits the key when the spec names no time (no triggers — the automation executes
+   only via Execute now / menu bar). Applied only when creating (v1's triggers, each `off: false`, shown on Review); on
    sync the saved triggers are user-owned (§5) and never changed by a draft. One-shot and
    message triggers are never drafted — the user adds those on the automation page (§9.2).
 
@@ -1121,7 +1134,11 @@ Sections top to bottom:
   kind picker (Cron / One time; Discord, iMessage, and Pub/Sub render as disabled "coming soon"
   options) then either a cron-expression input with a live preview line (the humanized label
   when simple, plus "next: `<time>`"; an invalid expression gets the red input border and
-  blocks Add) or a native date+time input that must be in the future. Empty list renders a
+  blocks Add) or a native date+time input that must be in the future. Both kinds add a
+  **timezone select** below the input — first option "Local time" (the default; stores no
+  `tz`), then every IANA zone (`Intl.supportedValuesOf('timeZone')`); a non-local choice is
+  stored as the trigger's §4.3 `tz`, and the preview line (labels and "next:") reflects it,
+  with "next:" always shown in local time. Empty list renders a
   dashed "No triggers" row. Trigger edits apply immediately (§19 PATCH) — no version, no AI.
   No Execute-now button here — manual execution lives in the title row and the menu bar.
 - **PARAMETERS** — directly editable here per the §4.2 edit behaviors; caption "Changes apply on
@@ -1752,7 +1769,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `GET /automations` · `GET /automations/{id}` · `DELETE /automations/{id}`
 - `PATCH /automations/{id}` — user-owned fields only: name, triggers (the §4.3 list, replaced
   whole; entries keep their `id`, new entries get one assigned; cron/time kinds only — a message
-  kind, an invalid cron expression, or a past `time` answers 422 and nothing is stored), param
+  kind, an invalid cron expression, an unknown `tz`, or a past `time` answers 422 and nothing
+  is stored), param
   values, agentId, stepAgents, allowedSecrets, snapshotSettings (the §6.3 automatic-snapshot
   toggles — partial object, sent keys merged over the stored ones)
 - `POST /automations/{id}/execute` `{ version?: "vN" | "draft" (case-insensitive), trigger? }` →

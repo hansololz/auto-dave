@@ -327,12 +327,18 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
     else:
         for t in trigs:
             # §8: cron-only — one-shot and message triggers are never drafted.
-            if not isinstance(t, dict) or set(t) != {"cron"}:
-                errors.append(f"triggers entry {t!r} must be exactly {{ cron: expr }}")
+            if not isinstance(t, dict) or not (set(t) == {"cron"} or set(t) == {"cron", "tz"}):
+                errors.append(f"triggers entry {t!r} must be {{ cron: expr }} or {{ cron: expr, tz: zone }}")
                 continue
+            entry = {"kind": "cron", "expr": str(t["cron"]).strip(), "off": False}
+            if "tz" in t:
+                entry["tz"] = str(t["tz"])
+                if err := schedule.tz_error(entry["tz"]):
+                    errors.append(f"triggers: {err}")
+                    continue
             try:
-                schedule.parse_cron(str(t["cron"]))
-                norm_trigs.append({"kind": "cron", "expr": str(t["cron"]).strip(), "off": False})
+                schedule.parse_cron(entry["expr"])
+                norm_trigs.append(entry)
             except schedule.CronError as e:
                 errors.append(f"triggers: {e}")
     if errors:
