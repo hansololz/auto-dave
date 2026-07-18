@@ -897,17 +897,11 @@ export default function AutomationDetail() {
         </div>
       )}
 
-      {/* ways to execute */}
+      {/* triggers */}
       <div style={{ marginBottom: 26 }}>
-        <Eyebrow style={{ color: 'var(--text-faint)', marginBottom: 10 }}>WAYS TO EXECUTE</Eyebrow>
+        <Eyebrow style={{ color: 'var(--text-faint)', marginBottom: 10 }}>TRIGGERS</Eyebrow>
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '13px 18px 14px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-            <div style={{
-              fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 10, letterSpacing: '.08em',
-              color: 'var(--text-faintest)', marginBottom: 9,
-            }}>
-              TRIGGERS
-            </div>
+          <div style={{ padding: '13px 18px 14px' }}>
             {trigs.map((t) => (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '5px 0' }}>
                 <span style={{
@@ -949,22 +943,6 @@ export default function AutomationDetail() {
             )}
             <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 8 }}>{trigStatusText}</div>
             <AddTrigger onAdd={(t) => putTriggers([...trigs, { ...t, off: false }], `Trigger added — ${triggerShort(t)}.`)} />
-          </div>
-          <div style={{ padding: '13px 18px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <HoverBtn
-              onClick={() => doExecute()}
-              style={{
-                fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11.5, color: 'var(--accent)',
-                background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
-                borderRadius: 7, padding: '6px 11px', flex: 'none',
-              }}
-              hoverStyle={{ background: 'oklch(0.74 0.155 52 / .2)' }}
-            >
-              <i className={execIconCls} style={{ fontSize: 9 }} /> {execLabel}
-            </HoverBtn>
-            <span style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', minWidth: 0 }}>
-              Manual executions are always available — even when every trigger is off.
-            </span>
           </div>
         </div>
       </div>

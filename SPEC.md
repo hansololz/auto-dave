@@ -1115,7 +1115,7 @@ Sections top to bottom:
   error message in mono, and a "View execution" link to the execution page. No-executions empty
   state (dashed
   card): "No executions yet / Press Execute now — the first result will appear right here."
-- **WAYS TO RUN** card — a **TRIGGERS** list: one row per trigger (kind icon — fa-clock for
+- **TRIGGERS** card — one row per trigger (kind icon — fa-clock for
   cron, fa-calendar-day for time; §4.3 `label`; per-row on/off toggle; remove ×), the §4.3
   status line beneath the rows, and an **"+ Add trigger"** button opening an inline editor:
   kind picker (Cron / One time; Discord, iMessage, and Pub/Sub render as disabled "coming soon"
@@ -1123,8 +1123,7 @@ Sections top to bottom:
   when simple, plus "next: `<time>`"; an invalid expression gets the red input border and
   blocks Add) or a native date+time input that must be in the future. Empty list renders a
   dashed "No triggers" row. Trigger edits apply immediately (§19 PATCH) — no version, no AI.
-  Below the list, the manual row: bordered mono Execute-now button, copy "Manual executions
-  are always available — even when every trigger is off."
+  No Execute-now button here — manual execution lives in the title row and the menu bar.
 - **PARAMETERS** — directly editable here per the §4.2 edit behaviors; caption "Changes apply on
   the next execution — no new version, no AI involved."
 - **RECENT EXECUTIONS** — execution history rows (status, trigger·version, time, duration, note text when
@@ -1875,7 +1874,7 @@ didn't have to face. Do not "fix" the app to match the prototype on these points
   patches in hardcoded times; the real field is computed per §4.1 for every automation.
 - **Multiple triggers.** The prototype models one daily/weekly schedule per automation
   (hour/min/dow plus a single on/off). §4.3 replaces it with a trigger list — cron expressions,
-  one-shot times, reserved message kinds — so the schedule chips, the WAYS TO RUN card, and the
+  one-shot times, reserved message kinds — so the schedule chips, the TRIGGERS card, and the
   Review-page card diverge accordingly (the prototype's "Message triggers — coming soon" chip
   becomes disabled kinds in the Add-trigger picker).
 - **No separate building screen.** The prototype shows a spinner + staged-checklist surface
