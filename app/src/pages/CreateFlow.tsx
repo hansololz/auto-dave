@@ -1253,7 +1253,7 @@ export default function CreateFlow() {
     if (!isEdit && rev && !rev.specBusy && (rev.spec.length || rev.steps.length)) {
       try { await api.putPendingDraft(serializeDraft(rev), agentId) } catch { /* backend restarting */ }
       draftSettled.current = true
-      showToast('Draft kept — New automation resumes it anytime.', 3400)
+      showToast('Draft kept — Resume draft picks it up anytime.', 3400)
     }
     if (isOnboard) { setSurface('onboard'); return }
     setSurface('app')

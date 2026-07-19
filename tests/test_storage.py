@@ -331,3 +331,20 @@ def test_open_pending_draft_makes_container(store):
     store.open_pending_draft()
     assert marker.read_text(encoding="utf-8") == "kept"
     assert store.pending_draft_json()["draft"]["name"] == "Kept"
+
+
+def test_pending_draft_summary(store):
+    """§19 /state pendingDraft: None while the slot holds no draft (even with
+    the container dirs present), the identity summary once one is kept."""
+    from conftest import make_version
+
+    assert store.pending_draft_summary() is None
+    store.open_pending_draft()
+    assert store.pending_draft_summary() is None
+
+    store.save_pending_draft(make_version(), name="Kept One", agent_id=None, triggers=[])
+    s = store.pending_draft_summary()
+    assert s["name"] == "Kept One" and s["updatedAt"]
+
+    store.delete_pending_draft()
+    assert store.pending_draft_summary() is None

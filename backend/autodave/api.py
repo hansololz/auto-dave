@@ -132,6 +132,7 @@ def state() -> dict:
             "agents": _agents_json(),
             "secrets": _secrets_json(),
             "settings": _settings_json(),
+            "pendingDraft": store.pending_draft_summary(),
         }
 
 
@@ -196,6 +197,7 @@ def create_auto(body: dict) -> dict:
     # §4.4: Create consumes the pending create-mode slot — settled drafts are
     # never resurrected.
     store.delete_pending_draft()
+    hub.publish("draft.changed")
     hub.publish("auto.changed", autoId=a["id"])
     return store.auto_json(a)
 
@@ -258,12 +260,14 @@ def put_pending_draft(body: dict) -> dict:
     # Triggers pass through unvalidated — Create normalizes them (§19).
     store.save_pending_draft(ver, name=d.get("name"), agent_id=body.get("agentId"),
                              triggers=d.get("triggers") or [])
+    hub.publish("draft.changed")
     return {"ok": True}
 
 
 @app.delete("/draft", dependencies=[Depends(auth)])
 def del_pending_draft() -> dict:
     store.delete_pending_draft()
+    hub.publish("draft.changed")
     return {"ok": True}
 
 

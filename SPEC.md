@@ -280,7 +280,9 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
   working state there — the same serialization as an edit-mode draft, plus the identity
   fields no automation record exists to hold yet (name, chosen agent, enabled agents,
   triggers). Opening the create flow while the slot exists resumes it straight on the
-  Review page (toast: "Resumed your unsaved draft — Start over discards it."); Start over
+  Review page (toast: "Resumed your unsaved draft — Start over discards it."); the §9.1
+  list header surfaces the slot as a Resume draft button, and its New automation button
+  confirms then deletes the slot to start fresh. Start over
   (and Back to Ask) deletes the slot. Create consumes it: `versions/v1` is written from
   the sent draft and `<root>/draft/` is deleted — a settled draft is never resurrected.
   One pending draft at a time: every keep overwrites the slot. Leaving with nothing
@@ -1137,7 +1139,13 @@ attempt has failed; boot retries every 1.2 s). Fast boots therefore show no spla
 
 ### 9.1 Automations list
 
-1200 px page, "Automations" title + New button. One card per automation: name, description,
+1200 px page, "Automations" title + New button. When the §4.4 pending create-mode slot
+holds a draft (`pendingDraft` on `GET /state`), the header shows two buttons: a bordered
+**Resume draft** button (opens the create flow, which resumes the slot straight on Review)
+to the left of the primary **New automation** button — which then starts fresh: a danger
+confirm ("Start a new automation? — Your unsaved draft will be discarded. This can't be
+undone.") deletes the slot (`DELETE /draft`) before opening the create flow. Without a
+pending draft, the single New automation button opens the create flow directly. One card per automation: name, description,
 status badge, trigger chip (`triggerChip`, plus an OFF tag when `triggersOff`), result-summary chip when
 the last execution set one (tinted by `resultStatus` with the §7 chip colors — same tint as the detail
 and execution pages), and
@@ -1804,7 +1812,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 
 - `GET /health` → `{ version, app }` (unauthenticated; used for discovery/liveness)
 - `GET /state` → boot snapshot: automations (full), execution headers, agents, secret names +
-  usedBy, settings, app version
+  usedBy, settings, app version, `pendingDraft` (`{ name, updatedAt } | null` — the §4.4
+  slot's identity summary; backs the §9.1 Resume draft button)
 - `GET /instructions` → `{ framework, defaultBuild }` — the two §8 instruction files verbatim
   (backs the §11 Framework-instructions and Build-instructions cards)
 - `GET /automations` · `GET /automations/{id}` · `DELETE /automations/{id}`
@@ -1901,7 +1910,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   execution-data location; creates the dir, reloads from it, moves nothing)
 - `WS /ws?token=` — events, each `{ ev, ... }`: `exec.started`, `exec.step` (status change),
   `exec.log` (one NDJSON line), `exec.finished`, `auto.changed`, `agents.changed`,
-  `secrets.changed`, `settings.changed`, `draft.progress`, `test.step` (§11 test step
+  `secrets.changed`, `settings.changed`, `draft.changed` (the §4.4 pending slot was kept
+  or discarded — clients re-`GET /state`), `draft.progress`, `test.step` (§11 test step
   status change), `test.log` (one redacted NDJSON line), `test.done` (`{ status, result? }` —
   result summary on success), `test.issue` (the §8 issue-analysis blockers, after a failed
   test's analysis finishes), `checks.line` / `checks.done` (§11 review checks stream),

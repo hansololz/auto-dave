@@ -239,4 +239,6 @@ export interface StateSnapshot {
   agents: Agent[]
   secrets: SecretMeta[]
   settings: Settings
+  // §4.4 pending create-mode slot summary — backs the §9.1 Resume draft button
+  pendingDraft: { name: string; updatedAt: string | null } | null
 }

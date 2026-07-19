@@ -400,6 +400,17 @@ class Store:
         with self.lock:
             shutil.rmtree(paths.pending_draft_dir(), ignore_errors=True)
 
+    def pending_draft_summary(self) -> dict | None:
+        """§19 GET /state `pendingDraft`: the slot's identity summary — backs
+        the §9.1 Resume draft button; None when the slot holds no draft."""
+        with self.lock:
+            dd = paths.pending_draft_dir() / "automation"
+            if not (dd / "automation.yaml").exists():
+                return None
+            meta = load_yaml(dd / "automation.yaml", {}) or {}
+            return {"name": meta.get("name") or "New automation",
+                    "updatedAt": meta.get("updated_at")}
+
     def pending_draft_json(self) -> dict:
         d = self.load_pending_draft()
         if d is None:

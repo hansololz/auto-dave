@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto } from '../types'
-import { Badge, BtnPrimary, resultChipColors } from '../ui'
+import { Badge, BtnGhost, BtnPrimary, ConfirmModal, resultChipColors } from '../ui'
 
 const EXECUTING_TOAST = 'Already executing — one execution at a time. A trigger firing now would be skipped.'
 
@@ -102,15 +102,45 @@ function AutoCard({ a }: { a: Auto }) {
 export default function AutomationsList() {
   const autos = useStore((s) => s.autos)
   const setSurface = useStore((s) => s.setSurface)
+  const pendingDraft = useStore((s) => s.pendingDraft)
+  const [confirmFresh, setConfirmFresh] = useState(false)
+
+  // §4.4/§9.1: with a kept pending draft, New automation starts fresh —
+  // confirm, delete the slot, then open the create flow empty.
+  const startFresh = async () => {
+    setConfirmFresh(false)
+    try { await api.deletePendingDraft() } catch { /* backend restarting */ }
+    setSurface('create', 'app')
+  }
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0 }}>Automations</h1>
-        <BtnPrimary onClick={() => setSurface('create', 'app')} style={{ padding: '8px 14px' }}>
-          New automation
-        </BtnPrimary>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {pendingDraft && (
+            <BtnGhost onClick={() => setSurface('create', 'app')} style={{ padding: '8px 14px' }}>
+              Resume draft
+            </BtnGhost>
+          )}
+          <BtnPrimary
+            onClick={() => (pendingDraft ? setConfirmFresh(true) : setSurface('create', 'app'))}
+            style={{ padding: '8px 14px' }}
+          >
+            New automation
+          </BtnPrimary>
+        </div>
       </div>
+      {confirmFresh && (
+        <ConfirmModal
+          title="Start a new automation?"
+          body={`Your unsaved draft${pendingDraft?.name ? ` “${pendingDraft.name}”` : ''} will be discarded. This can't be undone.`}
+          confirmLabel="Discard and start new"
+          danger
+          onConfirm={() => void startFresh()}
+          onCancel={() => setConfirmFresh(false)}
+        />
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
         {autos.map((a) => <AutoCard key={a.id} a={a} />)}
       </div>

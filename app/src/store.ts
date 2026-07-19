@@ -18,6 +18,8 @@ export interface Model {
   agents: Agent[]
   secrets: SecretMeta[]
   settings: Settings | null
+  // §4.4 pending create-mode slot — drives the §9.1 Resume draft button
+  pendingDraft: { name: string; updatedAt: string | null } | null
 
   surface: Surface
   page: Page
@@ -68,6 +70,7 @@ export const useStore = create<Model>((set, get) => ({
   agents: [],
   secrets: [],
   settings: null,
+  pendingDraft: null,
   surface: 'app',
   page: 'automations',
   autoId: null,
@@ -90,6 +93,7 @@ export const useStore = create<Model>((set, get) => ({
       set({
         connected: true, version: s.version, autos: s.autos, execs: s.execs,
         agents: s.agents, secrets: s.secrets, settings: s.settings,
+        pendingDraft: s.pendingDraft,
         surface: hash.includes('menubar') ? 'menubar' : onboarded ? 'app' : 'onboard',
       })
       if (onboarded) passedOnboard = true
@@ -113,7 +117,7 @@ export const useStore = create<Model>((set, get) => ({
   async refresh() {
     try {
       const s = await api.state()
-      set({ autos: s.autos, execs: s.execs, agents: s.agents, secrets: s.secrets, settings: s.settings })
+      set({ autos: s.autos, execs: s.execs, agents: s.agents, secrets: s.secrets, settings: s.settings, pendingDraft: s.pendingDraft })
       updateTrayAlert(s.autos)
     } catch { /* backend restarting; ws reconnect will re-trigger */ }
   },
@@ -204,7 +208,7 @@ export const useStore = create<Model>((set, get) => ({
       })
       return
     }
-    if (ev === 'auto.changed' || ev === 'agents.changed' || ev === 'secrets.changed' || ev === 'settings.changed') {
+    if (ev === 'auto.changed' || ev === 'agents.changed' || ev === 'secrets.changed' || ev === 'settings.changed' || ev === 'draft.changed') {
       void m.refresh()
     }
   },
