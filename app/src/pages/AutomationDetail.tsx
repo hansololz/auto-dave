@@ -8,7 +8,7 @@ import {
   nextIn, usePopover, validUrl,
 } from '../ui'
 import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, timeAt, triggerShort, tzSuffix } from '../cron'
-import { ResultSection } from '../result'
+import { ResultSection, SpecMarkdown } from '../result'
 
 const EXECUTING_TOAST = 'Already executing — one execution at a time. A trigger firing now would be skipped.'
 const badgeAnim = (s: string) => (s === 'executing' ? 'adPulse 1.4s ease-in-out infinite' : 'none')
@@ -1267,29 +1267,8 @@ export default function AutomationDetail() {
               </span>
             </HoverRow>
             {specOpen && (
-              <div className="ad-copy" style={{ borderTop: '1px solid var(--hairline)', padding: '8px 22px 18px' }}>
-                {spec.map((sb, i) => {
-                  if (sb.k === 'h1') return <div key={i} style={{ fontSize: 17, fontWeight: 600, margin: '14px 0 4px' }}>{sb.text}</div>
-                  if (sb.k === 'h2') {
-                    return (
-                      <div key={i} style={{
-                        fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 10.5, letterSpacing: '.08em',
-                        textTransform: 'uppercase', color: 'var(--text-muted)', margin: '16px 0 6px',
-                      }}>
-                        {sb.text}
-                      </div>
-                    )
-                  }
-                  if (sb.k === 'li') {
-                    return (
-                      <div key={i} style={{ display: 'flex', gap: 8, margin: '3px 0' }}>
-                        <span style={{ color: 'var(--text-faint)' }}>–</span>
-                        <span style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-2em)' }}>{sb.text}</span>
-                      </div>
-                    )
-                  }
-                  return <p key={i} style={{ margin: '4px 0', fontSize: 13, lineHeight: 1.6, color: 'var(--text-2em)' }}>{sb.text}</p>
-                })}
+              <div style={{ borderTop: '1px solid var(--hairline)', padding: '8px 22px 18px' }}>
+                <SpecMarkdown blocks={spec} />
                 <div style={{ marginTop: 14, fontSize: 11.5, color: 'var(--text-faintest)' }}>
                   The AI regenerates the steps from this document when you edit it. Every change mints a new version — older ones live in the Version menu on the edit page.
                 </div>

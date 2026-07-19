@@ -8,7 +8,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { api } from './api'
 import { Eyebrow, resultChipColors, Spinner } from './ui'
-import type { ResultFile, ResultValue, ExecResult } from './types'
+import type { ResultFile, ResultValue, ExecResult, SpecBlock } from './types'
 
 const MD_EXT = ['md', 'markdown']
 const HTML_EXT = ['html', 'htm']
@@ -121,6 +121,17 @@ export function Markdown({ text }: { text: string }) {
       </ReactMarkdown>
     </div>
   )
+}
+
+// Spec cards (create flow + automation page): same renderer, spec type ramp
+// via .ad-spec (large h1 title, uppercase-mono h2 eyebrows, en-dash bullets).
+export function SpecMarkdown({ blocks }: { blocks: SpecBlock[] }) {
+  const md = blocks.map((b, i) => {
+    const line = b.k === 'h1' ? '# ' + b.text : b.k === 'h2' ? '## ' + b.text : b.k === 'li' ? '- ' + b.text : b.text
+    // adjacent li stay one list; everything else separates into its own block
+    return (i === 0 ? '' : b.k === 'li' && blocks[i - 1].k === 'li' ? '\n' : '\n\n') + line
+  }).join('')
+  return <div className="ad-spec"><Markdown text={md} /></div>
 }
 
 // ---------- file views ----------

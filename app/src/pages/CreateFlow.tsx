@@ -9,7 +9,7 @@ import { useStore } from '../store'
 import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, PackageDep, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
 import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, resultChipColors, usePopover, validUrl } from '../ui'
 import { nextTriggerShort, triggerShort } from '../cron'
-import { Markdown } from '../result'
+import { Markdown, SpecMarkdown } from '../result'
 
 // ---------- helpers ----------
 
@@ -1754,18 +1754,8 @@ export default function CreateFlow() {
                       </div>
                     </>
                   ) : (
-                    <div className="ad-copy" style={{ padding: '6px 20px 18px', maxHeight: 440, overflowY: 'auto' }}>
-                      {rev.spec.map((b, i) => {
-                        if (b.k === 'h1') return <div key={i} style={{ font: "600 17px var(--sans)", margin: '14px 0 4px' }}>{b.text}</div>
-                        if (b.k === 'h2') return <div key={i} style={{ font: "600 10.5px var(--mono)", letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '16px 0 6px' }}>{b.text}</div>
-                        if (b.k === 'li') return (
-                          <div key={i} style={{ display: 'flex', gap: 8, margin: '3px 0' }}>
-                            <span style={{ color: 'var(--text-faint)' }}>–</span>
-                            <span style={{ font: "400 13px/1.55 var(--sans)", color: '#c6cdd6' }}>{b.text}</span>
-                          </div>
-                        )
-                        return <p key={i} style={{ margin: '4px 0', font: "400 13px/1.6 var(--sans)", color: '#c6cdd6' }}>{b.text}</p>
-                      })}
+                    <div style={{ padding: '6px 20px 18px', maxHeight: 440, overflowY: 'auto' }}>
+                      <SpecMarkdown blocks={rev.spec} />
                     </div>
                   )}
                   {/* ask-the-agent box — hidden until a spec exists to edit */}

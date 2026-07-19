@@ -345,8 +345,11 @@ directly into `result/` (result.md, result.html, images, CSVs, …). There is no
 file list is the directory listing. Renderable files get their own result views (§7): `.md`
 rendered as GitHub-flavored markdown — one shared Markdown component (react-markdown +
 remark-gfm, app-styled; output is React elements, never injected HTML, so no sanitizer is
-needed) used everywhere the app renders markdown (result views, the create-flow Spec,
-Build-instructions and Framework-instructions cards) — `.html` in a sandboxed iframe (no
+needed) used everywhere the app renders markdown: result views, the Build-instructions and
+Framework-instructions cards, and the Spec cards (create flow and automation page), which
+wrap it in a spec-look variant keeping the spec type ramp — large sans h1 title,
+uppercase-mono h2 eyebrows, en-dash bullets — while inline markdown (bold, code, links)
+renders like everywhere else — `.html` in a sandboxed iframe (no
 scripts, no remote loads — preserves the §6 no-exfiltration guarantee) with the app's base
 result stylesheet injected, so plain semantic HTML renders in app typography and colors (a
 page's own inline CSS overrides it), images inline; every other format appears only in the
@@ -1225,7 +1228,7 @@ Sections top to bottom:
   fallback "agent" if the agent no longer exists), and a step whose code references
   `secrets.NAME` carries one key-icon tag per secret name. Agents and secrets are changed on
   the edit page.
-- **SPEC panel** — collapsible (expand/collapse header toggle), expanded by default; the automation's spec blocks, footer: "The AI regenerates the steps from this
+- **SPEC panel** — collapsible (expand/collapse header toggle), expanded by default; the automation's spec blocks rendered through the shared §4.5 Markdown renderer (spec variant), footer: "The AI regenerates the steps from this
   document when you edit it. Every change mints a new version — older ones live in the Version
   menu on the edit page."
 
@@ -1355,7 +1358,8 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   place — "What the automation should do, in plain words. The AI regenerates the steps from
   this document when it changes." — and clicking it expands the card, same as the other
   collapsed-section hints on this page). Editable as markdown-ish text (`#`, `##`, `-`,
-  plain ↔ h1/h2/li/p blocks). Also an
+  plain ↔ h1/h2/li/p blocks); the view state renders through the shared §4.5 Markdown
+  renderer (spec variant). Also an
   "ask the agent" box ("Edit with agent") — a multiline textarea (1 row min) that grows with
   its content, never scrolls (Enter sends, Shift+Enter inserts a newline) and starts one §8 `edit` job (spec call only) with the
   selected drafting agent (the automation's agent, falling back to the default agent): the agent
