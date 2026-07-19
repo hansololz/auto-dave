@@ -48,7 +48,7 @@ Four components (per top-level README):
   secrets and agents. Headless operation is a supported mode (§3), not just a debug aid.
 
 **Stack (decided):** the Electron renderer is React 18 + TypeScript + Vite (state: one zustand
-store mirroring the §4 model). The backend is Python 3.14 + FastAPI/uvicorn (PyYAML, keyring for
+store mirroring the §4 model; markdown rendering is react-markdown + remark-gfm — see §4.5). The backend is Python 3.14 + FastAPI/uvicorn (PyYAML, keyring for
 Keychain; request/response bodies are plain dicts — pydantic is not used directly). Transport is localhost HTTP (JSON) plus one WebSocket for live events —
 the full API surface is §19. Packaging is decided — see §3. Storage is decided — see §5.
 
@@ -343,11 +343,14 @@ On disk the rest of the result is a directory: the engine writes `result/result.
 values — only when either is non-empty) at execution end; the execution writes any other output files
 directly into `result/` (result.md, result.html, images, CSVs, …). There is no manifest — the
 file list is the directory listing. Renderable files get their own result views (§7): `.md`
-rendered as markdown, `.html` in a sandboxed iframe (no scripts, no remote loads — preserves
-the §6 no-exfiltration guarantee) with the app's base result stylesheet injected, so plain
-semantic HTML renders in app typography and colors (a page's own inline CSS overrides it),
-images inline; every other format appears only in the file list. Tables are markdown tables
-inside result.md — there is no bespoke table renderer.
+rendered as GitHub-flavored markdown — one shared Markdown component (react-markdown +
+remark-gfm, app-styled; output is React elements, never injected HTML, so no sanitizer is
+needed) used everywhere the app renders markdown (result views, the create-flow Spec,
+Build-instructions and Framework-instructions cards) — `.html` in a sandboxed iframe (no
+scripts, no remote loads — preserves the §6 no-exfiltration guarantee) with the app's base
+result stylesheet injected, so plain semantic HTML renders in app typography and colors (a
+page's own inline CSS overrides it), images inline; every other format appears only in the
+file list. Tables are markdown tables inside result.md — there is no bespoke table renderer.
 Files are part of the execution record — deleted with it by retention, never required for
 list rendering (loaded only when the execution is opened).
 
@@ -1507,8 +1510,8 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   fresh status, and a toast names how many automations were rewritten. Updates never force
   the card open and never gate Save.
 - **Framework instructions** — read-only card showing `framework-instructions.md` **rendered
-  as markdown** (the shared result-view Markdown component: headings, fenced code blocks,
-  tables, lists; max-height 420 px with inner scroll). The file content itself is untouched —
+  as markdown** (the shared §4.5 Markdown component — full GFM; max-height 420 px with inner
+  scroll). The file content itself is untouched —
   what is rendered is byte-for-byte what the agent receives. Content comes from §19
   `GET /instructions` (fetched once per app session and cached); the same response carries
   `default-build-instructions.md` as the fallback pre-fill for the Build instructions card.

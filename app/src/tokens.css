@@ -189,3 +189,42 @@ textarea:disabled, input:disabled { opacity: .45; }
 /* drag region for the hiddenInset title bar */
 .ad-drag { -webkit-app-region: drag; }
 .ad-drag button, .ad-drag a, .ad-drag input { -webkit-app-region: no-drag; }
+
+/* Markdown views — the shared §4.5 renderer (react-markdown + remark-gfm).
+   Assumes 18px card side padding: tables go full-bleed with -18px margins. */
+.ad-md { display: flex; flex-direction: column; gap: 10px; }
+.ad-md p { font-size: 13px; line-height: 1.6; color: var(--text-2em); text-wrap: pretty; }
+.ad-md h1, .ad-md h2, .ad-md h3, .ad-md h4, .ad-md h5, .ad-md h6 { font-weight: 600; color: var(--text); }
+.ad-md h1 { font-size: 15px; }
+.ad-md h2 { font-size: 13.5px; }
+.ad-md h3, .ad-md h4, .ad-md h5, .ad-md h6 { font-size: 12.5px; }
+.ad-md :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 6px; }
+.ad-md strong { font-weight: 600; color: var(--text); }
+.ad-md code { font-family: var(--mono); font-size: .92em; background: rgba(255, 255, 255, .06); border-radius: 4px; padding: 1px 5px; }
+.ad-md pre { font: 400 11.5px/1.7 var(--mono); color: var(--text-2em); background: var(--bg-inset); border: 1px solid var(--hairline); border-radius: 8px; padding: 10px 14px; overflow-x: auto; }
+.ad-md pre code { font: inherit; background: none; border-radius: 0; padding: 0; }
+.ad-md ul, .ad-md ol { list-style: none; display: flex; flex-direction: column; }
+.ad-md ul { gap: 6px; }
+.ad-md ol { gap: 7px; counter-reset: ad-md-ol; }
+.ad-md li { position: relative; font-size: 13px; line-height: 1.55; color: var(--text-2emx); }
+.ad-md ul > li { padding-left: 18px; }
+.ad-md ul > li::before { content: '•'; position: absolute; left: 1px; color: var(--text-faint); font-weight: 600; }
+.ad-md ol > li { padding-left: 25px; counter-increment: ad-md-ol; }
+.ad-md ol > li::before { content: counter(ad-md-ol) '.'; position: absolute; left: 0; width: 15px; text-align: right; font: 400 12px var(--mono); color: var(--text-faint); }
+.ad-md li > ul, .ad-md li > ol { margin-top: 6px; }
+.ad-md li.task-list-item { padding-left: 0; }
+.ad-md li.task-list-item::before { content: none; }
+.ad-md input[type='checkbox'] { accent-color: var(--accent); margin-right: 5px; pointer-events: none; }
+.ad-md blockquote { display: flex; flex-direction: column; gap: 10px; border-left: 2px solid rgba(255, 255, 255, .12); padding-left: 12px; }
+.ad-md blockquote p { color: var(--text-muted); }
+.ad-md hr { border: none; border-top: 1px solid var(--hairline); margin: 4px 0; }
+.ad-md img { max-width: 100%; border-radius: 8px; }
+.ad-md del { color: var(--text-muted); }
+.ad-md-tablewrap { margin: 4px -18px; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); overflow-x: auto; }
+.ad-md table { border-collapse: collapse; width: 100%; }
+.ad-md thead tr { background: var(--bg-inset); }
+.ad-md th { padding: 9px 5px; text-align: left; font: 600 9.5px var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--text-faint); }
+.ad-md td { padding: 10px 5px; vertical-align: top; border-top: 1px solid var(--hairline); overflow-wrap: break-word; font-size: 12.5px; line-height: 1.55; color: var(--text-2); }
+.ad-md td:first-child { color: var(--text); font-weight: 500; }
+.ad-md th:first-child, .ad-md td:first-child { padding-left: 18px; }
+.ad-md th:last-child, .ad-md td:last-child { padding-right: 18px; }

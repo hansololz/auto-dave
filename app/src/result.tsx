@@ -4,6 +4,8 @@
 // "Show in Finder" button. Collapse state is component state only (§7: per
 // session, never persisted).
 import React, { useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { api } from './api'
 import { Eyebrow, resultChipColors, Spinner } from './ui'
 import type { ResultFile, ResultValue, ExecResult } from './types'
@@ -101,139 +103,24 @@ function SummaryView({ values, measure }: { values: ResultValue[]; measure: numb
   )
 }
 
-// ---------- markdown (result.md) ----------
-
-function mdInline(s: string, keyBase: string): React.ReactNode[] {
-  // links / code / bold / italic — enough for result files, nothing more.
-  const out: React.ReactNode[] = []
-  const re = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*/g
-  let last = 0
-  let m: RegExpExecArray | null
-  let k = 0
-  while ((m = re.exec(s)) !== null) {
-    if (m.index > last) out.push(s.slice(last, m.index))
-    const key = `${keyBase}-${k++}`
-    if (m[1] !== undefined) out.push(<a key={key} href={m[2]} target="_blank" rel="noreferrer">{m[1]}</a>)
-    else if (m[3] !== undefined) out.push(<code key={key} style={{ fontFamily: 'var(--mono)', fontSize: '.92em', background: 'rgba(255,255,255,.06)', borderRadius: 4, padding: '1px 5px' }}>{m[3]}</code>)
-    else if (m[4] !== undefined) out.push(<strong key={key} style={{ fontWeight: 600, color: 'var(--text)' }}>{m[4]}</strong>)
-    else out.push(<em key={key}>{m[5]}</em>)
-    last = m.index + m[0].length
-  }
-  if (last < s.length) out.push(s.slice(last))
-  return out
-}
-
-function MdTable({ lines, keyBase }: { lines: string[]; keyBase: string }) {
-  const parse = (l: string) => l.replace(/^\||\|$/g, '').split('|').map((c) => c.trim())
-  const header = parse(lines[0])
-  const rows = lines.slice(2).map(parse)
-  const gutters = (j: number): React.CSSProperties => ({
-    paddingLeft: j === 0 ? 18 : 5,
-    paddingRight: j === header.length - 1 ? 18 : 5,
-  })
-  return (
-    <div style={{ margin: '4px -18px', borderTop: '1px solid var(--hairline)', borderBottom: '1px solid var(--hairline)', overflowX: 'auto' }}>
-      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-        <thead>
-          <tr style={{ background: 'var(--bg-inset)' }}>
-            {header.map((h, i) => (
-              <th key={i} style={{ paddingTop: 9, paddingBottom: 9, textAlign: 'left', ...gutters(i) }}>
-                <Eyebrow style={{ fontSize: 9.5 }}>{h.toUpperCase()}</Eyebrow>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              {header.map((_, j) => (
-                <td key={j} style={{
-                  paddingTop: 10, paddingBottom: 10, ...gutters(j), verticalAlign: 'top',
-                  borderTop: '1px solid var(--hairline)', overflowWrap: 'break-word',
-                  fontSize: 12.5, lineHeight: 1.55, color: j === 0 ? 'var(--text)' : 'var(--text-2)', fontWeight: j === 0 ? 500 : 400,
-                }}>
-                  {mdInline(r[j] ?? '', `${keyBase}-${i}-${j}`)}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+// ---------- markdown (§4.5 shared renderer) ----------
 
 export function Markdown({ text }: { text: string }) {
-  const lines = text.split('\n')
-  const out: React.ReactNode[] = []
-  let i = 0
-  let k = 0
-  while (i < lines.length) {
-    const l = lines[i]
-    const key = `b${k++}`
-    if (!l.trim()) { i++; continue }
-    if (l.startsWith('```')) {
-      const buf: string[] = []
-      i++
-      while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++])
-      i++
-      out.push(
-        <pre key={key} style={{
-          fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.7, color: 'var(--text-2em)',
-          background: 'var(--bg-inset)', border: '1px solid var(--hairline)', borderRadius: 8,
-          padding: '10px 14px', overflowX: 'auto',
-        }}>{buf.join('\n')}</pre>,
-      )
-      continue
-    }
-    if (/^\|.*\|\s*$/.test(l) && /^\|?[\s:|-]+\|?\s*$/.test(lines[i + 1] ?? '')) {
-      const buf: string[] = []
-      while (i < lines.length && /^\|.*\|\s*$/.test(lines[i])) buf.push(lines[i++])
-      out.push(<MdTable key={key} lines={buf} keyBase={key} />)
-      continue
-    }
-    const h = /^(#{1,3})\s+(.*)$/.exec(l)
-    if (h) {
-      const size = [15, 13.5, 12.5][h[1].length - 1]
-      out.push(<div key={key} style={{ fontSize: size, fontWeight: 600, color: 'var(--text)', marginTop: k > 1 ? 6 : 0 }}>{mdInline(h[2], key)}</div>)
-      i++
-      continue
-    }
-    if (/^[-*]\s+/.test(l)) {
-      const buf: string[] = []
-      while (i < lines.length && /^[-*]\s+/.test(lines[i])) buf.push(lines[i++].replace(/^[-*]\s+/, ''))
-      out.push(
-        <ul key={key} style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {buf.map((t, j) => (
-            <li key={j} style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-2emx)', display: 'flex', gap: 9 }}>
-              <span style={{ color: 'var(--text-faint)', fontWeight: 600, flex: 'none' }}>•</span>
-              <span style={{ minWidth: 0 }}>{mdInline(t, `${key}-${j}`)}</span>
-            </li>
-          ))}
-        </ul>,
-      )
-      continue
-    }
-    if (/^\d+\.\s+/.test(l)) {
-      const buf: string[] = []
-      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\d+\.\s+/, ''))
-      out.push(
-        <ol key={key} style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 7 }}>
-          {buf.map((t, j) => (
-            <li key={j} style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-2emx)', display: 'flex', gap: 10 }}>
-              <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-faint)', flex: 'none', fontSize: 12, width: 15, textAlign: 'right' }}>{j + 1}.</span>
-              <span style={{ minWidth: 0 }}>{mdInline(t, `${key}-${j}`)}</span>
-            </li>
-          ))}
-        </ol>,
-      )
-      continue
-    }
-    const buf: string[] = []
-    while (i < lines.length && lines[i].trim() && !/^(#{1,3}\s|[-*]\s|\d+\.\s|\||```)/.test(lines[i])) buf.push(lines[i++])
-    out.push(<p key={key} style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-2em)', textWrap: 'pretty' }}>{mdInline(buf.join(' '), key)}</p>)
-  }
-  return <div className="ad-copy" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{out}</div>
+  // GFM via react-markdown + remark-gfm; output is React elements (never
+  // injected HTML). Styling lives in tokens.css under .ad-md.
+  return (
+    <div className="ad-copy ad-md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ node: _, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+          table: ({ node: _, ...props }) => <div className="ad-md-tablewrap"><table {...props} /></div>,
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
 }
 
 // ---------- file views ----------
