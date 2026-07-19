@@ -220,15 +220,16 @@ interface Rev {
   instr: string
   enabledAgents: string[]
   allowedSecrets: string[]
+  // §11 dirty gating: true only for spec/instruction/agent-ask changes — grant
+  // (agent/secret) sync state is derived from steps vs grants, never stored.
   dirty: boolean
-  dirtyWhy: 'spec' | 'agents' | 'secrets' | null
   touched: boolean
   specEdit: boolean
   specText: string
   specTextOrig: string
   // §11 spec undo: one-level snapshot taken before an agent rewrite or an
   // in-editor Save lands; editor-state only, never serialized into the draft.
-  specUndo: { spec: SpecBlock[]; dirty: boolean; dirtyWhy: Rev['dirtyWhy'] } | null
+  specUndo: { spec: SpecBlock[]; dirty: boolean } | null
   instrEdit: boolean
   instrDraft: string | null
   ask: string
@@ -266,7 +267,7 @@ interface Rev {
 }
 
 const revDefaults = {
-  dirty: false, dirtyWhy: null as Rev['dirtyWhy'], touched: false,
+  dirty: false, touched: false,
   specEdit: false, specText: '', specTextOrig: '',
   specUndo: null as Rev['specUndo'],
   instrEdit: false, instrDraft: null as string | null,
@@ -353,7 +354,7 @@ function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr
     packages: (snap.packages ?? []).map((p) => ({ ...p })),
     instr: snap.instr || '',
     specEdit: false, specText: '', specTextOrig: '', specUndo: null, instrEdit: false, instrDraft: null,
-    dirty: false, dirtyWhy: null, syncBusy: false, askBusy: false,
+    dirty: false, syncBusy: false, askBusy: false,
     repair: null, resolved: [], askBlockers: null, stepOpen: null, ask: '',
     viewing,
   }
@@ -739,7 +740,7 @@ export default function CreateFlow() {
       const seeded = seedFromPayload(draft, agents)
       // A draft kept mid-steps-generation resumes spec-only — mark it out of
       // sync so the §11 sync panel offers the rebuild.
-      setRev({ ...seeded, touched: true, ...(seeded.steps.length ? {} : { dirty: true, dirtyWhy: 'spec' }) })
+      setRev({ ...seeded, touched: true, ...(seeded.steps.length ? {} : { dirty: true }) })
       if (gid && agents.some((g) => g.id === gid)) setAgentId(gid)
       setPhase('review')
       showToast('Resumed your unsaved draft — Start over discards it.', 3400)
@@ -873,7 +874,7 @@ export default function CreateFlow() {
         (blockers, at, spec) => setRev((r) => r && (at === 'spec'
           ? { ...r, specBusy: false, stepsBusy: false, specBlockers: blockers }
           : {
-            ...r, stepsBusy: false, spec: spec ?? r.spec, dirty: true, dirtyWhy: 'spec',
+            ...r, stepsBusy: false, spec: spec ?? r.spec, dirty: true,
             repair: { source: 'create', blockers },
           })),
         (spec) => setRev((r) => r && ({
@@ -930,6 +931,14 @@ export default function CreateFlow() {
   const secMissing = secRefs.filter((r) => !secrets.some((z) => z.name === r.name))
   const agWarn = !!rev && agentStepIdx.length > 0 && availAgents.length === 0
   const secWarn = !!rev && (secNotAllowed.length > 0 || secMissing.length > 0)
+  // §11 dirty gating: grant sync state is derived, never stored — the workflow
+  // is out of sync from grants exactly while a step needs a grant it doesn't
+  // have. Re-checking the grant clears it instantly; toggles alone never dirty.
+  const agentGap = !!rev && agentStepIdx.some((i) => {
+    const s = rev.steps[i]
+    return s.agentId ? !rev.enabledAgents.includes(s.agentId) : rev.enabledAgents.length === 0
+  })
+  const secretGap = secNotAllowed.length > 0
   // §11: the spec, agents, and secrets cards default open; the spec card is
   // force-open while the spec is writing, showing clarification cards, or
   // being edited.
@@ -943,8 +952,11 @@ export default function CreateFlow() {
   const pkgSecOpenEff = (((rev?.pkgSecOpen ?? null) == null ? pkgProblem : !!rev?.pkgSecOpen) || pkgProblem || !!rev?.pkgBusy)
   const instrOpenEff = (rev?.instrSecOpen ?? null) == null ? isEdit : !!rev?.instrSecOpen
   const viewingOld = isEdit && !!rev && !!auto && rev.viewing !== 'draft' && rev.viewing !== auto.version
+  // §5: permissions are never versioned — a grant gap never blocks restoring an
+  // old version; it fails at execution time instead (the cards still warn).
+  const outOfSync = !!rev && (rev.dirty || (!viewingOld && (agentGap || secretGap)))
   const drafting = !!rev && (rev.specBusy || rev.stepsBusy)
-  const saveBlocked = !!rev && (rev.dirty || rev.syncBusy || rev.askBusy || rev.specEdit
+  const saveBlocked = !!rev && (outOfSync || rev.syncBusy || rev.askBusy || rev.specEdit
     || drafting || (!isEdit && rev.steps.length === 0))
   const busyRewrite = !!rev && (rev.syncBusy || rev.askBusy)
   // Sync panel: the button disables (never hides) while any §8 job runs, while
@@ -974,7 +986,7 @@ export default function CreateFlow() {
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // one edit at a time
       ask: '', askBusy: true, askBlockers: null, touched: true,
-      ...(genCancelled ? { stepsBusy: false, dirty: true, dirtyWhy: 'spec' as const } : {}),
+      ...(genCancelled ? { stepsBusy: false, dirty: true } : {}),
     })
     try {
       const { jobId } = await api.postDraftJob({
@@ -987,9 +999,9 @@ export default function CreateFlow() {
         (d) => {
           setRev((r) => r && ({
             ...r, askBusy: false,
-            // §11 spec undo: stash the pre-rewrite spec + dirty flags
-            ...(d.spec ? { specUndo: { spec: r.spec, dirty: r.dirty, dirtyWhy: r.dirtyWhy } } : {}),
-            spec: d.spec ?? r.spec, dirty: true, dirtyWhy: 'spec' as const,
+            // §11 spec undo: stash the pre-rewrite spec + dirty flag
+            ...(d.spec ? { specUndo: { spec: r.spec, dirty: r.dirty } } : {}),
+            spec: d.spec ?? r.spec, dirty: true,
           }))
           showToast('Spec updated — the workflow is out of sync. Sync the steps before saving.', 5800)
         },
@@ -1008,19 +1020,14 @@ export default function CreateFlow() {
     }
   }
 
-  // §11 spec undo: restore the one-level snapshot. Dirty flags come back with
-  // it only while the out-of-sync cause is still the spec — an intervening
-  // agent/secret change keeps its own out-of-sync state.
+  // §11 spec undo: restore the one-level snapshot, dirty flag included — grant
+  // sync state is derived, so an intervening agent/secret change keeps its own
+  // out-of-sync state regardless.
   const undoSpec = () => {
     setRev((r) => {
       if (!r || !r.specUndo) return r
       const snap = r.specUndo
-      const specCause = r.dirtyWhy === 'spec'
-      return {
-        ...r, spec: snap.spec, specUndo: null, touched: true,
-        dirty: specCause ? snap.dirty : r.dirty,
-        dirtyWhy: specCause ? snap.dirtyWhy : r.dirtyWhy,
-      }
+      return { ...r, spec: snap.spec, specUndo: null, touched: true, dirty: snap.dirty }
     })
     showToast('Last spec change undone.', 3200)
   }
@@ -1051,7 +1058,7 @@ export default function CreateFlow() {
               agentId: s.agent && s.agentId && !r.enabledAgents.includes(s.agentId) ? r.enabledAgents[0] ?? null : s.agentId,
             }))
             return {
-              ...r, syncBusy: false, genStage: null, dirty: false, dirtyWhy: null, specUndo: null,
+              ...r, syncBusy: false, genStage: null, dirty: false, specUndo: null,
               steps, params: d.params ?? r.params, packages: d.packages ?? [], stepOpen: null,
             }
           })
@@ -1188,7 +1195,7 @@ export default function CreateFlow() {
     stopPoll()
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
     jobIdRef.current = null
-    setRev((r) => r && ({ ...r, syncBusy: false, dirty: true, dirtyWhy: r.dirtyWhy ?? 'spec' }))
+    setRev((r) => r && ({ ...r, syncBusy: false, dirty: true }))
     showToast('Sync stopped — the workflow is still out of sync.', 4200)
   }
 
@@ -1624,7 +1631,7 @@ export default function CreateFlow() {
                           const t = specToText(rev.spec)
                           up({
                             instrDraft: null, instrEdit: false, specText: t, specTextOrig: t, specEdit: true,
-                            ...(genCancelled ? { stepsBusy: false, dirty: true, dirtyWhy: 'spec' as const } : {}),
+                            ...(genCancelled ? { stepsBusy: false, dirty: true } : {}),
                           })
                           if (genCancelled) showToast('Step generation stopped — sync the steps when you finish editing.', 4200)
                         }}
@@ -1648,9 +1655,9 @@ export default function CreateFlow() {
                           onClick={() => {
                             if (rev.specText === rev.specTextOrig) return
                             up({
-                              specUndo: { spec: rev.spec, dirty: rev.dirty, dirtyWhy: rev.dirtyWhy },
+                              specUndo: { spec: rev.spec, dirty: rev.dirty },
                               spec: textToSpec(rev.specText), specEdit: false, specText: '', specTextOrig: '',
-                              dirty: true, dirtyWhy: 'spec', touched: true,
+                              dirty: true, touched: true,
                             })
                             showToast('Spec saved — the workflow is out of sync. Sync the steps before saving.', 5800)
                           }}
@@ -1849,12 +1856,13 @@ export default function CreateFlow() {
                               if (busyRewrite) return
                               if (rev.specBusy) { showToast('Wait for the spec first.'); return }
                               const genCancelled = cancelStepsGen() // §11: grant changes cancel an in-flight steps call
-                              const genPatch = genCancelled ? { stepsBusy: false as const } : {}
+                              const genPatch = genCancelled ? { stepsBusy: false as const, dirty: true } : {}
                               if (on) {
-                                up({ ...genPatch, enabledAgents: rev.enabledAgents.filter((z) => z !== g.id), dirty: true, dirtyWhy: 'agents', ...(isEdit ? { touched: true } : {}) })
-                                if (used.length) showToast(`Step${used.length > 1 ? 's' : ''} ${stepList(used)} ${used.length > 1 ? 'are' : 'is'} out of sync — ${agName(g)} is no longer available here. Sync the steps before saving.`, 5000)
+                                up({ ...genPatch, enabledAgents: rev.enabledAgents.filter((z) => z !== g.id), ...(isEdit ? { touched: true } : {}) })
+                                if (used.length) showToast(`Step${used.length > 1 ? 's' : ''} ${stepList(used)} ${used.length > 1 ? 'are' : 'is'} out of sync — ${agName(g)} is no longer available here. Re-enable it or sync the steps before saving.`, 5000)
                               } else {
-                                up({ ...genPatch, enabledAgents: [...rev.enabledAgents, g.id], dirty: true, dirtyWhy: 'agents', ...(isEdit ? { touched: true } : {}) })
+                                up({ ...genPatch, enabledAgents: [...rev.enabledAgents, g.id], ...(isEdit ? { touched: true } : {}) })
+                                showToast(`${agName(g)} is now available to steps — Sync with spec if the steps should be rewritten to use it.`, 3600)
                               }
                             }}
                             style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none', ...lockStyle }}
@@ -1916,12 +1924,12 @@ export default function CreateFlow() {
                               if (busyRewrite) return
                               if (rev.specBusy) { showToast('Wait for the spec first.'); return }
                               const genCancelled = cancelStepsGen() // §11: grant changes cancel an in-flight steps call
-                              const genPatch = genCancelled ? { stepsBusy: false as const } : {}
+                              const genPatch = genCancelled ? { stepsBusy: false as const, dirty: true } : {}
                               if (on) {
-                                up({ ...genPatch, allowedSecrets: rev.allowedSecrets.filter((z) => z !== s.name), dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })
-                                if (ref) showToast(`Step${ref.steps.length > 1 ? 's' : ''} ${stepList(ref.steps)} use${ref.steps.length > 1 ? '' : 's'} ${s.name} — the execution would fail there until it’s allowed again.`, 4500)
+                                up({ ...genPatch, allowedSecrets: rev.allowedSecrets.filter((z) => z !== s.name), ...(isEdit ? { touched: true } : {}) })
+                                if (ref) showToast(`Step${ref.steps.length > 1 ? 's' : ''} ${stepList(ref.steps)} use${ref.steps.length > 1 ? '' : 's'} ${s.name} — re-allow it or sync the steps before saving.`, 4500)
                               } else {
-                                up({ ...genPatch, allowedSecrets: [...rev.allowedSecrets, s.name], dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })
+                                up({ ...genPatch, allowedSecrets: [...rev.allowedSecrets, s.name], ...(isEdit ? { touched: true } : {}) })
                               }
                             }}
                             style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none', ...lockStyle }}
@@ -1943,7 +1951,7 @@ export default function CreateFlow() {
                           <MissingSecretRow
                             name={r.name}
                             sub={`used by step${r.steps.length > 1 ? 's' : ''} ${stepList(r.steps)} — not in your Keychain`}
-                            onAdded={() => up({ allowedSecrets: [...rev.allowedSecrets, r.name], dirty: true, dirtyWhy: 'secrets', ...(isEdit ? { touched: true } : {}) })}
+                            onAdded={() => up({ allowedSecrets: [...rev.allowedSecrets, r.name], ...(isEdit ? { touched: true } : {}) })}
                           />
                         </div>
                       ))}
@@ -1979,7 +1987,7 @@ export default function CreateFlow() {
                           const genCancelled = cancelStepsGen() // §11: instruction edits cancel an in-flight steps call
                           up({
                             specEdit: false, specText: '', specTextOrig: '', instrDraft: rev.instr, instrEdit: true, instrSecOpen: true,
-                            ...(genCancelled ? { stepsBusy: false, dirty: true, dirtyWhy: 'spec' as const } : {}),
+                            ...(genCancelled ? { stepsBusy: false, dirty: true } : {}),
                           })
                           if (genCancelled) showToast('Step generation stopped — sync the steps when you finish editing.', 4200)
                         }}
@@ -2001,7 +2009,7 @@ export default function CreateFlow() {
                           onClick={(e) => {
                             e.stopPropagation()
                             if (rev.instrDraft == null || rev.instrDraft === rev.instr) return
-                            up({ instr: rev.instrDraft, instrDraft: null, instrEdit: false, touched: true, dirty: true, dirtyWhy: 'spec' })
+                            up({ instr: rev.instrDraft, instrDraft: null, instrEdit: false, touched: true, dirty: true })
                             showToast('Instructions saved — the workflow is out of sync. Sync the steps before saving.', 5800)
                           }}
                           style={{
@@ -2095,28 +2103,28 @@ export default function CreateFlow() {
                             borderRadius: '50%', animation: 'adSpin .8s linear infinite',
                           }} />
                         ) : (
-                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: rev.dirty ? 'var(--amber)' : 'var(--green)' }} />
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: outOfSync ? 'var(--amber)' : 'var(--green)' }} />
                         )}
                       </span>
                       <span style={{
                         minWidth: 0,
-                        font: rev.syncBusy ? "500 12.5px/18px var(--sans)" : rev.dirty ? "500 12.5px/18px var(--sans)" : "400 12.5px/18px var(--sans)",
-                        color: rev.syncBusy ? 'var(--text-2)' : rev.dirty ? 'var(--text)' : 'var(--text-muted)',
+                        font: rev.syncBusy ? "500 12.5px/18px var(--sans)" : outOfSync ? "500 12.5px/18px var(--sans)" : "400 12.5px/18px var(--sans)",
+                        color: rev.syncBusy ? 'var(--text-2)' : outOfSync ? 'var(--text)' : 'var(--text-muted)',
                       }}>
                         {rev.syncBusy
                           ? `${selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'Your agent'} is rewriting the steps from your spec…`
-                          : rev.dirty
-                            ? (rev.dirtyWhy === 'agents' ? 'The workflow is out of sync — the agents available to this automation changed.'
-                              : rev.dirtyWhy === 'secrets' ? 'The workflow is out of sync — the secrets allowed for this automation changed.'
-                                : 'The workflow is out of sync — these steps still match the old spec.')
+                          : outOfSync
+                            ? (rev.dirty ? 'The workflow is out of sync — these steps still match the old spec.'
+                              : agentGap ? 'The workflow is out of sync — steps call an agent that isn’t enabled.'
+                                : 'The workflow is out of sync — steps use a secret that isn’t allowed.')
                             : 'Steps are generated from the spec.'}
                       </span>
                     </div>
-                    {!rev.syncBusy && rev.dirty && (
+                    {!rev.syncBusy && outOfSync && (
                       <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '2px 0 0 16px' }}>
-                        {rev.dirtyWhy === 'agents' ? 'Sync the steps so they use the agents available to this automation, then review them. Saving is locked until you do.'
-                          : rev.dirtyWhy === 'secrets' ? 'Sync the steps so they only use the secrets allowed here, then review them. Saving is locked until you do.'
-                            : 'Sync the steps to the new spec, then review them. Saving is locked until you do — nothing ships unreviewed.'}
+                        {rev.dirty ? 'Sync the steps to the new spec, then review them. Saving is locked until you do — nothing ships unreviewed.'
+                          : agentGap ? 'Re-enable the agent, or sync the steps so they only call agents available here. Saving is locked until you do.'
+                            : 'Re-allow the secret, or sync the steps so they only use secrets allowed here. Saving is locked until you do.'}
                       </div>
                     )}
                   </div>
@@ -2130,7 +2138,7 @@ export default function CreateFlow() {
                       onClick={() => void runSync()}
                       style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}
                     >
-                      {rev.dirty ? 'Sync now' : 'Sync with spec'}
+                      {outOfSync ? 'Sync now' : 'Sync with spec'}
                     </button>
                   )}
                 </div>
@@ -2180,7 +2188,7 @@ export default function CreateFlow() {
                       </button>
                     </div>
                   )}
-                  <div style={{ display: 'flex', flexDirection: 'column', opacity: rev.dirty || busyRewrite ? 0.45 : 1, transition: 'opacity .2s', marginBottom: -1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', opacity: outOfSync || busyRewrite ? 0.45 : 1, transition: 'opacity .2s', marginBottom: -1 }}>
                     {rev.steps.map((s, i) => (
                       <StepRow
                         key={i} step={s} i={i}

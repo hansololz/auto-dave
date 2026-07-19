@@ -1389,10 +1389,23 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   press Edit to add standing rules." In
   create mode the card arrives pre-filled with the app's default best-practice rules (§8) —
   edit or delete them freely before saving.
-- **Dirty gating** — any spec/instruction/agent-ask/agent-enablement/secret-allowance change
-  marks the workflow out of sync and **blocks saving** until the sync panel's "Sync now" button
-  makes one §8 `sync` call regenerating the steps ("Steps synced with the spec — review them,
-  then save."). Sync state lives in a single **persistent sync panel** at the top of the right
+- **Dirty gating** — any spec/instruction/agent-ask change marks the workflow out of sync and
+  **blocks saving** until the sync panel's "Sync now" button makes one §8 `sync` call
+  regenerating the steps ("Steps synced with the spec — review them, then save."). Grant
+  toggles (agent enablement, secret allowance) never mark the workflow out of sync by
+  themselves — grants are permissions (§5), not versioned content. Instead, grant sync state is
+  **derived** from steps vs grants: the workflow is out of sync exactly while some step needs a
+  grant it doesn't have — an agent step whose assigned agent (or, unassigned, any agent at all)
+  isn't enabled, or step code referencing a Keychain secret that isn't allowed. Consequences:
+  checking a grant no step uses, or unchecking an unused grant, leaves the workflow in sync and
+  saves directly; check-then-uncheck is a no-op; unchecking a grant steps use locks saving, and
+  either re-checking it (instant, no sync) or a sync (steps rewritten without it) unlocks.
+  Checking an agent shows a passive hint toast ("`<agent>` is now available to steps — Sync
+  with spec if the steps should be rewritten to use it."). One exception: a grant toggle while
+  the steps are still generating cancels the in-flight steps call (see above) and therefore
+  marks the workflow out of sync — the kept spec no longer has finished steps. While viewing an
+  old version, grant gaps never lock Restore — permissions are not versioned (§5) and a vX step
+  needing a now-revoked grant fails at execution time instead; the cards still warn. Sync state lives in a single **persistent sync panel** at the top of the right
   column, **above** the Steps card rather than inside it, because a sync rewrites the steps and
   the parameter definitions, not just the step list. The panel never disappears and uses the
   same card background as the other cards (`--bg-card` / `--border-card`); only its content
@@ -1426,9 +1439,12 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   "Writing the spec…" / "Generating the steps…" / "Installing the packages…"); saving is also
   blocked while any §8 job is in flight, and the sync panel's button disables while one is. Picking a different agent for a single
   step does **not** dirty the workflow — it only marks the draft touched (toast "Step N now
-  calls `<agent>` · `<model>`."); disabling an enabled agent that steps still call does dirty it
-  (toast "Steps X, Y are out of sync — `<agent>` is no longer available here. Sync the steps
-  before saving.").
+  calls `<agent>` · `<model>`."); disabling an enabled agent that steps still call locks saving
+  through the derived grant gap above (toast "Steps X, Y are out of sync — `<agent>` is no
+  longer available here. Re-enable it or sync the steps before saving."). The out-of-sync
+  reason line names the cause: an agent gap ("steps call an agent that isn't enabled"), a
+  secret gap ("steps use a secret that isn't allowed"), or a spec change ("these steps still
+  match the old spec").
 - **TRIGGERS** card — the draft's cron triggers as §4.3 short-label chips + "Executes even when
   the app is closed. Add or change triggers anytime on the automation page." Display-only: in
   create mode it shows call 2's drafted triggers (the ones v1 gets); in edit mode the saved
@@ -1458,8 +1474,11 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   agents called by steps show a "called by step N" note. The agents card is collapsible,
   defaults open, and is forced open while its warning shows.
 - **Secrets** — step code is scanned for `secrets.NAME`; secrets in Keychain but not allowed, and
-  secrets missing from Keychain, each produce warnings with fix affordances. "X of Y allowed".
-  Collapsible card, defaults open, forced open while a warning shows.
+  secrets missing from Keychain, each produce warnings with fix affordances. A used-but-not-allowed
+  secret is a grant gap (Dirty gating above): it locks saving until the secret is re-allowed or a
+  sync rewrites the steps. A missing-from-Keychain secret only warns — adding the value through the
+  fix row also allows it. "X of Y allowed". Collapsible card, defaults open, forced open while a
+  warning shows.
 - **PACKAGES** card — in the **right column**, below the Parameters card: display-only like
   Triggers and Parameters — the drafting pipeline owns the list; the user's only write is the
   §6.2 pin update below.
