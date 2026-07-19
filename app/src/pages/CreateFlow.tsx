@@ -383,14 +383,16 @@ function serializeDraft(r: Rev): DraftPayload {
 
 // ---------- step row (read-only agent + secret tags) ----------
 
-function StepRow({ step, i, open, onToggle, availAgents, pkgImports }: {
+function StepRow({ step, i, open, onToggle, availAgents, allAgents, pkgImports }: {
   step: Step; i: number; open: boolean; onToggle: () => void
   availAgents: Agent[]
+  allAgents: Agent[]    // full roster — resolves the assigned agent's name even when disabled
   pkgImports: string[]  // §6.2 declared package import names — tagged when the step imports one
 }) {
   const asg = step.agent
     ? (step.agentId ? availAgents.find((g) => g.id === step.agentId) ?? null : availAgents[0] ?? null)
     : null
+  const orig = !asg && step.agentId ? allAgents.find((g) => g.id === step.agentId) ?? null : null
   const stepSecrets = [...new Set([...(step.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]))]
   const stepPkgs = pkgImports.filter((n) => new RegExp(`\\b(?:import|from)\\s+${n}\\b`).test(step.code || ''))
   return (
@@ -407,7 +409,9 @@ function StepRow({ step, i, open, onToggle, availAgents, pkgImports }: {
               <span
                 title={asg
                   ? `This step calls ${agName(asg)} · ${dispModel(asg)} mid-execution`
-                  : 'No agent is enabled for steps — this step would fail'}
+                  : orig
+                    ? `${agName(orig)} isn’t enabled for steps — this step would fail`
+                    : 'No agent is enabled for steps — this step would fail'}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 5,
                   background: asg ? 'oklch(0.74 0.155 52 / .1)' : 'oklch(0.7 0.19 25 / .14)',
@@ -416,7 +420,7 @@ function StepRow({ step, i, open, onToggle, availAgents, pkgImports }: {
                   color: asg ? 'oklch(0.78 0.13 52)' : 'oklch(0.78 0.15 25)', whiteSpace: 'nowrap',
                 }}
               >
-                <i className="fa-solid fa-robot" style={{ fontSize: 8.5 }} /> {asg ? agName(asg) : 'no agent'}
+                <i className="fa-solid fa-robot" style={{ fontSize: 8.5 }} /> {asg ? agName(asg) : orig ? agName(orig) : 'no agent'}
               </span>
             )}
             {stepSecrets.map((name) => (
@@ -2184,7 +2188,7 @@ export default function CreateFlow() {
                         key={i} step={s} i={i}
                         open={rev.stepOpen === i}
                         onToggle={() => up({ stepOpen: rev.stepOpen === i ? null : i })}
-                        availAgents={availAgents}
+                        availAgents={availAgents} allAgents={agents}
                         pkgImports={rev.packages.map((p) => p.import)}
                       />
                     ))}

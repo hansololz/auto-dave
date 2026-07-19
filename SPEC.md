@@ -1465,7 +1465,9 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   "No settings needed — your AI didn't ask for any."
 - **Steps** — readable scripts with per-step read-only tags (same tag language as the §9.2
   detail page — never menus): an agent step shows a tag with its assigned agent's name (robot
-  icon; red "no agent" tag when no enabled agent covers it), a step whose code references
+  icon; the tag turns red when no enabled agent covers the step — it keeps the assigned
+  agent's name when that agent still exists, and reads "no agent" only when no name can be
+  resolved), a step whose code references
   `secrets.NAME` shows one key-icon tag per secret name, and a step that imports a declared
   §6.2 package (its top-level `import` name appears in the step's code) shows one box-icon tag
   per package, labeled with the import name. Which agent a step calls is decided by
