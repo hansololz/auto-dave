@@ -287,3 +287,34 @@ def test_snapshot_orphan_dirs_skipped_and_swept(store):
     store.snapshot_memory(a, "manual")
     assert not orphan.exists()  # swept at the next creation
     assert len(store.list_snapshots(a)) == 1
+
+
+def test_pending_draft_slot_roundtrip(store):
+    """§4.4 pending create-mode slot: save → load/json → delete."""
+    from autodave import paths
+    from conftest import make_version
+
+    assert store.pending_draft_json() == {"draft": None, "agentId": None}
+    ver = make_version()
+    ver["step_agents"] = ["ag1"]
+    ver["allowed_secrets"] = ["TOKEN"]
+    store.save_pending_draft(ver, name="Pending One", agent_id="ag1",
+                             triggers=[{"kind": "cron", "expr": "0 9 * * *"}])
+    assert (paths.pending_draft_dir() / "automation" / "automation.yaml").exists()
+
+    j = store.pending_draft_json()
+    assert j["agentId"] == "ag1"
+    d = j["draft"]
+    assert d["name"] == "Pending One"
+    assert d["stepAgents"] == ["ag1"] and d["allowedSecrets"] == ["TOKEN"]
+    assert d["triggers"] == [{"kind": "cron", "expr": "0 9 * * *"}]
+    assert [s["name"] for s in d["steps"]] == [s["name"] for s in ver["steps"]]
+    assert d["steps"][0]["code"] == ver["steps"][0]["code"]
+
+    # re-keep preserves created_at, bumps updated_at metadata on disk
+    store.save_pending_draft(ver, name="Pending Two", agent_id=None, triggers=[])
+    assert store.pending_draft_json()["draft"]["name"] == "Pending Two"
+
+    store.delete_pending_draft()
+    assert store.pending_draft_json() == {"draft": None, "agentId": None}
+    assert not paths.pending_draft_dir().exists()

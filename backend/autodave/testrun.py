@@ -1,8 +1,10 @@
-"""§11 Test (§19 POST /tests): executes the sent draft's real steps ephemerally —
-the same step-subprocess path as a real execution, with scratch memory (copied
-from the automation's when editing), a throwaway workspace, and no execution
-record. Progress streams over the test.* WS events; a failed step triggers the
-§8 issue-analysis call and its blockers ride test.issue."""
+"""§11 Test (§19 POST /tests): executes the sent draft's real steps through the
+same step-subprocess path as a real execution, pointed at the draft container's
+workspace/ + result/ (automations/<slug>/draft/ in edit mode, the §4.4 pending
+slot <root>/draft/ in create mode; wiped per test, kept after for inspection)
+— with scratch memory (copied from the draft container's memory/ when present)
+and no execution record. Progress streams over the test.* WS events; a failed
+step triggers the §8 issue-analysis call and its blockers ride test.issue."""
 from __future__ import annotations
 
 import shutil
@@ -12,11 +14,12 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from . import harness, notify, keychain, packages as pkglib
+from . import harness, notify, keychain, packages as pkglib, paths
 from .drafting import CONTRACT_PREAMBLE, parse_blockers, spec_as_md
 from .engine import run_step_process
 from .events import hub
-from .storage import SECRET_REF_RE, resolve_param_value, store
+from .storage import SECRET_REF_RE, _size_label, resolve_param_value, store
+from .yamlio import save_yaml
 
 LOG_TAIL = 40  # lines per step handed to the issue-analysis call
 
@@ -94,13 +97,27 @@ class TestRuns:
 
             # Scratch dirs — memory copies the draft's own memory when it exists
             # (§4.4 Draft executions iterate on it), else the automation's (§11).
+            # §11: the draft container — automations/<slug>/draft/ in edit
+            # mode, the §4.4 pending slot <root>/draft/ in create mode.
+            dbase = (store.auto_dir(auto) / "draft") if auto is not None \
+                else paths.pending_draft_dir()
             mem_dir = root / "memory"
             if auto is not None:
-                draft_mem = store.auto_dir(auto) / "draft" / "memory"
-                src = draft_mem if draft_mem.exists() else store.auto_dir(auto) / "memory"
-                if src.exists():
-                    shutil.copytree(src, mem_dir)
+                src = dbase / "memory"
+                if not src.exists():
+                    src = store.auto_dir(auto) / "memory"
+            else:
+                src = dbase / "memory"
+            if src.exists():
+                shutil.copytree(src, mem_dir)
             mem_dir.mkdir(parents=True, exist_ok=True)
+            # Same step executor as a real execution, pointed at the container's
+            # workspace/ + result/ — wiped per test, kept after for inspection,
+            # deleted with the draft.
+            ws_dir, res_dir = dbase / "workspace", dbase / "result"
+            for d in (ws_dir, res_dir):
+                shutil.rmtree(d, ignore_errors=True)
+                d.mkdir(parents=True, exist_ok=True)
             steps_dir = root / "steps"
             steps_dir.mkdir(parents=True, exist_ok=True)
             for s in steps:
@@ -189,8 +206,8 @@ class TestRuns:
                     "site_packages": str(pkglib.site_packages_dir()),
                     "package_imports": [p["import"] for p in draft.get("packages") or []],
                     "memory_dir": str(mem_dir),
-                    "workspace": str(root / "workspace"),
-                    "result_dir": str(root / "result"),
+                    "workspace": str(ws_dir),
+                    "result_dir": str(res_dir),
                     "agent": agent_cfg,
                     "is_agent_step": bool(s.get("agent")),
                     "agent_timeout": 120,
@@ -227,11 +244,22 @@ class TestRuns:
                 return
             if failed_at is None:
                 log("sys", "test finished — the memory copy was discarded")
-                res = None
+                # §4.5/§11: the result is produced like a real execution's —
+                # result.yaml (chips/values) beside any files the steps wrote
+                # via result.path; a files-only result still counts (edit mode).
                 if result_touched:
+                    body = {k: v for k, v in result.items() if k in ("chips", "values") and v}
+                    if body:
+                        save_yaml(res_dir / "result.yaml", body)
+                files = [{"name": f.name, "size": _size_label(f.stat().st_size)}
+                         for f in sorted(res_dir.iterdir(), key=lambda p: p.name.lower())
+                         if f.is_file()]
+                res = None
+                if result_touched or files:
                     res = {"chip": result["chip"],
                            "chipStatus": result["status"] if result["chip"] else None,
-                           "chips": result["chips"], "values": result["values"]}
+                           "chips": result["chips"], "values": result["values"],
+                           "files": files, "path": str(res_dir)}
                 hub.publish("test.done", testId=test_id, status="succeeded", result=res)
                 self._notify_end(draft, auto, params, "succeeded",
                                  result if result_touched else None, notify_text)

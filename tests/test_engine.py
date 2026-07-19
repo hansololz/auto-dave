@@ -623,3 +623,91 @@ def test_pre_version_snapshot_toggle_off(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert store.list_snapshots(a) == []
+
+
+def test_draft_test_executes_in_draft_dirs(store, monkeypatch):
+    """§11: a test points the shared step executor at draft/workspace +
+    draft/result (kept after the test) and produces a §4.5-style result —
+    result.yaml beside the files the step wrote, files + path on test.done."""
+    from autodave import testrun as tr
+    from autodave.events import hub
+
+    monkeypatch.setattr(tr, "store", store)
+    ver = make_version()
+    ver["steps"] = [{
+        "file": "01-make.py", "name": "Make", "desc": "",
+        "code": ('open("scratch.txt", "w").write("wip")\n'  # cwd = workspace
+                 '(result / "out.md").write_text("# hi")\n'
+                 'result.chip("Made it")\n'
+                 'result.value("Summary", "done")\n'),
+    }]
+    a = store.create_automation(ver, "Draft Tester", None)
+    store.save_draft(a, ver)
+
+    done: dict = {}
+    orig = hub.publish
+
+    def capture(ev, **payload):
+        if ev == "test.done":
+            done.update(payload)
+        orig(ev, **payload)
+
+    monkeypatch.setattr(hub, "publish", capture)
+    runs = tr.TestRuns()
+    tid = runs.start(ver, a, None, [], [], {})
+    t0 = time.time()
+    while tid in runs._runs:
+        assert time.time() - t0 < 30, "test didn't finish in time"
+        time.sleep(0.05)
+
+    dd = store.auto_dir(a) / "draft"
+    assert (dd / "workspace" / "scratch.txt").read_text() == "wip"
+    assert (dd / "result" / "out.md").read_text() == "# hi"
+    assert (dd / "result" / "result.yaml").exists()
+    assert done["status"] == "succeeded"
+    res = done["result"]
+    assert res["chip"] == "Made it"
+    assert {f["name"] for f in res["files"]} == {"out.md", "result.yaml"}
+    assert res["path"] == str(dd / "result")
+
+
+def test_create_mode_test_uses_pending_slot(store, monkeypatch):
+    """§11 create mode: no automation yet — the test executes in the §4.4
+    pending slot's workspace/ + result/ and the result payload carries
+    files + path there too."""
+    from autodave import paths
+    from autodave import testrun as tr
+    from autodave.events import hub
+
+    monkeypatch.setattr(tr, "store", store)
+    ver = make_version()
+    ver["steps"] = [{
+        "file": "01-make.py", "name": "Make", "desc": "",
+        "code": ('open("scratch.txt", "w").write("wip")\n'
+                 '(result / "out.md").write_text("# hi")\n'
+                 'result.value("Summary", "done")\n'),
+    }]
+
+    done: dict = {}
+    orig = hub.publish
+
+    def capture(ev, **payload):
+        if ev == "test.done":
+            done.update(payload)
+        orig(ev, **payload)
+
+    monkeypatch.setattr(hub, "publish", capture)
+    runs = tr.TestRuns()
+    tid = runs.start(ver, None, None, [], [], {})
+    t0 = time.time()
+    while tid in runs._runs:
+        assert time.time() - t0 < 30, "test didn't finish in time"
+        time.sleep(0.05)
+
+    slot = paths.pending_draft_dir()
+    assert (slot / "workspace" / "scratch.txt").read_text() == "wip"
+    assert (slot / "result" / "out.md").read_text() == "# hi"
+    assert done["status"] == "succeeded"
+    res = done["result"]
+    assert {f["name"] for f in res["files"]} == {"out.md", "result.yaml"}
+    assert res["path"] == str(slot / "result")

@@ -304,8 +304,12 @@ function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
     packages: d.packages ?? [],
     triggers: d.triggers ?? [],
     instr: d.instr ?? defaultBuildCache, // backend seeds instr from default-build-instructions.md
-    enabledAgents: agents.map((g) => g.id),
-    allowedSecrets: [],
+    // §4.4: a resumed pending draft carries its grant selections; a fresh
+    // drafting-job payload has none — default to everything enabled.
+    enabledAgents: d.stepAgents
+      ? d.stepAgents.filter((id) => agents.some((g) => g.id === id))
+      : agents.map((g) => g.id),
+    allowedSecrets: d.allowedSecrets ?? [],
   }
 }
 
@@ -697,18 +701,47 @@ export default function CreateFlow() {
   // §4.4: any exit path keeps the draft — system back/forward unmounts the editor
   // without going through close(), so the persist lives in unmount cleanup.
   // Discard and save settle the draft so leaving afterwards writes nothing.
+  // Create mode keeps to the pending slot (<root>/draft/) once a draft landed.
   const revRef = useRef(rev)
   revRef.current = rev
   const autoRef = useRef(auto)
   autoRef.current = auto
+  const agentIdRef = useRef(agentId)
+  agentIdRef.current = agentId
   const draftSettled = useRef(false)
   useEffect(() => () => {
     const r = revRef.current
     const a = autoRef.current
-    if (draftSettled.current || !isEdit || !a) return
-    if (r && r.viewing === 'draft' && (r.touched || a.draft)) {
-      void api.putDraft(a.id, serializeDraft(r)).catch(() => { /* backend restarting */ })
+    if (draftSettled.current) return
+    if (isEdit) {
+      if (!a) return
+      if (r && r.viewing === 'draft' && (r.touched || a.draft)) {
+        void api.putDraft(a.id, serializeDraft(r)).catch(() => { /* backend restarting */ })
+      }
+      return
     }
+    if (r && !r.specBusy && (r.spec.length || r.steps.length)) {
+      void api.putPendingDraft(serializeDraft(r), agentIdRef.current).catch(() => { /* backend restarting */ })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // §4.4: opening the create flow while the pending slot holds a draft resumes
+  // it straight on Review; guarded so a fast Ask submission wins the race.
+  useEffect(() => {
+    if (isEdit) return
+    let dead = false
+    void api.getPendingDraft().then(({ draft, agentId: gid }) => {
+      if (dead || !draft || seededRef.current || revRef.current) return
+      seededRef.current = true
+      const seeded = seedFromPayload(draft, agents)
+      // A draft kept mid-steps-generation resumes spec-only — mark it out of
+      // sync so the §11 sync panel offers the rebuild.
+      setRev({ ...seeded, touched: true, ...(seeded.steps.length ? {} : { dirty: true, dirtyWhy: 'spec' }) })
+      if (gid && agents.some((g) => g.id === gid)) setAgentId(gid)
+      setPhase('review')
+      showToast('Resumed your unsaved draft — Start over discards it.', 3400)
+    }).catch(() => { /* backend restarting; the Ask page still works */ })
+    return () => { dead = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const up = (patch: Partial<Rev>) => setRev((r) => (r ? { ...r, ...patch } : r))
@@ -866,6 +899,8 @@ export default function CreateFlow() {
     stopPoll()
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
     jobIdRef.current = null
+    // §4.4: Start over / Back to Ask discards the pending slot.
+    void api.deletePendingDraft().catch(() => { /* none kept */ })
     setRev(null)
     setPhase('ask')
   }
@@ -1210,6 +1245,12 @@ export default function CreateFlow() {
       setSurface('app')
       go('automation')
       return
+    }
+    // §4.4: leaving create mode after a draft landed keeps the pending slot.
+    if (!isEdit && rev && !rev.specBusy && (rev.spec.length || rev.steps.length)) {
+      try { await api.putPendingDraft(serializeDraft(rev), agentId) } catch { /* backend restarting */ }
+      draftSettled.current = true
+      showToast('Draft kept — New automation resumes it anytime.', 3400)
     }
     if (isOnboard) { setSurface('onboard'); return }
     setSurface('app')
@@ -2389,6 +2430,25 @@ export default function CreateFlow() {
                                   {Array.isArray(v.value) ? v.value.join(' · ') : v.value}
                                 </div>
                               ))}
+                              {(test.result?.files ?? []).length > 0 && (
+                                <div style={{ marginTop: 6 }}>
+                                  {(test.result?.files ?? []).map((f) => (
+                                    <div key={f.name} style={{ color: '#9fb3c8' }}>
+                                      <i className="fa-solid fa-file-lines" style={{ fontSize: 10, color: 'var(--text-faint)', marginRight: 6 }} />
+                                      {f.name} <span style={{ color: 'var(--text-faintest)' }}>{f.size}</span>
+                                    </div>
+                                  ))}
+                                  {test.result?.path && (
+                                    <button
+                                      className="ad-btn-ghost"
+                                      onClick={() => { void window.autodave?.revealPath(test.result!.path!) }}
+                                      style={{ fontSize: 11.5, marginTop: 4 }}
+                                    >
+                                      <i className="fa-solid fa-folder-open" style={{ fontSize: 10 }} /> Show in Finder
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                           {test.status === 'failed' && test.analyzing && (

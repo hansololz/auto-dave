@@ -252,7 +252,9 @@ class Store:
             "updated_at": a["updated_at"],
         })
 
-    def _write_version_folder(self, vd: Path, ver: dict) -> None:
+    def _write_version_folder(self, vd: Path, ver: dict, extra: dict | None = None) -> None:
+        """`extra` merges additional keys into automation.yaml — used by the
+        §4.4 pending create-mode slot for its identity fields."""
         vd.mkdir(parents=True, exist_ok=True)
         manifest_steps = []
         for i, s in enumerate(ver["steps"], 1):
@@ -278,6 +280,7 @@ class Store:
             **({"step_agents": ver["step_agents"]} if ver.get("step_agents") is not None else {}),
             **({"allowed_secrets": ver["allowed_secrets"]} if ver.get("allowed_secrets") is not None else {}),
             "steps": manifest_steps,
+            **(extra or {}),
         })
         atomic_write_text(vd / "spec.md", blocks_to_md(ver.get("spec", [])))
         if ver.get("instr"):
@@ -354,6 +357,62 @@ class Store:
                 shutil.rmtree(dd)
             self._write_version_folder(dd, ver)
             a["draft"] = self._load_version_folder(dd)
+
+    # ---------- pending create-mode draft (§4.4: the <root>/draft/ slot) ----------
+    def save_pending_draft(self, ver: dict, name: str | None, agent_id: str | None,
+                           triggers: list | None) -> None:
+        """Like save_draft, into the single `<root>/draft/` slot — only the
+        automation/ working copy is rewritten; memory/workspace/result survive
+        re-keeps. Identity fields ride automation.yaml (§5): no automation
+        record exists yet to hold them."""
+        with self.lock:
+            dd = paths.pending_draft_dir() / "automation"
+            prev = load_yaml(dd / "automation.yaml", {}) or {}
+            now = datetime.now().isoformat(timespec="seconds")
+            if dd.exists():
+                shutil.rmtree(dd)
+            self._write_version_folder(dd, ver, extra={
+                "name": name, "agent_id": agent_id, "triggers": triggers or [],
+                "created_at": prev.get("created_at") or now, "updated_at": now,
+            })
+
+    def load_pending_draft(self) -> dict | None:
+        """The slot's draft + identity keys; None when the slot is empty."""
+        with self.lock:
+            dd = paths.pending_draft_dir() / "automation"
+            if not (dd / "automation.yaml").exists():
+                return None
+            meta = load_yaml(dd / "automation.yaml", {}) or {}
+            return {**self._load_version_folder(dd),
+                    "name": meta.get("name"), "agent_id": meta.get("agent_id"),
+                    "triggers": meta.get("triggers", []) or []}
+
+    def delete_pending_draft(self) -> None:
+        """Settles the slot (Create consumed it, or Start over discarded it)."""
+        with self.lock:
+            shutil.rmtree(paths.pending_draft_dir(), ignore_errors=True)
+
+    def pending_draft_json(self) -> dict:
+        d = self.load_pending_draft()
+        if d is None:
+            return {"draft": None, "agentId": None}
+        steps = []
+        for s in d.get("steps", []):
+            out = {"name": s.get("name", ""), "desc": s.get("desc", ""),
+                   "code": s.get("code", ""), "file": s.get("file")}
+            if s.get("agent"):
+                out["agent"] = True
+                out["agentId"] = s.get("agent_id")
+                out["why"] = s.get("why", "")
+            steps.append(out)
+        return {"draft": {
+            "name": d.get("name"), "desc": d.get("desc", ""), "note": d.get("note"),
+            "params": d.get("params", []), "packages": d.get("packages", []),
+            "steps": steps, "spec": d.get("spec", []), "instr": d.get("instr"),
+            "triggers": d.get("triggers", []),
+            **({"stepAgents": d["step_agents"]} if d.get("step_agents") is not None else {}),
+            **({"allowedSecrets": d["allowed_secrets"]} if d.get("allowed_secrets") is not None else {}),
+        }, "agentId": d.get("agent_id")}
 
     def delete_draft(self, a: dict) -> None:
         with self.lock:

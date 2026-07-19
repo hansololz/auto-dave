@@ -51,6 +51,14 @@ _FALLBACK_BIN_DIRS = (
 )
 
 
+def _neutral_cwd() -> str:
+    """§6: every harness child runs in this empty dir so CLI startup scans
+    never touch TCC-protected folders (no macOS permission prompts)."""
+    d = paths.harness_cwd()
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
 def resolve_bin(binname: str) -> str | None:
     """Absolute path of `binname`, searching PATH then common install dirs."""
     found = shutil.which(binname)
@@ -119,7 +127,7 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
         raise HarnessError(f"{cmd[0]} is not installed on this Mac")
     cmd[0] = binpath
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            stdin=subprocess.DEVNULL, text=True)
+                            stdin=subprocess.DEVNULL, text=True, cwd=_neutral_cwd())
     if proc_holder is not None:
         proc_holder["proc"] = proc
     try:
@@ -180,7 +188,8 @@ def ollama_status() -> dict:
         _serve_spawned = True
         try:
             subprocess.Popen([binpath, "serve"], stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, start_new_session=True)
+                             stderr=subprocess.DEVNULL, start_new_session=True,
+                             cwd=_neutral_cwd())
         except Exception:  # noqa: BLE001
             pass
         else:
@@ -213,7 +222,7 @@ def check_ready(harness_name: str) -> bool:
     if harness_name == "Claude Code":
         try:
             r = subprocess.run([binpath, "auth", "status"], capture_output=True,
-                               text=True, timeout=10)
+                               text=True, timeout=10, cwd=_neutral_cwd())
             return r.returncode == 0
         except Exception:  # noqa: BLE001
             return False
@@ -226,7 +235,8 @@ def detect() -> list[dict]:
 
     def version_of(binpath: str) -> str | None:
         try:
-            r = subprocess.run([binpath, "--version"], capture_output=True, text=True, timeout=5)
+            r = subprocess.run([binpath, "--version"], capture_output=True, text=True,
+                               timeout=5, cwd=_neutral_cwd())
             return (r.stdout or r.stderr).strip().splitlines()[0][:40] if r.returncode == 0 else None
         except Exception:  # noqa: BLE001
             return None

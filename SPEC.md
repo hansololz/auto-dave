@@ -272,6 +272,15 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
   Resuming restores the grant checkboxes from the draft; the automation's live
   stepAgents/allowedSecrets stay untouched until the draft is saved as vN+1. A Draft
   execution honors the draft's grants when present, not the live ones.
+- **Create-mode drafts persist too**, in the single pending slot `<root>/draft/` (§5):
+  leaving the create flow after a draft has landed (spec or steps present) keeps the full
+  working state there — the same serialization as an edit-mode draft, plus the identity
+  fields no automation record exists to hold yet (name, chosen agent, enabled agents,
+  triggers). Opening the create flow while the slot exists resumes it straight on the
+  Review page (toast: "Resumed your unsaved draft — Start over discards it."); Start over
+  (and Back to Ask) deletes the slot. Create consumes it: `versions/v1` is written from
+  the sent draft and `<root>/draft/` is deleted — a settled draft is never resurrected.
+  One pending draft at a time: every keep overwrites the slot.
 - In edit mode the review footer shows a **Keep draft** bordered button placed directly to
   the left of the Save as vN+1 button (only while there is something to keep: touched
   changes or a stored draft). It leaves the editor through the same keep path as the header
@@ -416,6 +425,18 @@ electron/                      # Electron's Chromium profile (Cache, Cookies, Lo
 site-packages/                 # §6.2 declared packages, installed by the app via
                                # `pip install --target` — user-writable, survives app updates,
                                # safe to delete (re-ensured before the next execution)
+harness-cwd/                   # empty cwd for harness CLI children (§6) — keeps their startup
+                               # scans out of TCC-protected folders; never written to
+draft/                         # THE pending create-mode draft (§4.4) — a single slot: the dir
+                               # exists iff one unsaved new automation is being drafted; same
+                               # container shape as automations/<slug>/draft/ below, plus
+                               # create-only identity keys in its automation/automation.yaml
+                               # (name, agent_id, enabled_agents, triggers, created_at,
+                               # updated_at — no automation record exists yet to hold them):
+  automation/                  #   the working copy (version-folder shape)
+  memory/                      #   scratch memory copied by §11 tests; starts empty
+  workspace/                   #   §11 create-mode test workspace — wiped per test
+  result/                      #   §11 create-mode test result dir — wiped per test
 automations/<slug>/
   automation.yaml              # unversioned, mutable — user/operational state: id, name,
                                # current_version (pointer: current = versions/v<N>/),
@@ -442,6 +463,11 @@ automations/<slug>/
                                # execution as a copy of memory/, reused by every later Draft
                                # execution and draft re-save, deleted with the draft — Draft
                                # executions never touch the live memory/ dir
+    workspace/                 # the §11 test workspace: wiped at each test start, kept
+                               # after the test for inspection, deleted with the draft
+    result/                    # the §11 test result dir (output files + result.yaml,
+                               # same shape as an execution's result/, §4.5): wiped at
+                               # each test start, deleted with the draft
   versions/vN/                 # one folder per version — immutable once written
     automation.yaml            # when, note, desc, param definitions (§4.2: name, kind,
                                # label, help, default, …) + ordered steps manifest:
@@ -631,7 +657,11 @@ never used for lookups.
   `claude -p --tools "" --strict-mcp-config --no-session-persistence`, Codex
   `codex exec --sandbox read-only --skip-git-repo-check`, Ollama via its local HTTP API (no
   tools by nature); Gemini CLI and OpenCode expose no tool-disable flag for one-shot invocations and are
-  invoked bare (documented limitation). Secret values never enter a prompt: the engine
+  invoked bare (documented limitation). Every harness CLI child (drafting and runtime alike)
+  runs with its cwd set to an empty `harness-cwd/` directory under Application Support: CLI
+  startup project scans stay inside that empty folder and never enter TCC-protected locations
+  (Photos, Music, Desktop, …), so macOS shows no permission prompts attributed to the backend.
+  Secret values never enter a prompt: the engine
   redaction-scans the assembled prompt and fails the step (before sending) if any secret value
   appears. The reply is returned to the script as untrusted text/JSON — never executed or
   evaluated. Per-step timeout plus prompt- and output-size caps (200k chars each) apply; the full
@@ -1458,11 +1488,15 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   execution (there is no simulation mode). The card's header button reads **"Test the draft"**
   ("Test again" once a test has happened this editing session; Cancel while a test is
   executing) — never "Execute", which is reserved for real executions (§4.4 "Execute draft",
-  §7 "Execute again"). A test uses: in-editor param values and grants, a throwaway workspace, and
-  **scratch memory** — edit mode copies the draft's memory (`draft/memory/`, §4.4) when it
-  exists, else the automation's memory dir; create mode starts empty —
-  all discarded when the test ends, so a test can never poison the memory the deployed version
-  reads (§4.1). **Test parameter values (create and edit mode):** when the draft has params,
+  §7 "Execute again"). A test uses: in-editor param values and grants; the draft's own
+  directories — the same step executor as a real execution, pointed at the draft
+  container's `workspace/` and `result/` (§5: `automations/<slug>/draft/` in edit mode,
+  the pending slot `<root>/draft/` in create mode) instead of an execution record's dirs,
+  both wiped at each test start and kept after the test so the outcome can be inspected,
+  deleted with the draft; and **scratch memory** — copied from the draft container's
+  `memory/` when it exists (edit mode falls back to the automation's memory dir; create
+  mode to empty) — the memory copy is discarded when the test ends, so a test can never
+  poison the memory the deployed version reads (§4.1). **Test parameter values (create and edit mode):** when the draft has params,
   the card offers a collapsed "Set parameter values for this test" affordance; expanding it
   shows one editor per param (§4.2 kinds), prefilled in edit mode with the automation's
   current values (draft default when a param is new) and in create mode with the draft
@@ -1475,8 +1509,12 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   lines (secret values redacted, §6) stream into the card live over the §19 `test.*` WS
   events; the test stops at the first failed step and is cancellable from the card. A test
   writes **no execution record** — it exists to iterate on the draft; the detail page's "Execute
-  draft" (§4.4) remains the stored, `ver: Draft` path. A succeeded test shows green plus its
-  result summary (chip + values) in the card, with no agent call. On failure the card
+  draft" (§4.4) remains the stored, `ver: Draft` path — but the result is produced exactly
+  like a real execution's: the test writes `result/result.yaml` (chips/values, when either
+  is non-empty) into `draft/result/`, and step scripts write output files there via
+  `result.path` (§6.1). A succeeded test shows green plus its result summary in the card —
+  chip + values, and the §4.5 files listing with the Show in Finder path (the draft
+  container's `result/`) — with no agent call. On failure the card
   shows "Analyzing the failure…" (agent label) while the backend makes the §8 issue-analysis
   call, then opens the **Issue panel** — the same cards, fields, and editing as the Blocker
   modal, headline "The test hit an issue"; its primary button **"Apply to the spec & sync
@@ -1775,11 +1813,16 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   toggles — partial object, sent keys merged over the stored ones)
 - `POST /automations/{id}/execute` `{ version?: "vN" | "draft" (case-insensitive), trigger? }` →
   `{ execId }` (409 while live)
-- `POST /automations` `{ draft }` — create v1 from a validated draft
+- `POST /automations` `{ draft }` — create v1 from a validated draft; consumes the §4.4
+  pending create-mode slot (`<root>/draft/` is deleted on success)
 - `POST /automations/{id}/versions` `{ draft }` — save edit as vN+1
 - `PUT /automations/{id}/draft` · `DELETE /automations/{id}/draft` — the §4.4 draft snapshot;
   the payload's stepAgents/allowedSecrets are stored as draft-only keys and echoed back on
   the automation's `draft` object
+- `GET /draft` → `{ draft: payload | null, agentId }` · `PUT /draft` `{ draft, agentId? }` ·
+  `DELETE /draft` — the §4.4 pending create-mode slot (`<root>/draft/`): the same draft
+  payload shape as `PUT /automations/{id}/draft` plus the identity fields (name, triggers
+  ride the payload; agentId beside it); GET returns `draft: null` when the slot is empty
 - `POST /automations/{id}/restore` `{ v }` — copy vX to vN+1 (§5)
 - `POST /automations/{id}/memory/clear` — §6.3 pre-clear snapshot, then empty the §4.1 memory
   directory (backs §9.2 "Clear memory")
@@ -1789,9 +1832,11 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   — §6.3 restore (409 while live) · `DELETE /automations/{id}/memory/snapshots/{sid}` —
   delete the snapshot; unknown `sid` answers 404
 - `POST /tests` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets?, paramValues? }`
-  → `{ testId }` — the §11 Test: executes the sent draft's steps ephemerally (scratch memory
-  copied, when `autoId` is given, from its `draft/memory/` if present else its memory dir;
-  else empty; no execution record); grant arrays
+  → `{ testId }` — the §11 Test: executes the sent draft's steps in the draft container's
+  `workspace/`/`result/` (§11: `automations/<slug>/draft/` when `autoId` is given, else the
+  pending slot `<root>/draft/`; scratch memory copied, when `autoId` is given, from its
+  `draft/memory/` if present else its memory dir, else from the pending slot's `memory/`
+  if present else empty; no execution record); grant arrays
   as in `/drafts`; param resolution uses the automation's stored values when `autoId` is given
   (else the draft's defaults), with `paramValues` (name → value, §5 matching rules) overriding
   on top for this test only — never stored; progress via the `test.*` WS events; on failure the

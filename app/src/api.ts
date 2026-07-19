@@ -70,6 +70,11 @@ export const api = {
     req<{ version: number }>('POST', `/automations/${autoId}/versions`, body),
   putDraft: (autoId: string, draft: unknown) => req('PUT', `/automations/${autoId}/draft`, { draft }),
   deleteDraft: (autoId: string) => req('DELETE', `/automations/${autoId}/draft`),
+  // §4.4 pending create-mode slot (<root>/draft/)
+  getPendingDraft: () =>
+    req<{ draft: import('./types').DraftPayload | null; agentId: string | null }>('GET', '/draft'),
+  putPendingDraft: (draft: unknown, agentId: string | null) => req('PUT', '/draft', { draft, agentId }),
+  deletePendingDraft: () => req('DELETE', '/draft'),
   restore: (autoId: string, v: number) => req<{ version: number }>('POST', `/automations/${autoId}/restore`, { v }),
   // §19 test: executes the sent draft's steps ephemerally; progress via test.* WS events
   postTest: (body: Record<string, unknown>) => req<{ testId: string }>('POST', '/tests', body),

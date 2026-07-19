@@ -193,6 +193,9 @@ def create_auto(body: dict) -> dict:
         enabled_agents=body.get("stepAgents"),
         allowed_secrets=body.get("allowedSecrets"),
     )
+    # §4.4: Create consumes the pending create-mode slot — settled drafts are
+    # never resurrected.
+    store.delete_pending_draft()
     hub.publish("auto.changed", autoId=a["id"])
     return store.auto_json(a)
 
@@ -231,6 +234,30 @@ def del_draft(auto_id: str) -> dict:
     a = _auto_or_404(auto_id)
     store.delete_draft(a)
     hub.publish("auto.changed", autoId=auto_id)
+    return {"ok": True}
+
+
+# §4.4 pending create-mode slot (<root>/draft/) — one unsaved new automation.
+@app.get("/draft", dependencies=[Depends(auth)])
+def get_pending_draft() -> dict:
+    return store.pending_draft_json()
+
+
+@app.put("/draft", dependencies=[Depends(auth)])
+def put_pending_draft(body: dict) -> dict:
+    d = body.get("draft") or {}
+    ver = _draft_to_version(d)
+    ver["step_agents"] = d.get("stepAgents")
+    ver["allowed_secrets"] = d.get("allowedSecrets")
+    # Triggers pass through unvalidated — Create normalizes them (§19).
+    store.save_pending_draft(ver, name=d.get("name"), agent_id=body.get("agentId"),
+                             triggers=d.get("triggers") or [])
+    return {"ok": True}
+
+
+@app.delete("/draft", dependencies=[Depends(auth)])
+def del_pending_draft() -> dict:
+    store.delete_pending_draft()
     return {"ok": True}
 
 
