@@ -727,8 +727,11 @@ export default function CreateFlow() {
 
   // §4.4: opening the create flow while the pending slot holds a draft resumes
   // it straight on Review; guarded so a fast Ask submission wins the race.
+  // Opening also makes the slot's container exist (empty memory/workspace/
+  // result) before any drafting — §11 tests execute in draft/workspace/.
   useEffect(() => {
     if (isEdit) return
+    void api.openPendingDraft().catch(() => { /* backend restarting */ })
     let dead = false
     void api.getPendingDraft().then(({ draft, agentId: gid }) => {
       if (dead || !draft || seededRef.current || revRef.current) return

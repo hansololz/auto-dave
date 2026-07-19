@@ -74,6 +74,7 @@ export const api = {
   getPendingDraft: () =>
     req<{ draft: import('./types').DraftPayload | null; agentId: string | null }>('GET', '/draft'),
   putPendingDraft: (draft: unknown, agentId: string | null) => req('PUT', '/draft', { draft, agentId }),
+  openPendingDraft: () => req('POST', '/draft/open'),
   deletePendingDraft: () => req('DELETE', '/draft'),
   restore: (autoId: string, v: number) => req<{ version: number }>('POST', `/automations/${autoId}/restore`, { v }),
   // §19 test: executes the sent draft's steps ephemerally; progress via test.* WS events

@@ -40,8 +40,8 @@ def default_data_path() -> Path:
 
 
 def pending_draft_dir() -> Path:
-    """§4.4: the single pending create-mode draft slot — exists iff one
-    unsaved new automation is being drafted."""
+    """§4.4: the single pending create-mode draft slot — created when the
+    create flow opens, deleted when Create or Start over settles it."""
     return app_support() / "draft"
 
 

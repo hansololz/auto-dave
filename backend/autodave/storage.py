@@ -18,7 +18,6 @@ from typing import Any
 
 from . import paths, schedule, timefmt
 from .execdb import ExecDB
-from .slugs import slug_for
 from .specmd import blocks_to_md, md_to_blocks
 from .yamlio import atomic_write_text, load_yaml, save_yaml
 
@@ -105,7 +104,7 @@ class Store:
         return d if d.name == "executions" else d / "executions"
 
     def auto_dir(self, a: dict) -> Path:
-        return paths.automations_dir() / a["slug"]
+        return paths.automations_dir() / a["id"]
 
     def exec_dir(self, exec_id: str) -> Path:
         return self.executions_dir() / exec_id
@@ -140,9 +139,12 @@ class Store:
         top = load_yaml(d / "automation.yaml")
         if not top or "id" not in top:
             return None
+        if d.name != top["id"]:
+            # §5: directory name IS the id — a mismatch means hand-edited disk.
+            log.warning("automation dir %s doesn't match its id %r — skipping it at load", d, top["id"])
+            return None
         a: dict = {
             "id": top["id"],
-            "slug": d.name,
             "name": top.get("name", d.name),
             "current_version": int(top.get("current_version", 1)),
             "triggers": self._load_triggers(top.get("triggers", []) or []),
@@ -294,10 +296,9 @@ class Store:
                           allowed_secrets: list[str] | None = None) -> dict:
         with self.lock:
             auto_id = new_id()
-            slug = slug_for(name, auto_id, {a["slug"] for a in self.autos.values()})
             now = datetime.now().isoformat(timespec="seconds")
             a = {
-                "id": auto_id, "slug": slug, "name": name, "current_version": 1,
+                "id": auto_id, "name": name, "current_version": 1,
                 "triggers": triggers or [],
                 "agent_id": agent_id,
                 "enabled_agents": enabled_agents or ([agent_id] if agent_id else []),
@@ -359,6 +360,13 @@ class Store:
             a["draft"] = self._load_version_folder(dd)
 
     # ---------- pending create-mode draft (§4.4: the <root>/draft/ slot) ----------
+    def open_pending_draft(self) -> None:
+        """§4.4: make the slot's container dirs exist — called when the create
+        flow opens, before any drafting; never touches contents already there."""
+        with self.lock:
+            for sub in ("memory", "workspace", "result"):
+                (paths.pending_draft_dir() / sub).mkdir(parents=True, exist_ok=True)
+
     def save_pending_draft(self, ver: dict, name: str | None, agent_id: str | None,
                            triggers: list | None) -> None:
         """Like save_draft, into the single `<root>/draft/` slot — only the
@@ -425,14 +433,8 @@ class Store:
         """User-owned fields only (§19 PATCH)."""
         with self.lock:
             if "name" in patch and patch["name"] and patch["name"] != a["name"]:
+                # §5: directories are named by id — a rename touches only the name field.
                 a["name"] = patch["name"]
-                new_slug = slug_for(a["name"], a["id"],
-                                    {x["slug"] for x in self.autos.values() if x["id"] != a["id"]})
-                if new_slug != a["slug"]:
-                    old = self.auto_dir(a)
-                    a_new = paths.automations_dir() / new_slug
-                    old.rename(a_new)
-                    a["slug"] = new_slug
             for k_api, k_int in [("agentId", "agent_id"),
                                  ("stepAgents", "enabled_agents"), ("allowedSecrets", "allowed_secrets")]:
                 if k_api in patch:

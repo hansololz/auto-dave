@@ -243,6 +243,12 @@ def get_pending_draft() -> dict:
     return store.pending_draft_json()
 
 
+@app.post("/draft/open", dependencies=[Depends(auth)])
+def open_pending_draft() -> dict:
+    store.open_pending_draft()
+    return {"ok": True}
+
+
 @app.put("/draft", dependencies=[Depends(auth)])
 def put_pending_draft(body: dict) -> dict:
     d = body.get("draft") or {}

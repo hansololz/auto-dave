@@ -1,6 +1,6 @@
 """§11 Test (§19 POST /tests): executes the sent draft's real steps through the
 same step-subprocess path as a real execution, pointed at the draft container's
-workspace/ + result/ (automations/<slug>/draft/ in edit mode, the §4.4 pending
+workspace/ + result/ (automations/<uuid>/draft/ in edit mode, the §4.4 pending
 slot <root>/draft/ in create mode; wiped per test, kept after for inspection)
 — with scratch memory (copied from the draft container's memory/ when present)
 and no execution record. Progress streams over the test.* WS events; a failed
@@ -97,7 +97,7 @@ class TestRuns:
 
             # Scratch dirs — memory copies the draft's own memory when it exists
             # (§4.4 Draft executions iterate on it), else the automation's (§11).
-            # §11: the draft container — automations/<slug>/draft/ in edit
+            # §11: the draft container — automations/<uuid>/draft/ in edit
             # mode, the §4.4 pending slot <root>/draft/ in create mode.
             dbase = (store.auto_dir(auto) / "draft") if auto is not None \
                 else paths.pending_draft_dir()

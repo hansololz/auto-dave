@@ -6,8 +6,8 @@ def test_create_and_reload_roundtrip(store, home):
 
     trig = {"id": "t-1", "kind": "cron", "off": False, "expr": "30 7 * * *"}
     a = store.create_automation(make_version(), "My Test Job", "agent-1", triggers=[trig])
-    assert (home / "automations" / "my-test-job" / "versions" / "v1" / "01-say.py").exists()
-    assert (home / "automations" / "my-test-job" / "versions" / "v1" / "spec.md").exists()
+    assert (home / "automations" / a["id"] / "versions" / "v1" / "01-say.py").exists()
+    assert (home / "automations" / a["id"] / "versions" / "v1" / "spec.md").exists()
 
     s2 = Store()
     s2.load_all()
@@ -66,21 +66,14 @@ def test_draft_save_and_discard(store):
     assert not (store.auto_dir(a) / "draft").exists()
 
 
-def test_rename_moves_directory(store):
+def test_rename_keeps_directory(store):
     a = store.create_automation(make_version(), "Old Name", None)
     old_dir = store.auto_dir(a)
     store.patch_automation(a, {"name": "Brand New Name"})
-    assert not old_dir.exists()
-    assert store.auto_dir(a).name == "brand-new-name"
-    # id unchanged; cross-references by id survive renames (§5)
+    # §5: directories are named by id — a rename never moves them
+    assert store.auto_dir(a) == old_dir and old_dir.exists()
+    assert store.auto_dir(a).name == a["id"]
     assert store.autos[a["id"]]["name"] == "Brand New Name"
-
-
-def test_slug_collision_gets_id_suffix(store):
-    a1 = store.create_automation(make_version(), "Same Name", None)
-    a2 = store.create_automation(make_version(), "Same Name", None)
-    assert a1["slug"] == "same-name"
-    assert a2["slug"].startswith("same-name-") and len(a2["slug"]) > len("same-name-")
 
 
 def test_param_value_resolution(store):
@@ -175,7 +168,7 @@ def test_snapshot_create_layout_and_list(store, home):
 
     _write_memory(store, a)
     m = store.snapshot_memory(a, "manual", name="first")
-    d = home / "automations" / "snappy" / "memory-snapshots" / m["id"]
+    d = home / "automations" / a["id"] / "memory-snapshots" / m["id"]
     assert (d / "snapshot.yaml").exists()
     assert (d / "memory" / "seen.yaml").read_text() == "items: [1]\n"
     assert m["reason"] == "manual" and m["name"] == "first"
@@ -318,3 +311,23 @@ def test_pending_draft_slot_roundtrip(store):
     store.delete_pending_draft()
     assert store.pending_draft_json() == {"draft": None, "agentId": None}
     assert not paths.pending_draft_dir().exists()
+
+
+def test_open_pending_draft_makes_container(store):
+    """§4.4: opening the create flow makes the slot's container dirs exist,
+    without touching contents already there."""
+    from autodave import paths
+    from conftest import make_version
+
+    store.open_pending_draft()
+    for sub in ("memory", "workspace", "result"):
+        assert (paths.pending_draft_dir() / sub).is_dir()
+    assert store.pending_draft_json() == {"draft": None, "agentId": None}
+
+    # re-open never clobbers a kept draft or scratch contents
+    store.save_pending_draft(make_version(), name="Kept", agent_id=None, triggers=[])
+    marker = paths.pending_draft_dir() / "workspace" / "notes.txt"
+    marker.write_text("kept", encoding="utf-8")
+    store.open_pending_draft()
+    assert marker.read_text(encoding="utf-8") == "kept"
+    assert store.pending_draft_json()["draft"]["name"] == "Kept"

@@ -272,15 +272,19 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
   Resuming restores the grant checkboxes from the draft; the automation's live
   stepAgents/allowedSecrets stay untouched until the draft is saved as vN+1. A Draft
   execution honors the draft's grants when present, not the live ones.
-- **Create-mode drafts persist too**, in the single pending slot `<root>/draft/` (§5):
-  leaving the create flow after a draft has landed (spec or steps present) keeps the full
+- **Create-mode drafts persist too**, in the single pending slot `<root>/draft/` (§5).
+  Opening the create flow creates the slot's container first — `draft/` with empty
+  `memory/`, `workspace/`, `result/` (`POST /draft/open`, §19) — before any drafting, so
+  §11 create-mode tests execute in `draft/workspace/` from the start. Leaving the create
+  flow after a draft has landed (spec or steps present) keeps the full
   working state there — the same serialization as an edit-mode draft, plus the identity
   fields no automation record exists to hold yet (name, chosen agent, enabled agents,
   triggers). Opening the create flow while the slot exists resumes it straight on the
   Review page (toast: "Resumed your unsaved draft — Start over discards it."); Start over
   (and Back to Ask) deletes the slot. Create consumes it: `versions/v1` is written from
   the sent draft and `<root>/draft/` is deleted — a settled draft is never resurrected.
-  One pending draft at a time: every keep overwrites the slot.
+  One pending draft at a time: every keep overwrites the slot. Leaving with nothing
+  landed just leaves the empty container behind; the next open reuses it.
 - In edit mode the review footer shows a **Keep draft** bordered button placed directly to
   the left of the Save as vN+1 button (only while there is something to keep: touched
   changes or a stored draft). It leaves the editor through the same keep path as the header
@@ -427,9 +431,10 @@ site-packages/                 # §6.2 declared packages, installed by the app v
                                # safe to delete (re-ensured before the next execution)
 harness-cwd/                   # empty cwd for harness CLI children (§6) — keeps their startup
                                # scans out of TCC-protected folders; never written to
-draft/                         # THE pending create-mode draft (§4.4) — a single slot: the dir
-                               # exists iff one unsaved new automation is being drafted; same
-                               # container shape as automations/<slug>/draft/ below, plus
+draft/                         # THE pending create-mode draft (§4.4) — a single slot: created
+                               # (with empty memory/workspace/result) the moment the create
+                               # flow opens, deleted when Create or Start over settles it; same
+                               # container shape as automations/<uuid>/draft/ below, plus
                                # create-only identity keys in its automation/automation.yaml
                                # (name, agent_id, enabled_agents, triggers, created_at,
                                # updated_at — no automation record exists yet to hold them):
@@ -437,7 +442,7 @@ draft/                         # THE pending create-mode draft (§4.4) — a sin
   memory/                      #   scratch memory copied by §11 tests; starts empty
   workspace/                   #   §11 create-mode test workspace — wiped per test
   result/                      #   §11 create-mode test result dir — wiped per test
-automations/<slug>/
+automations/<uuid>/
   automation.yaml              # unversioned, mutable — user/operational state: id, name,
                                # current_version (pointer: current = versions/v<N>/),
                                # triggers [{id, kind, off, expr | at}], agent_id,
@@ -602,16 +607,14 @@ now", "Executing", "Execute draft", "Execute once"). The word "run" is never use
 concept anywhere; "running" survives only in its ordinary process sense (a daemon or the
 backend being up).
 
-**Directory naming:** automation directories use a human-readable slug of the name (not a UUID) —
-browsability by users and agents is the point of file-first storage. The `id` inside
-`automation.yaml` is the sole identity; code never parses slugs, the backend's in-memory map
-(built at startup) resolves id → path. On
-slug collision, append a short id suffix — the first UUID segment (`track-manga-chapters-2f9a01cc`). Renaming an automation
-renames its directory (atomic, same volume) and updates the in-memory map. Execution
-directories are flat under `executions/` and named by execution uuid only — no slug, so
-renames never touch them; each execution record carries `automation_id` for the link back.
+**Directory naming:** automation directories are named by the automation's UUID — the same
+`id` as in `automation.yaml`, so path and identity always agree, no collision handling exists,
+and renaming an automation touches only the `name` field (the directory never moves). For
+human browsability the folder name is intentionally traded away; the `name` inside
+`automation.yaml` is the readable label. Execution directories are flat under `executions/`
+and named by execution uuid; each execution record carries `automation_id` for the link back.
 
-**Cross-references:** everything references an automation by `id` only — never by slug or name.
+**Cross-references:** everything references an automation by `id` only — never by name.
 The execution page resolves `automation_id` through the backend's in-memory automations to the
 current path and current name (so renames show up everywhere immediately). The execution record also snapshots
 `automation_name` at execution time as a display-only fallback: when the automation has been
@@ -818,7 +821,7 @@ destructive moments recoverable.
 - **Retention** — at each creation, unnamed snapshots beyond the newest 5 are pruned. Named
   snapshots are never auto-deleted — naming pins one until the user deletes it (or the
   automation is deleted). Renaming to empty returns a snapshot to the unnamed pool.
-- **Lifecycle** — snapshots live inside `automations/<slug>/`, so deleting the automation
+- **Lifecycle** — snapshots live inside `automations/<uuid>/`, so deleting the automation
   removes them (the §9.2 delete copy — memory goes with it — already covers this). "Clear
   memory" empties `memory/` only; snapshots survive it by design.
 
@@ -1490,7 +1493,7 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   executing) — never "Execute", which is reserved for real executions (§4.4 "Execute draft",
   §7 "Execute again"). A test uses: in-editor param values and grants; the draft's own
   directories — the same step executor as a real execution, pointed at the draft
-  container's `workspace/` and `result/` (§5: `automations/<slug>/draft/` in edit mode,
+  container's `workspace/` and `result/` (§5: `automations/<uuid>/draft/` in edit mode,
   the pending slot `<root>/draft/` in create mode) instead of an execution record's dirs,
   both wiped at each test start and kept after the test so the outcome can be inspected,
   deleted with the draft; and **scratch memory** — copied from the draft container's
@@ -1823,6 +1826,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `DELETE /draft` — the §4.4 pending create-mode slot (`<root>/draft/`): the same draft
   payload shape as `PUT /automations/{id}/draft` plus the identity fields (name, triggers
   ride the payload; agentId beside it); GET returns `draft: null` when the slot is empty
+- `POST /draft/open` — §4.4: make the pending slot's container dirs (`draft/` with empty
+  `memory/`, `workspace/`, `result/`) exist, never touching contents already there; the
+  create flow calls it on open so the slot exists before any drafting or test
 - `POST /automations/{id}/restore` `{ v }` — copy vX to vN+1 (§5)
 - `POST /automations/{id}/memory/clear` — §6.3 pre-clear snapshot, then empty the §4.1 memory
   directory (backs §9.2 "Clear memory")
@@ -1833,7 +1839,7 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   delete the snapshot; unknown `sid` answers 404
 - `POST /tests` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets?, paramValues? }`
   → `{ testId }` — the §11 Test: executes the sent draft's steps in the draft container's
-  `workspace/`/`result/` (§11: `automations/<slug>/draft/` when `autoId` is given, else the
+  `workspace/`/`result/` (§11: `automations/<uuid>/draft/` when `autoId` is given, else the
   pending slot `<root>/draft/`; scratch memory copied, when `autoId` is given, from its
   `draft/memory/` if present else its memory dir, else from the pending slot's `memory/`
   if present else empty; no execution record); grant arrays
