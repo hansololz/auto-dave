@@ -1,5 +1,5 @@
 // Agents page (§4.7, §12): agent cards with session-cached connection checks,
-// inline check/make-default actions, remove via row menu.
+// check/make-default/remove via row menu.
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useStore, type AgentCheck } from '../store'
@@ -126,27 +126,8 @@ function AgentCard({ ag, check, onDelete }: {
             </button>
           )}
           {ready && (
-            <button
-              onClick={() => { void recheck() }}
-              style={ghostBtn}
-            >
-              Check connection
-            </button>
-          )}
-          {ready && (
             <button onClick={() => { openAgentEdit(ag, false); go('agentNew') }} style={ghostBtn}>
               Edit
-            </button>
-          )}
-          {ready && !ag.default && (
-            <button
-              onClick={() => { void makeDefault() }}
-              style={{
-                background: 'none', border: 'none', color: 'var(--text-muted)',
-                fontWeight: 500, fontSize: 12.5, cursor: 'pointer', padding: '8px 6px',
-              }}
-            >
-              Make default
             </button>
           )}
           <div ref={menuRef} style={{ position: 'relative' }}>
@@ -159,6 +140,18 @@ function AgentCard({ ag, check, onDelete }: {
             </button>
             {menuOpen && (
               <div style={{ ...menuStyle, top: 'calc(100% + 6px)', left: 0, minWidth: 190 }}>
+                {ready && (
+                  <MenuRow onClick={() => { setMenuOpen(false); void recheck() }}>
+                    <i className="fa-solid fa-plug" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
+                    Check connection
+                  </MenuRow>
+                )}
+                {ready && !ag.default && (
+                  <MenuRow onClick={() => { setMenuOpen(false); void makeDefault() }}>
+                    <i className="fa-solid fa-star" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
+                    Make default
+                  </MenuRow>
+                )}
                 <MenuRow danger onClick={() => { setMenuOpen(false); onDelete(ag) }}>
                   <i className="fa-solid fa-trash-can" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
                   Remove agent…

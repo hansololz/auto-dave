@@ -106,6 +106,22 @@ def test_detect_finds_fake_claude_from_path(monkeypatch):
     assert "auto-dave test fake" in by_id["claude"]["detail"]
 
 
+def test_check_ready_ollama_requires_installed_model(monkeypatch):
+    from autodave import harness
+
+    monkeypatch.setattr(harness, "ollama_status",
+                        lambda: {"ready": True, "installed": True,
+                                 "models": ["qwen3:8b", "llama3.2:latest"]})
+    assert harness.check_ready("Ollama", "qwen3:8b")
+    assert harness.check_ready("Ollama", "llama3.2")  # bare name → :latest
+    assert not harness.check_ready("Ollama", "mistral:7b")
+    assert harness.check_ready("Ollama", None)  # null model → qwen3:8b fallback
+
+    monkeypatch.setattr(harness, "ollama_status",
+                        lambda: {"ready": False, "installed": True, "models": []})
+    assert not harness.check_ready("Ollama", "qwen3:8b")
+
+
 def test_disallowed_imports_matches_drafting_rule():
     from autodave.imports_check import ALLOWED_IMPORTS, disallowed_imports
 

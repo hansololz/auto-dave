@@ -36,6 +36,7 @@ def _app_log(text: str) -> None:
         pass
 
 OLLAMA_URL = os.environ.get("AUTODAVE_OLLAMA_URL", "http://localhost:11434")
+OLLAMA_DEFAULT_MODEL = "qwen3:8b"
 
 
 class HarnessError(Exception):
@@ -126,7 +127,7 @@ def _claude_stream_line(line: str) -> tuple[str | None, str | None]:
 def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
             proc_holder: dict | None, on_chunk=None) -> str:
     if harness == "Ollama":
-        return _ollama(agent.get("model") or "qwen3:8b", prompt, timeout, on_chunk)
+        return _ollama(agent.get("model") or OLLAMA_DEFAULT_MODEL, prompt, timeout, on_chunk)
     # §6: query-only runtime calls — invoke each harness with the strongest
     # flags it offers to disable tools/shell/file access beyond the model API.
     cmd_map = {
@@ -285,15 +286,25 @@ def ollama_status() -> dict:
             "models": models or []}
 
 
-def check_ready(harness_name: str) -> bool:
+def ollama_model_installed(model: str, installed: list[str]) -> bool:
+    """A bare name without a tag matches its `:latest` variant."""
+    if model in installed:
+        return True
+    return ":" not in model and f"{model}:latest" in installed
+
+
+def check_ready(harness_name: str, model: str | None = None) -> bool:
     """The single readiness check behind §19 `/agents/{id}/check`.
 
     Ready means the harness can take a prompt right now: the binary resolves
-    (Ollama: the server answers), and Claude Code is additionally signed in —
-    `claude auth status` exits 0 only when authenticated.
+    (Ollama: the server answers and the agent's model is installed — no
+    sign-in, Ollama needs no account), and Claude Code is additionally
+    signed in — `claude auth status` exits 0 only when authenticated.
     """
     if harness_name == "Ollama":
-        return ollama_status()["ready"]
+        st = ollama_status()
+        return st["ready"] and ollama_model_installed(
+            model or OLLAMA_DEFAULT_MODEL, st["models"])
     binname = {"Claude Code": "claude", "Gemini CLI": "gemini",
                "Codex": "codex", "OpenCode": "opencode"}.get(harness_name)
     if not binname:

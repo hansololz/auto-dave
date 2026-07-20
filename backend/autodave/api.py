@@ -685,7 +685,8 @@ def delete_agent(agent_id: str) -> dict:
 @app.post("/agents/{agent_id}/check", dependencies=[Depends(auth)])
 def check_agent(agent_id: str) -> dict:
     ag = _agent_or_404(agent_id)
-    return {"status": "ready" if harness.check_ready(ag["harness"]) else "needs-setup"}
+    return {"status": "ready" if harness.check_ready(ag["harness"], ag.get("model"))
+            else "needs-setup"}
 
 
 @app.get("/agents/detect", dependencies=[Depends(auth)])

@@ -1737,14 +1737,14 @@ agent updates when its edit form saves ("Connecting" until the fresh result land
 re-run right after the save) and when the reconnect flow's check answers (§12 form banner).
 Each card shows the agent's `desc` detail line
 and a **USED BY** row of clickable automation chips (fallback "Not used by any automation yet.").
-Ready agents get inline "Check connection" — a real §19 `/agents/{id}/check` call timed by the
+Ready agents get an inline "Edit" button;
+Needs-setup rows use an accent-primary "Edit" button instead. The row overflow menu holds, for
+ready agents, "Check connection" — a real §19 `/agents/{id}/check` call timed by the
 renderer: the badge returns to Checking while it runs, success toasts "`<name>` answered in
 X.X s — ready.", failure flips the badge to Needs setup and toasts "`<name>` didn't answer —
-needs setup." Ready agents also get an
-inline "Edit" button and, when not default, an inline borderless "Make default" text button;
-Needs-setup rows use an accent-primary "Edit" button instead. The row overflow menu holds only
+needs setup." — and, when not default, "Make default"; for every agent it holds
 "Remove agent…" (red, confirm modal). Default status is indicated by the absent "Make default"
-button — no chip. Empty state (dashed card): "No agents yet. Existing automations still execute on
+menu row — no chip. Empty state (dashed card): "No agents yet. Existing automations still execute on
 schedule — but you need an agent to create or edit them." + CTA "Add your first agent".
 
 **New / Edit agent** form (720 px, one form — title and submit label switch to "Edit agent" /
@@ -2109,8 +2109,11 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `POST /executions/{id}/skip-step` `{ index }` (§7 skip; 409 unless that step is executing)
 - `GET/POST /agents` · `PATCH/DELETE /agents/{id}` · `POST /agents/{id}/check` (health/badge) —
   one shared readiness check (`harness.check_ready`) decides ready vs. needs-setup everywhere:
-  the harness binary must resolve (rule below), Ollama's server must answer, and Claude Code
-  must additionally be signed in (`claude auth status` exits 0 only when authenticated) ·
+  the harness binary must resolve (rule below), Ollama's server must answer **and the agent's
+  model must be installed** (the model — or the `qwen3:8b` fallback when null — appears in
+  `/api/tags`; a bare name without a tag matches its `:latest` variant; no sign-in check —
+  Ollama needs no account), and Claude Code must additionally be signed in (`claude auth
+  status` exits 0 only when authenticated) ·
   `GET /agents/detect` (§10 detection) · Ollama: `GET /ollama/status` → `{ ready, installed,
   models }`, `POST /ollama/pull`. All CLI lookups (detection and harness invocation alike)
   resolve the binary via PATH plus the usual macOS install locations (`~/.local/bin`,
