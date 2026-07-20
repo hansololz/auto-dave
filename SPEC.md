@@ -534,7 +534,7 @@ automations/<uuid>/
                                # label, help, default, …) + ordered steps manifest:
                                # steps: [{file, name, desc, agent?, agent_id, why}]
                                # + declared packages (§6.2, absent when none):
-                               # packages: [{pip: "pandas==2.2.3", import: pandas}]
+                               # packages: [{pip: pandas, import: pandas}]
     spec.md                    # the version's spec as plain markdown (h1/h2/li/p blocks)
     instructions.md            # user's free-text instructions to the agent (§4.1 instr),
                                # plain markdown; absent when none were given
@@ -808,9 +808,11 @@ verbatim in the §8 contract preamble.
 
 **Declared packages.** When a task genuinely needs a library beyond the curated list (the
 task-solving ladder still prefers stdlib + curated first), the drafting agent declares it in
-`manifest.yaml` (§8): `packages: [{ pip: "pandas==2.2.3", import: pandas }]` — one entry per
-distribution, the exactly-pinned pip requirement (`name==version`, no ranges) plus the top-level
-module it provides. Python transitive dependencies are pip's job and are never declared; what
+`manifest.yaml` (§8): `packages: [{ pip: pandas, import: pandas }]` — one entry per
+distribution, the bare distribution name (PEP 503 name only — **no version specifier**; the
+installed distribution is the single source of truth for the version, see the install model
+below) plus the top-level module it provides. Python transitive dependencies are pip's job and
+are never declared; what
 must be declared is every **runtime companion** the task's usage needs beyond that — optional
 extras and binary-bundling wheels (e.g. yt-dlp merging streams needs ffmpeg → declare
 `imageio-ffmpeg` alongside it and wire its path in the step). The §8 contract instructs the
@@ -828,9 +830,13 @@ distribution fails fast with pip's "no matching distribution" rather than hittin
 users don't have). The bundle inside the .app is never written to (read-only,
 replaced whole on update). The executor prepends this directory to `sys.path` for every step,
 so deleting it (or an app update) is always recoverable. Installing is one idempotent "ensure"
-operation shared by every call site: a fast installed-check first (distribution + exact version
-present in the directory), pip runs only for missing or version-changed entries, and one
-process-wide lock serializes pip runs. It happens at two moments through the same code path:
+operation shared by every call site: a fast installed-check first (distribution present in the
+directory, **any** version — the installed version is never compared against the manifest,
+which carries no version), pip runs only for missing distributions (installing the newest
+compatible wheel at that moment), and one process-wide lock serializes pip runs. An installed
+distribution is never touched by ensure — upgrades happen only through the explicit §11 Update
+button — so an unattended automation never changes behavior because a library released
+overnight. Ensure happens at two moments through the same code path:
 
 - right after a §8 steps call validates (job stage "Installing the packages"; per-package
   statuses ride the draft payload and render in the §11 Packages card) — the user learns about
@@ -839,23 +845,21 @@ process-wide lock serializes pip runs. It happens at two moments through the sam
   directory, or a save that skipped a failed install.
 
 An install failure never blocks saving (§11); at execution time it fails the execution before
-step 1 with the §7 category. The shared directory holds one version of each distribution — a
-later automation's different pin upgrades it for all (accepted: single-user app; if a real
-conflict ever shows up the fix is per-automation target dirs, not user-facing knobs).
+step 1 with the §7 category. The shared directory holds one version of each distribution,
+shared by every automation declaring it (accepted: single-user app; if a real conflict ever
+shows up the fix is per-automation target dirs, not user-facing knobs). Because manifests are
+version-free, restoring an older automation version never changes any installed package, and
+a wiped directory self-heals to the newest compatible wheels rather than an exact snapshot.
 
-**Updating pins — the app checks, the user decides.** Pins never change on their own: an
-unattended automation must not change behavior because a library released overnight. On load
-the edit page's Packages card asks PyPI for updates (§19 `POST /packages/outdated`, read-only:
-per package, the newest stable non-yanked version that has a wheel compatible with the bundled
-interpreter — the wheels-only rule applies to the check too; a network failure just leaves the
-badges off). Installing an update stays behind an explicit per-row **Update** button (§11).
-An update is manifest-first (§19 `POST /packages/update`): the new pin is written into the
-current version's manifest and any draft of **every** automation declaring that distribution —
-never just one, or the shared directory would ping-pong between pins at each pre-execution
-ensure — and only then does the same ensure install it. The current version is edited in
-place: a pin bump is not a behavioral edit, and creating a new version of N automations per
-update would be worse. Older versions keep their pins, so restoring one restores its pin
-under the same last-writer-wins rule above.
+**Updating packages — the app checks, the user decides.** The installed version only changes
+through the explicit per-row **Update** button (§11). On load the edit page's Packages card
+asks PyPI for updates (§19 `POST /packages/outdated`, read-only: per package, the newest
+stable non-yanked version that has a wheel compatible with the bundled interpreter — the
+wheels-only rule applies to the check too; a network failure just leaves the badges off),
+comparing against the **installed** version. An update runs `pip install --upgrade <name>`
+into the shared directory (§19 `POST /packages/update`) — no manifest is touched, because
+manifests carry no version; every automation declaring the distribution picks up the new
+version at its next execution automatically.
 
 **Native tools (deliberately deferred).** System binaries (ffmpeg, tesseract, …) are not
 installable — pip is the only channel. When a task needs one, the drafting agent prefers a pip
@@ -919,7 +923,7 @@ destructive moments recoverable.
   and menu-bar rows update live.
 - Before step 1 the engine ensures the version's declared packages (§6.2): the fast
   installed-check costs milliseconds when everything is present; anything missing installs with
-  a sys log line ("installing packages: `pandas==2.2.3`…"). An install failure fails the
+  a sys log line ("installing packages: `pandas`…"). An install failure fails the
   execution before any step with the package category below.
 - Streaming: each step queued → executing → terminal status with duration. Executing a step
   appends an **attempt** (`n = attempts+1`) to that step; the step's status always equals its
@@ -1132,8 +1136,8 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
      - { cron: "0 9 * * 1", tz: Asia/Tokyo }   # tz optional — only when the spec names a zone
    params:                           # full definitions per §4.2, each with a default
      - { name: sources, kind: list, label: Manga URLs, help: ..., validate: true }
-   packages:                         # §6.2 declared packages — beyond curated only, exactly
-     - { pip: "pandas==2.2.3", import: pandas }   # pinned; omit the key when none are needed
+   packages:                         # §6.2 declared packages — beyond curated only, bare
+     - { pip: pandas, import: pandas }   # distribution name, no version; omit the key when none are needed
    steps:                            # ordered; file names NN-name.py, two-digit, gapless
      - { file: 01-fetch.py, name: Fetch pages, desc: ... }
      - { file: 02-classify.py, name: Classify updates, desc: ..., agent: true,
@@ -1165,13 +1169,14 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    nonempty, `steps[].file` ↔ file blocks match 1:1, filenames follow `NN-name.py` ordering.
 4. Every step file passes `ast.parse`; imports ⊆ stdlib + curated packages + `autodave` + the
    manifest's declared package imports (§6.2).
-5. `packages` is optional: a list of `{ pip, import }` entries — `pip` an exactly-pinned
-   requirement (`name==version`, no ranges or extras), `import` a valid module name that is not
-   already stdlib or curated (declaring one that is, is a validation error — the list stays
-   meaningful). After validation the job enters stage "Installing the packages" and runs the
-   §6.2 ensure; per-package results ride the draft payload as
-   `packages: [{ pip, import, status: installed | failed, error? }]`. An install failure does
-   **not** fail the job — the draft lands with the failure visible in the §11 Packages card.
+5. `packages` is optional: a list of `{ pip, import }` entries — `pip` a bare distribution
+   name (PEP 503 name only, no version specifier, ranges, or extras), `import` a valid module
+   name that is not already stdlib or curated (declaring one that is, is a validation error —
+   the list stays meaningful). After validation the job enters stage "Installing the packages"
+   and runs the §6.2 ensure; per-package results ride the draft payload as
+   `packages: [{ pip, import, status: installed | failed, version?, error? }]`. An install
+   failure does **not** fail the job — the draft lands with the failure visible in the §11
+   Packages card.
 6. Step code is scanned for `secrets.NAME` references → drives the Review-screen secret warnings
    (§11). Unknown or un-allowed secret references are Review warnings, not validation failures.
 7. Steps carry only `agent: true` as the query-only marker (§6); the backend assigns `agent_id`
@@ -1480,7 +1485,12 @@ as the pipeline delivers, driven by the job's `stage` over `draft.progress`:
 **Blockers & clarifications.** When a §8 job ends `blocked`, the blockers render as cards —
 headline "Your AI hit a blocker" ("… hit N blockers" when several), one card per blocker with
 three labeled, editable text fields — **Reason** / **How to fix** / **Details** — pre-filled
-from the agent's answer; the user edits any of them (usually the fix). Where the cards appear
+from the agent's answer; the user edits any of them (usually the fix). Card look: an amber
+left accent bar, and — only when the list has several blockers — a "BLOCKER N" eyebrow header.
+The fields are auto-growing textareas (ask-box pattern: sized to their content, never
+scrolling, no manual resize handle) with comfortable minimum heights — roughly two text lines
+for Reason and Details and three for How to fix, the main editing target, whose box also draws
+a slightly brighter border. A focused field shows an amber border. Where the cards appear
 and what the primary action does depend on which call blocked:
 
 - **Spec call** (create) — the clarification case: the cards render **in place of the spec
@@ -1650,8 +1660,10 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   warning shows.
 - **PACKAGES** card — in the **right column**, below the Parameters card: display-only like
   Triggers and Parameters — the drafting pipeline owns the list; the user's only write is the
-  §6.2 pin update below.
-  One row per §6.2 declared package — the `pip` spec in mono plus a status chip:
+  §6.2 package update below.
+  One row per §6.2 declared package — the distribution name in mono, followed by the
+  **installed version** (from the §19 check — the real version in the shared directory, never
+  a manifest value) in faint mono, plus a status chip:
   **installed** (green check) · **installing** (spinner) · **not installed** (amber — a
   saved automation whose packages went missing, found by the §19 check on page load) ·
   **failed** (red; the plain-word error beneath in mono, e.g. the §7 category wording with the
@@ -1667,14 +1679,15 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   payload statuses (§8). An install failure never blocks saving — executions self-heal (§7) —
   so the card carries the warning without gating Save.
   **Updates (§6.2 semantics):** on load the page also asks PyPI once per package list
-  (§19 `POST /packages/outdated`, advisory — a failure leaves badges off). An outdated row
-  shows an accent-tinted "→ x.y.z" badge after the pin and an **Update** button on the row; two or more
+  (§19 `POST /packages/outdated`, advisory — a failure leaves badges off; the comparison
+  baseline is the installed version). An outdated row shows an accent-tinted "→ x.y.z" badge
+  after the installed version and an **Update** button on the row; two or more
   outdated rows add an **Update all** row above the footer. The header appends "· K updates"
   while any row is outdated (count hidden at zero). Clicking updates via §19
-  `POST /packages/update` — pin rewrite across every automation declaring the distribution,
-  then install; the affected rows show the installing spinner, then the new pin with its
-  fresh status, and a toast names how many automations were rewritten. Updates never force
-  the card open and never gate Save.
+  `POST /packages/update` — `pip install --upgrade` in the shared directory, no manifest
+  writes; the affected rows show the installing spinner, then the fresh installed version and
+  status. Since the directory is shared, the new version applies to every automation using
+  the package. Updates never force the card open and never gate Save.
 - **Framework instructions** — read-only card showing `framework-instructions.md` **rendered
   as markdown** (the shared §4.5 Markdown component — full GFM; max-height 420 px with inner
   scroll). The file content itself is untouched —
@@ -2072,19 +2085,19 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   blockers in `test.issue`. `DELETE /tests/{testId}` cancels (kills the live step subprocess or
   the analysis harness process)
 - `POST /packages/check` `{ packages: [{ pip, import }] }` → `{ packages: [{ pip, import,
-  status: installed | missing }] }` — the fast §6.2 installed-check, never runs pip (backs the
-  §11 Packages card's page-load check) · `POST /packages/install` (same body) →
-  `{ packages: [{ pip, import, status: installed | failed, error? }] }` — the §6.2 ensure,
-  blocking; installs only what's missing, one pip run at a time process-wide (backs the §11
-  Install/Retry button) · `POST /packages/outdated` (same body) → `{ packages: [{ pip, import,
-  latest? }] }` — read-only PyPI query (§6.2: newest stable non-yanked version with a
-  compatible wheel); `latest` present only when newer than the pin, absent on any lookup
-  failure (backs the §11 page-load update check) · `POST /packages/update`
-  `{ packages: [{ pip, import }] }` with the **new** pins → `{ packages: [{ pip, import,
-  status: installed | failed, error? }], updated: [automation names] }` — the §6.2
-  manifest-first pin rewrite (current version + draft of every automation declaring the
-  distribution, in place), then the blocking ensure; publishes `auto.changed` when any
-  manifest was rewritten; a malformed pin → 422
+  status: installed | missing, version? }] }` — the fast §6.2 installed-check, never runs
+  pip; `version` is the real installed version, present when installed (backs the §11
+  Packages card's page-load check) · `POST /packages/install` (same body) →
+  `{ packages: [{ pip, import, status: installed | failed, version?, error? }] }` — the §6.2
+  ensure, blocking; installs only what's missing, one pip run at a time process-wide (backs
+  the §11 Install/Retry button) · `POST /packages/outdated` (same body) → `{ packages:
+  [{ pip, import, latest? }] }` — read-only PyPI query (§6.2: newest stable non-yanked
+  version with a compatible wheel); `latest` present only when newer than the **installed**
+  version, absent when not installed or on any lookup failure (backs the §11 page-load update
+  check) · `POST /packages/update` `{ packages: [{ pip, import }] }` → `{ packages: [{ pip,
+  import, status: installed | failed, version?, error? }] }` — `pip install --upgrade` for
+  each named distribution in the shared directory (§6.2: wheels only, serialized); no
+  manifest writes; a malformed name → 422
 - `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
   the stored automation's for the §8 grants context; when `enabledAgents` is absent and no

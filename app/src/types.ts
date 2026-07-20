@@ -32,15 +32,17 @@ export interface Step {
   why?: string
 }
 
-// §6.2 declared package — a pinned pip requirement plus the module it provides.
-// `status` is transient (§19 check/install responses and §8 draft payloads);
-// 'installing' exists client-side only, while an install call is in flight.
-// `latest` is transient too (§19 outdated response) — present only when a
-// newer installable version exists; drives the §11 update badge.
+// §6.2 declared package — a bare pip distribution name plus the module it
+// provides; the installed distribution is the source of truth for the version.
+// `status` and `version` are transient (§19 check/install responses and §8
+// draft payloads); 'installing' exists client-side only, while an install
+// call is in flight. `latest` is transient too (§19 outdated response) —
+// present only when newer than the installed version; drives the §11 badge.
 export interface PackageDep {
   pip: string
   import: string
   status?: 'installed' | 'missing' | 'failed' | 'installing'
+  version?: string
   error?: string
   latest?: string
 }

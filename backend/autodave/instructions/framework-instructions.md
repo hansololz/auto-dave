@@ -154,11 +154,11 @@ needs another PyPI package, declare it in `manifest.yaml` and then import it:
 
 ```yaml
 packages:
-  - { pip: "pandas==2.2.3", import: pandas }
+  - { pip: pandas, import: pandas }
 ```
 
-One entry per distribution: `pip` is the exactly-pinned requirement
-(`name==version`, a real PyPI version — never a range), `import` the top-level
+One entry per distribution: `pip` is the bare distribution name (never a
+version, pin, or range — the app manages versions), `import` the top-level
 module it provides. The app installs declared packages automatically — never
 write installation code or steps yourself. The engine rejects any import that
 is neither stdlib, curated, nor declared; never declare a stdlib or curated

@@ -75,7 +75,7 @@ note: One-line version note for the history menu
 params:                                # each param MUST carry a default
   - { name: snake_case_name, kind: toggle|list|kv|number|text, label: ..., help: ..., default: ... }
 packages:                              # extra PyPI packages beyond the allowed list (see Allowed imports);
-  - { pip: "pandas==2.2.3", import: pandas }   # exactly pinned name==version; omit the key when none are needed
+  - { pip: pandas, import: pandas }    # bare distribution name, NO version; omit the key when none are needed
 triggers:                              # cron entries only (see Triggers above); omit the whole key if the spec names no time (no triggers -> manual / menu bar only)
   - cron: "0 8 * * *"
 steps:                                 # ordered; file names NN-name.py, two-digit, gapless from 01
@@ -271,8 +271,8 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
         if p["kind"] == "number" and "min" not in p:
             p["min"] = 0
 
-    # §6.2/§8: declared packages — {pip, import}, exactly pinned, beyond
-    # stdlib/curated only. Their import names extend the step allowlist below.
+    # §6.2/§8: declared packages — {pip, import}, bare distribution name,
+    # beyond stdlib/curated only. Their import names extend the step allowlist below.
     raw_pkgs = manifest.get("packages") or []
     norm_pkgs: list[dict] = []
     if not isinstance(raw_pkgs, list):
@@ -280,16 +280,16 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
         raw_pkgs = []
     for e in raw_pkgs:
         if not isinstance(e, dict) or not e.get("pip") or not e.get("import"):
-            errors.append(f"packages entry malformed: {e!r} — need {{ pip: name==version, import: module }}")
+            errors.append(f"packages entry malformed: {e!r} — need {{ pip: name, import: module }}")
             continue
-        spec, imp = str(e["pip"]).strip(), str(e["import"]).strip()
-        if not pkglib.PIP_SPEC_RE.match(spec):
-            errors.append(f"packages: {spec!r} must be exactly pinned name==version")
+        name, imp = str(e["pip"]).strip(), str(e["import"]).strip()
+        if not pkglib.PIP_NAME_RE.match(name):
+            errors.append(f"packages: {name!r} must be a bare distribution name — no version specifier")
         if not imp.isidentifier():
             errors.append(f"packages: import {imp!r} isn't a valid module name")
         elif imp in ALLOWED_IMPORTS:
             errors.append(f"packages: {imp} is already available — don't declare it")
-        norm_pkgs.append({"pip": spec, "import": imp})
+        norm_pkgs.append({"pip": name, "import": imp})
     pkg_imports = [p["import"] for p in norm_pkgs]
 
     steps = manifest.get("steps") or []

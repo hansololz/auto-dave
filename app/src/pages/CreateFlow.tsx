@@ -108,20 +108,27 @@ function WarnBanner({ text }: { text: string }) {
 }
 
 /** §11 blocker cards — one per blocker, three labeled, editable fields pre-filled
- * from the agent's answer; the user edits any of them (usually the fix). */
+ * from the agent's answer; the user edits any of them (usually the fix). Fields
+ * auto-grow with their content (ask-box pattern) above per-field minimum heights. */
 function BlockerCards({ blockers, onChange }: {
   blockers: Blocker[]; onChange?: (i: number, patch: Partial<Blocker>) => void
 }) {
-  const field = (label: string, value: string, rows: number, set: (v: string) => void, placeholder?: string) => (
-    <div style={{ padding: '8px 16px 0' }}>
+  const field = (label: string, value: string, minLines: number, set: (v: string) => void, opts?: { placeholder?: string; bright?: boolean }) => (
+    <div style={{ padding: '10px 16px 0' }}>
       <div style={eyebrowStyle}>{label}</div>
       <textarea
-        value={value} rows={rows} placeholder={placeholder}
+        value={value} rows={1} placeholder={opts?.placeholder}
+        ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` } }}
         onChange={(e) => set(e.target.value)}
+        onFocus={(e) => { e.currentTarget.style.borderColor = 'oklch(0.75 0.13 75 / .55)' }}
+        onBlur={(e) => { e.currentTarget.style.borderColor = opts?.bright ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.08)' }}
         style={{
-          width: '100%', margin: '5px 0 2px', background: 'var(--bg-inset)',
-          border: '1px solid rgba(255,255,255,.08)', borderRadius: 7, color: 'var(--text)',
-          font: "400 12.5px/1.55 var(--sans)", padding: '7px 10px', resize: 'vertical', outline: 'none',
+          width: '100%', margin: '6px 0 2px', background: 'var(--bg-inset)',
+          border: `1px solid ${opts?.bright ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.08)'}`,
+          borderRadius: 7, color: 'var(--text)',
+          font: "400 12.5px/1.55 var(--sans)", padding: '8px 10px',
+          minHeight: `${minLines * 19.5 + 18}px`,
+          resize: 'none', overflow: 'hidden', outline: 'none', display: 'block',
         }}
       />
     </div>
@@ -129,9 +136,15 @@ function BlockerCards({ blockers, onChange }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
       {blockers.map((b, i) => (
-        <div key={i} style={{ ...cardStyle, borderColor: 'oklch(0.75 0.13 75 / .35)', paddingBottom: 12, textAlign: 'left' }}>
+        <div key={i} style={{
+          ...cardStyle, borderColor: 'oklch(0.75 0.13 75 / .35)', paddingBottom: 14, textAlign: 'left',
+          borderLeft: '3px solid oklch(0.75 0.13 75 / .6)',
+        }}>
+          {blockers.length > 1 && (
+            <div style={{ ...eyebrowStyle, color: 'var(--amber)', padding: '12px 16px 0' }}>BLOCKER {i + 1}</div>
+          )}
           {field('REASON', b.reason, 2, (v) => onChange?.(i, { reason: v }))}
-          {field('HOW TO FIX', b.fix, 2, (v) => onChange?.(i, { fix: v }), 'What should change so this can be built')}
+          {field('HOW TO FIX', b.fix, 3, (v) => onChange?.(i, { fix: v }), { placeholder: 'What should change so this can be built', bright: true })}
           {field('DETAILS', b.details ?? '', 2, (v) => onChange?.(i, { details: v }))}
         </div>
       ))}
@@ -1119,7 +1132,7 @@ export default function CreateFlow() {
           ...r,
           packages: r.packages.map((p) => {
             const c = packages.find((z) => z.pip === p.pip)
-            return p.status || !c ? p : { ...p, status: c.status }
+            return p.status || !c ? p : { ...p, status: c.status, version: c.version }
           }),
         }))
       })
@@ -1147,31 +1160,29 @@ export default function CreateFlow() {
     return () => { stale = true }
   }, [pkgKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // §11/§6.2 Update / Update all — manifest-first: the §19 update call rewrites
-  // the pin across every automation declaring the distribution, then installs.
+  // §11/§6.2 Update / Update all — pip install --upgrade in the shared
+  // directory; no manifest writes, the installed version is the truth. The
+  // new version applies to every automation using the package.
   const updatePkgs = async (pips: string[]) => {
     if (!rev || rev.pkgBusy) return
-    const pipName = (s: string) => s.split('==')[0].replace(/[-_.]+/g, '-').toLowerCase()
     const targets = rev.packages.filter((p) => p.latest && pips.includes(p.pip))
     if (targets.length === 0) return
     const before = rev.packages
-    const list = targets.map((p) => ({ pip: `${p.pip.split('==')[0]}==${p.latest}`, import: p.import }))
+    const list = targets.map(({ pip, import: imp }) => ({ pip, import: imp }))
     up({
       pkgBusy: true,
       packages: rev.packages.map((p) => (targets.includes(p) ? { ...p, status: 'installing' as const, error: undefined } : p)),
     })
     try {
-      const { packages, updated } = await api.updatePackages(list)
+      const { packages } = await api.updatePackages(list)
       setRev((r) => r && ({
         ...r, pkgBusy: false,
         packages: r.packages.map((p) => {
-          const c = p.status === 'installing' && packages.find((z) => pipName(z.pip) === pipName(p.pip))
+          const c = p.status === 'installing' && packages.find((z) => z.pip === p.pip)
           return c ? { ...c, latest: undefined } : p
         }),
       }))
-      showToast(updated.length > 0
-        ? `Updated — the new pin now applies to ${updated.length === 1 ? '1 automation' : `${updated.length} automations`}.`
-        : 'Updated.', 3600)
+      showToast('Updated — the new version applies to every automation using the package.', 3600)
     } catch (e) {
       setRev((r) => r && ({ ...r, pkgBusy: false, packages: before }))
       showToast((e as Error).message)
@@ -2351,6 +2362,9 @@ export default function CreateFlow() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                             <div style={{ flex: 1, minWidth: 0, font: "500 12px var(--mono)", color: 'var(--text)' }}>
                               {p.pip}
+                              {p.version && (
+                                <span style={{ color: 'var(--text-faint)', marginLeft: 8 }}>{p.version}</span>
+                              )}
                               {p.latest && p.status !== 'installing' && (
                                 <span style={{ color: 'var(--accent)', marginLeft: 8 }}>→ {p.latest}</span>
                               )}
@@ -2380,7 +2394,7 @@ export default function CreateFlow() {
                       {rev.packages.filter((p) => p.latest).length >= 2 && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
                           <span style={{ flex: 1, font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)' }}>
-                            Newer versions are available. Updating changes the pin for every automation that uses the package.
+                            Newer versions are available. Updating applies to every automation that uses the package.
                           </span>
                           <button className="ad-btn-soft" disabled={rev.pkgBusy || busyRewrite}
                             onClick={() => void updatePkgs(rev.packages.filter((p) => p.latest).map((p) => p.pip))} style={{ flex: 'none' }}>

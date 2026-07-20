@@ -536,32 +536,32 @@ def test_settings_devmode_gates_request_logging(client):
 
 def test_packages_outdated_and_update(client, monkeypatch):
     from autodave import packages as pkglib
-    from autodave.storage import store
 
+    # §6.2: the installed distribution is the comparison baseline for `latest`.
+    monkeypatch.setattr(pkglib, "_installed_versions",
+                        lambda: {"pandas": "2.2.3", "numpy": "2.0.0"})
     monkeypatch.setattr(pkglib, "_latest_compatible",
                         lambda name: {"pandas": "2.2.4", "numpy": "2.0.0"}.get(name))
     r = client.post("/packages/outdated", json={"packages": [
-        {"pip": "pandas==2.2.3", "import": "pandas"},   # newer exists
-        {"pip": "numpy==2.0.0", "import": "numpy"},     # already at latest
-        {"pip": "left_pad==1.0", "import": "left_pad"},  # no lookup result
+        {"pip": "pandas", "import": "pandas"},     # newer exists
+        {"pip": "numpy", "import": "numpy"},       # already at latest
+        {"pip": "left_pad", "import": "left_pad"},  # not installed → no badge
     ]}).json()["packages"]
     assert r[0]["latest"] == "2.2.4"
     assert "latest" not in r[1] and "latest" not in r[2]
 
-    a = store.create_automation(
-        make_version(packages=[{"pip": "pandas==2.2.3", "import": "pandas"}]), "Pin Me", None)
-    monkeypatch.setattr(pkglib, "ensure",
-                        lambda entries, on_progress=None:
-                        [{**e, "status": "installed"} for e in entries])
+    # §19 update: pip install --upgrade, no manifest writes.
+    monkeypatch.setattr(pkglib, "upgrade",
+                        lambda entries: [{**e, "status": "installed", "version": "2.2.4"}
+                                         for e in entries])
     r = client.post("/packages/update", json={"packages": [
-        {"pip": "pandas==2.2.4", "import": "pandas"}]}).json()
-    assert r["updated"] == ["Pin Me"]
-    assert r["packages"][0] == {"pip": "pandas==2.2.4", "import": "pandas", "status": "installed"}
-    assert store.autos[a["id"]]["versions"][1]["packages"][0]["pip"] == "pandas==2.2.4"
+        {"pip": "pandas", "import": "pandas"}]}).json()
+    assert r["packages"][0] == {"pip": "pandas", "import": "pandas",
+                                "status": "installed", "version": "2.2.4"}
 
-    # malformed pin → 422, nothing rewritten
+    # a version specifier is malformed now → 422
     assert client.post("/packages/update",
-                       json={"packages": [{"pip": "pandas>=2.0", "import": "pandas"}]}).status_code == 422
+                       json={"packages": [{"pip": "pandas==2.2.4", "import": "pandas"}]}).status_code == 422
 
 
 def test_memory_snapshot_endpoints(client):

@@ -395,20 +395,13 @@ def packages_outdated(body: dict) -> dict:
 
 @app.post("/packages/update", dependencies=[Depends(auth)])
 def packages_update(body: dict) -> dict:
-    """§6.2 pin update: body carries the NEW pins. Manifest-first — rewrite the
-    pin across every automation declaring the distribution, then ensure."""
+    """§6.2 update: `pip install --upgrade` in the shared directory — no
+    manifest writes; manifests carry no version. Blocking like /install."""
     entries = body.get("packages") or []
     for e in entries:
-        if not pkglib.PIP_SPEC_RE.match(str(e.get("pip") or "").strip()):
-            raise HTTPException(422, f"not an exactly-pinned name==version requirement: {e.get('pip')!r}")
-    updated: list[str] = []
-    for e in entries:
-        for name in store.update_package_pin(str(e["pip"]).strip()):
-            if name not in updated:
-                updated.append(name)
-    if updated:
-        hub.publish("auto.changed")
-    return {"packages": pkglib.ensure(entries), "updated": updated}
+        if not pkglib.PIP_NAME_RE.match(str(e.get("pip") or "").strip()):
+            raise HTTPException(422, f"not a bare distribution name: {e.get('pip')!r}")
+    return {"packages": pkglib.upgrade(entries)}
 
 
 @app.post("/automations/{auto_id}/memory/clear", dependencies=[Depends(auth)])

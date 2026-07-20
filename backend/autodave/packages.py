@@ -1,9 +1,11 @@
 """Declared-package install (§6.2): packages a manifest declares beyond the
 curated list install into `<app-support>/site-packages` via the bundled
-interpreter's pip — the user never runs pip. One idempotent `ensure` serves
-every call site: the §8 post-steps install stage, the §19 install endpoint,
-and the engine's pre-execution self-heal (§7). `outdated` backs the §11
-update badges — read-only PyPI lookups, never pip."""
+interpreter's pip — the user never runs pip. Manifests carry bare distribution
+names; the installed distribution is the single source of truth for the
+version. One idempotent `ensure` serves every call site: the §8 post-steps
+install stage, the §19 install endpoint, and the engine's pre-execution
+self-heal (§7). `outdated` backs the §11 update badges — read-only PyPI
+lookups, never pip; `upgrade` backs the §11 Update button."""
 from __future__ import annotations
 
 import re
@@ -14,8 +16,8 @@ from pathlib import Path
 
 from . import paths
 
-# §6.2/§8: exactly pinned, name==version — no ranges, no extras.
-PIP_SPEC_RE = re.compile(r"^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)==([A-Za-z0-9.!+_-]+)$")
+# §6.2/§8: bare PEP 503 distribution name — no version specifier, no extras.
+PIP_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
 
 INSTALL_TIMEOUT = 600  # seconds per package
 
@@ -51,15 +53,19 @@ def _installed_versions() -> dict[str, str]:
 
 def check(entries: list[dict]) -> list[dict]:
     """§19 POST /packages/check — the fast installed-check, never runs pip.
-    Each entry comes back as {pip, import, status: installed | missing}."""
+    Each entry comes back as {pip, import, status: installed | missing,
+    version?} — `version` is the real installed version (§6.2: the installed
+    distribution is the source of truth; any version counts as installed)."""
     installed = _installed_versions()
     out = []
     for e in entries or []:
-        spec = str(e.get("pip") or "").strip()
-        m = PIP_SPEC_RE.match(spec)
-        ok = bool(m) and installed.get(_norm(m.group(1))) == m.group(2)
-        out.append({"pip": spec, "import": str(e.get("import") or "").strip(),
-                    "status": "installed" if ok else "missing"})
+        name = str(e.get("pip") or "").strip()
+        version = installed.get(_norm(name)) if PIP_NAME_RE.match(name) else None
+        r = {"pip": name, "import": str(e.get("import") or "").strip(),
+             "status": "installed" if version else "missing"}
+        if version:
+            r["version"] = version
+        out.append(r)
     return out
 
 
@@ -107,21 +113,24 @@ def _latest_compatible(name: str) -> str | None:
 def outdated(entries: list[dict]) -> list[dict]:
     """§19 POST /packages/outdated — read-only PyPI lookups, in parallel.
     Each entry comes back as {pip, import, latest?}; `latest` is present only
-    when a newer installable version exists. Any failure → no `latest`."""
+    when a version newer than the **installed** one exists (§6.2: the
+    installed distribution is the comparison baseline). Not installed or any
+    failure → no `latest`."""
     from concurrent.futures import ThreadPoolExecutor
 
     from packaging.version import Version
 
+    installed = _installed_versions()
+
     def probe(e: dict) -> dict:
-        spec = str(e.get("pip") or "").strip()
-        out = {"pip": spec, "import": str(e.get("import") or "").strip()}
-        m = PIP_SPEC_RE.match(spec)
-        if not m:
+        name = str(e.get("pip") or "").strip()
+        out = {"pip": name, "import": str(e.get("import") or "").strip()}
+        cur = installed.get(_norm(name)) if PIP_NAME_RE.match(name) else None
+        if not cur:
             return out
         try:
-            pinned = Version(m.group(2))
-            latest = _latest_compatible(m.group(1))
-            if latest and Version(latest) > pinned:
+            latest = _latest_compatible(name)
+            if latest and Version(latest) > Version(cur):
                 out["latest"] = latest
         except Exception:  # noqa: BLE001 — network/parse failure: badge stays off
             pass
@@ -134,49 +143,73 @@ def outdated(entries: list[dict]) -> list[dict]:
         return list(pool.map(probe, items))
 
 
+def _pip_install(name: str) -> str | None:
+    """One pip run into the §6.2 directory; returns an error string or None.
+    Caller holds `_pip_lock`."""
+    target = site_packages_dir()
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        # §6.2: wheels only — a source-only package would need a
+        # compiler users don't have; fail fast with pip's clear
+        # "no matching distribution" instead of a build traceback.
+        proc = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade",
+             "--no-input", "--disable-pip-version-check",
+             "--only-binary", ":all:",
+             "--target", str(target), name],
+            capture_output=True, text=True, timeout=INSTALL_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return f"pip timed out after {INSTALL_TIMEOUT} s"
+    except OSError as e:
+        return str(e)
+    if proc.returncode == 0:
+        return None
+    tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
+    return " · ".join(ln.strip() for ln in tail) or f"pip exited {proc.returncode}"
+
+
 def ensure(entries: list[dict], on_progress=None) -> list[dict]:
-    """§6.2 ensure — idempotent: check first, pip only for missing or
-    version-changed entries, serialized process-wide. Each entry comes back as
-    {pip, import, status: installed | failed, error?}. `on_progress(pip_spec)`
-    fires before each actual pip run."""
+    """§6.2 ensure — idempotent: check first, pip only for missing
+    distributions (newest compatible wheel at that moment), serialized
+    process-wide. An installed distribution is never touched — upgrades go
+    through `upgrade()` only. Each entry comes back as {pip, import,
+    status: installed | failed, version?, error?}. `on_progress(name)` fires
+    before each actual pip run."""
     results = check(entries)
     if all(r["status"] == "installed" for r in results):
         return results
     with _pip_lock:
         results = check(entries)  # re-check: another ensure may have run first
-        target = site_packages_dir()
-        target.mkdir(parents=True, exist_ok=True)
         for r in results:
             if r["status"] == "installed":
                 continue
-            if not PIP_SPEC_RE.match(r["pip"]):
+            if not PIP_NAME_RE.match(r["pip"]):
                 r["status"] = "failed"
-                r["error"] = "not an exactly-pinned name==version requirement"
+                r["error"] = "not a bare distribution name"
                 continue
             if on_progress:
                 on_progress(r["pip"])
-            try:
-                # §6.2: wheels only — a source-only package would need a
-                # compiler users don't have; fail fast with pip's clear
-                # "no matching distribution" instead of a build traceback.
-                proc = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "--upgrade",
-                     "--no-input", "--disable-pip-version-check",
-                     "--only-binary", ":all:",
-                     "--target", str(target), r["pip"]],
-                    capture_output=True, text=True, timeout=INSTALL_TIMEOUT)
-            except subprocess.TimeoutExpired:
+            if err := _pip_install(r["pip"]):
                 r["status"] = "failed"
-                r["error"] = f"pip timed out after {INSTALL_TIMEOUT} s"
-                continue
-            except OSError as e:
-                r["status"] = "failed"
-                r["error"] = str(e)
-                continue
-            if proc.returncode == 0:
-                r["status"] = "installed"
+                r["error"] = err
             else:
-                tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
+                r["status"] = "installed"
+                r["version"] = _installed_versions().get(_norm(r["pip"]))
+    return results
+
+
+def upgrade(entries: list[dict]) -> list[dict]:
+    """§19 POST /packages/update — the §11 Update button: always runs pip
+    (`install --upgrade name`), the one path that moves an installed
+    distribution forward. Same result shape as `ensure`."""
+    results = check(entries)
+    with _pip_lock:
+        for r in results:
+            if err := _pip_install(r["pip"]):
                 r["status"] = "failed"
-                r["error"] = " · ".join(ln.strip() for ln in tail) or f"pip exited {proc.returncode}"
+                r["error"] = err
+                r.pop("version", None)
+            else:
+                r["status"] = "installed"
+                r["version"] = _installed_versions().get(_norm(r["pip"]))
     return results

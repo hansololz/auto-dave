@@ -94,11 +94,11 @@ export const api = {
     req<{ packages: import('./types').PackageDep[] }>('POST', '/packages/check', { packages }),
   installPackages: (packages: { pip: string; import: string }[]) =>
     req<{ packages: import('./types').PackageDep[] }>('POST', '/packages/install', { packages }),
-  // §6.2 updates: read-only PyPI check / manifest-first pin rewrite + ensure (§19)
+  // §6.2 updates: read-only PyPI check / pip install --upgrade, no manifest writes (§19)
   outdatedPackages: (packages: { pip: string; import: string }[]) =>
     req<{ packages: import('./types').PackageDep[] }>('POST', '/packages/outdated', { packages }),
   updatePackages: (packages: { pip: string; import: string }[]) =>
-    req<{ packages: import('./types').PackageDep[]; updated: string[] }>('POST', '/packages/update', { packages }),
+    req<{ packages: import('./types').PackageDep[] }>('POST', '/packages/update', { packages }),
   postDraftJob: (body: Record<string, unknown>) => req<{ jobId: string }>('POST', '/drafts', body),
   getDraftJob: (jobId: string) => req<DraftJob>('GET', `/drafts/${jobId}`),
   cancelDraftJob: (jobId: string) => req('DELETE', `/drafts/${jobId}`),
