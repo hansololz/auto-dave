@@ -233,7 +233,15 @@ def test_run_and_execution_pages(client):
     assert e["status"] == "succeeded"
     assert e["result"]["chip"] == "All good"
     assert e["result"]["chipStatus"] == "ok"  # served from the execution header
-    assert any(l["k"] == "sys" for l in e["logs"])
+    assert "logs" not in e  # §19: logs are lazy, never inline
+    assert [s["status"] for s in e["steps"]] == ["succeeded", "succeeded"]
+    assert all(len(s["attempts"]) == 1 for s in e["steps"])
+    # §19 lazy log endpoint: per step attempt, and the execution log
+    step_log = client.get(f"/executions/{exec_id}/logs", params={"step": 0, "attempt": 1}).json()
+    assert any(l["k"] == "sys" for l in step_log["lines"])
+    assert all({"t", "k", "seq", "text"} == set(l) for l in step_log["lines"])
+    assert client.get(f"/executions/{exec_id}/logs").json()["lines"] == []
+    assert client.get(f"/executions/{exec_id}/logs", params={"step": 9, "attempt": 1}).json()["lines"] == []
     autos = client.get("/automations").json()
     me = next(x for x in autos if x["id"] == a["id"])
     assert me["lastStatus"] == "succeeded"
@@ -511,17 +519,23 @@ def test_seed_then_state(client, home):
     assert md.status_code == 200 and "| Manga |" in md.text
     assert client.get(f"/executions/{tabled['id']}/result/nope.md").status_code == 404
 
-    # logs.ndjson lines are {ts, t, step, k, text}; step markers carry their step's name
-    raw = store.read_logs(tabled["id"])
-    assert raw and all(set(l) == {"ts", "t", "step", "k", "text"} for l in raw)
-    first = raw[0]
-    assert first["text"].startswith("▸ Step 1") and first["step"] == "Read your manga list"
-    step2 = next(l for l in raw if l["text"].startswith("▸ Step 2"))
-    assert step2["step"] == "Check each site for new chapters"
-    # a line before any step marker is execution-level (step: null)
+    # §5 logs/ layout: per-step-attempt files, lines {ts, t, k, seq, text}
+    step1 = store.read_log(tabled["id"], 0, 1)
+    assert step1 and all(set(l) == {"ts", "t", "k", "seq", "text"} for l in step1)
+    assert step1[0]["text"].startswith("▸ Step 1")
+    step2 = store.read_log(tabled["id"], 1, 1)
+    assert any(l["text"].startswith("▸ Step 2") for l in step2)
+    # a line before any step marker is execution-level → execution.ndjson
     shots_int = next(e for e in r["execs"] if e["status"] == "interrupted")
-    int_logs = store.read_logs(shots_int["id"])
-    assert int_logs and int_logs[0]["step"] is None
+    int_logs = store.read_log(shots_int["id"])
+    assert int_logs and "went to sleep" in int_logs[0]["text"]
+    # §16: the retried report execution's failing step carries two attempts
+    retried = next(f for f in (client.get(f"/executions/{e['id']}").json()
+                               for e in r["execs"] if e["trigger"] == "Manual"
+                               and e["autoName"] == "Weekly report email")
+                   if any(len(s["attempts"]) == 2 for s in f["steps"]))
+    send = next(s for s in retried["steps"] if s["name"] == "Send the email")
+    assert [x["n"] for x in send["attempts"]] == [1, 2]
 
 
 def test_settings_devmode_gates_request_logging(client):

@@ -1,6 +1,6 @@
 import time
 
-from conftest import make_version
+from conftest import make_version, read_all_logs
 
 
 def wait_done(engine, exec_id, timeout=30):
@@ -19,7 +19,7 @@ def test_run_lifecycle_success(store):
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
     assert [s["status"] for s in h["steps"]] == ["succeeded", "succeeded"]
-    logs = store.read_logs(h["id"])
+    logs = read_all_logs(store, h["id"])
     assert any("hello x3" in l["text"] for l in logs)
     assert any(l["text"].startswith("▸ Step 1") for l in logs)
     # chip + status live on the execution header; result.yaml keeps only values
@@ -62,7 +62,7 @@ def test_failed_step_stops_run(store):
     assert h["status"] == "failed"
     assert h["steps"][0]["status"] == "failed"
     assert h["steps"][1]["status"] == "queued"  # never ran
-    assert any("boom" in l["text"] for l in store.read_logs(h["id"]))
+    assert any("boom" in l["text"] for l in read_all_logs(store, h["id"]))
 
 
 def test_missing_secret_stops_before_step_one(store):
@@ -76,7 +76,7 @@ def test_missing_secret_stops_before_step_one(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "failed"
-    logs = store.read_logs(h["id"])
+    logs = read_all_logs(store, h["id"])
     assert any("isn't in your Keychain" in l["text"] for l in logs)
     # no step ever started
     assert not any(l["text"].startswith("▸ Step") for l in logs)
@@ -96,7 +96,7 @@ def test_secret_redacted_from_logs(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
-    logs = store.read_logs(h["id"])
+    logs = read_all_logs(store, h["id"])
     assert not any("super-secret-value-123" in l["text"] for l in logs)
     assert any("•••" in l["text"] for l in logs)
     assert "API_KEY" in h["redacted"]
@@ -123,30 +123,98 @@ def test_multiline_secret_lines_redacted_from_logs(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
-    logs = store.read_logs(h["id"])
+    logs = read_all_logs(store, h["id"])
     assert not any("abc123line" in l["text"] for l in logs)
     assert not any("BEGIN KEY" in l["text"] for l in logs)
     assert "PEM_KEY" in h["redacted"]
 
 
-def test_reexecute_from_failed_reuses_earlier_steps(store):
+def test_retry_in_place_from_failed_step(store):
+    """§7: retry re-executes the same record from the failed step — the failed
+    step gains attempt 2, succeeded steps stay untouched, workspace persists."""
     from autodave.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
     ver["steps"] = [
-        {"file": "01-ok.py", "name": "OK step", "desc": "", "code": 'log("fine")\n'},
+        {"file": "01-ok.py", "name": "OK step", "desc": "",
+         "code": 'open("state.txt", "w").write("from pass one")\nlog("fine")\n'},
         {"file": "02-flaky.py", "name": "Flaky step", "desc": "",
-         "code": 'import os\nassert os.environ.get("NEVER_SET"), "flaky"\n'},
+         "code": 'import os\nassert os.path.exists("flag"), "flaky"\n'
+                 'log(open("state.txt").read())\n'},
     ]
     a = store.create_automation(ver, "Retry Me", None)
     h1 = engine.start(a, "Manual")
     wait_done(engine, h1["id"])
     assert h1["status"] == "failed" and h1["steps"][1]["status"] == "failed"
-    h2 = engine.reexecute_from_failed(a, h1)
+    assert h1["error"]["step"] == "Flaky step"
+    first_dur = h1["dur_ms"]
+    (store.exec_dir(h1["id"]) / "workspace" / "flag").write_text("ok")
+    h2 = engine.retry(a, h1)
+    assert h2["id"] == h1["id"]  # same execution record
     wait_done(engine, h2["id"])
-    assert h2["steps"][0]["status"] == "reused"
-    assert h2["steps"][1]["status"] == "failed"
+    assert h2["status"] == "succeeded"
+    assert h2["error"] is None  # cleared by the successful retry pass
+    assert h2["steps"][0]["status"] == "succeeded"
+    assert len(h2["steps"][0]["attempts"]) == 1  # never re-executed
+    assert [x["status"] for x in h2["steps"][1]["attempts"]] == ["failed", "succeeded"]
+    assert h2["dur_ms"] > first_dur  # accumulated across passes
+    # attempt 1 kept its error; attempt 2 has none
+    assert h2["steps"][1]["attempts"][0]["error"]["message"].startswith("AssertionError")
+    assert "error" not in h2["steps"][1]["attempts"][1]
+    # each attempt streamed into its own log file; workspace was NOT copied
+    logs_dir = store.exec_dir(h1["id"]) / "logs"
+    assert (logs_dir / "02-flaky.a1.ndjson").exists()
+    assert (logs_dir / "02-flaky.a2.ndjson").exists()
+    assert any("from pass one" in l["text"]
+               for l in store.read_log(h1["id"], 1, 2))
+
+
+def test_retry_rejected_unless_failed(store):
+    import pytest
+
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    a = store.create_automation(make_version(), "No Retry", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "succeeded"
+    with pytest.raises(RuntimeError, match="only failed"):
+        engine.retry(a, h)
+
+
+def test_skip_live_step_continues_execution(store):
+    """§7 skip: the live step's subprocess dies, the step goes `skipped`, the
+    next step still executes, and the execution finishes `succeeded`."""
+    from autodave.engine import Engine
+
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"] = [
+        {"file": "01-slow.py", "name": "Slow step", "desc": "",
+         "code": 'log("started")\nimport time\ntime.sleep(30)\n'},
+        {"file": "02-after.py", "name": "After step", "desc": "",
+         "code": 'log("still ran")\n'},
+    ]
+    a = store.create_automation(ver, "Skipper", None)
+    h = engine.start(a, "Manual")
+    t0 = time.time()
+    while h["steps"][0]["status"] != "executing" or not engine._live[h["id"]].get("proc"):
+        assert time.time() - t0 < 15
+        time.sleep(0.05)
+    time.sleep(0.3)  # let the step reach its sleep
+    assert engine.skip_step(h["id"], 1) is False  # only the live step is skippable
+    assert engine.skip_step(h["id"], 0) is True
+    wait_done(engine, h["id"])
+    assert h["steps"][0]["status"] == "skipped"
+    assert h["steps"][0]["attempts"][0]["status"] == "skipped"
+    assert "error" not in h["steps"][0]["attempts"][0]
+    assert h["steps"][1]["status"] == "succeeded"
+    assert h["status"] == "succeeded"  # skipped steps don't fail the execution
+    step1_log = store.read_log(h["id"], 0, 1)
+    assert any("step skipped by you" in l["text"] for l in step1_log)
+    assert any("still ran" in l["text"] for l in store.read_log(h["id"], 1, 1))
 
 
 def test_one_execution_at_a_time(store):
@@ -209,7 +277,7 @@ def test_execution_metadata_and_env_vars(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
-    logs = [l["text"] for l in store.read_logs(h["id"])]
+    logs = [l["text"] for l in read_all_logs(store, h["id"])]
     assert "meta=MetaAuto/1/Meta/Manual" in logs
     assert f"env={h['id']}" in logs
     assert "child=MetaAuto" in logs
@@ -252,7 +320,7 @@ def test_agent_step_query_only(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
-    assert any("Mock answer" in l["text"] for l in store.read_logs(h["id"]))
+    assert any("Mock answer" in l["text"] for l in read_all_logs(store, h["id"]))
 
 
 def test_step_timeout_applies_to_silent_hang(store, monkeypatch):
@@ -273,7 +341,7 @@ def test_step_timeout_applies_to_silent_hang(store, monkeypatch):
     assert time.time() - t0 < 15
     assert h["status"] == "failed"
     assert h["steps"][0]["status"] == "failed"
-    logs = store.read_logs(h["id"])
+    logs = read_all_logs(store, h["id"])
     assert any(l["k"] == "err" and "timed out" in l["text"] for l in logs)
 
 
@@ -293,7 +361,7 @@ def test_run_draft_version_lowercase_label(store):
     wait_done(engine, h["id"])
     assert h["ver"] == "Draft"  # canonical label
     assert h["status"] == "succeeded"
-    assert any("from the draft" in l["text"] for l in store.read_logs(h["id"]))
+    assert any("from the draft" in l["text"] for l in read_all_logs(store, h["id"]))
 
 
 def test_draft_execution_uses_draft_memory(store):
@@ -319,14 +387,14 @@ def test_draft_execution_uses_draft_memory(store):
     wait_done(engine, h1["id"])
     assert h1["status"] == "succeeded"
     # seeded from live memory (count 1), bumped in the draft copy only
-    assert any("count was 1" in l["text"] for l in store.read_logs(h1["id"]))
+    assert any("count was 1" in l["text"] for l in read_all_logs(store, h1["id"]))
     assert (store.auto_dir(a) / "draft" / "memory" / "seen.yaml").exists()
     assert (live_mem / "seen.yaml").read_text() == "count: 1\n"
 
     # second Draft execution continues on the same draft memory
     h2 = engine.start(a, "Manual", version_label="Draft")
     wait_done(engine, h2["id"])
-    assert any("count was 2" in l["text"] for l in store.read_logs(h2["id"]))
+    assert any("count was 2" in l["text"] for l in read_all_logs(store, h2["id"]))
     assert (live_mem / "seen.yaml").read_text() == "count: 1\n"
 
 
@@ -341,13 +409,13 @@ def test_runtime_import_allowlist_revalidated(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "failed"
-    logs = store.read_logs(h["id"])
+    logs = read_all_logs(store, h["id"])
     assert any(l["k"] == "err" and "django" in l["text"] and "isn't allowed" in l["text"] for l in logs)
     assert not any("never executes" in l["text"] for l in logs)
 
 
 def test_agent_audit_logs_full_prompt(store):
-    """§6: the FULL redacted prompt/reply are written to logs.ndjson (no 2k/10k cap)."""
+    """§6: the FULL redacted prompt/reply are written to the attempt log (no 2k/10k cap)."""
     from autodave.engine import Engine
 
     store.agents = [{"id": "mock", "harness": "Claude Code", "model": "x", "default": True}]
@@ -362,7 +430,7 @@ def test_agent_audit_logs_full_prompt(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
-    logs = store.read_logs(h["id"])
+    logs = read_all_logs(store, h["id"])
     prompt_lines = [l for l in logs if l["text"].startswith("agent prompt:")]
     assert prompt_lines and len(prompt_lines[0]["text"]) > 6000  # not truncated
     assert any(l["text"].startswith("agent reply:") for l in logs)
@@ -392,33 +460,38 @@ def test_secrets_scoped_per_step(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "failed"
-    logs = store.read_logs(h["id"])
+    logs = read_all_logs(store, h["id"])
     assert any("got one" in l["text"] for l in logs)
     assert not any("got two" in l["text"] for l in logs)
     assert any("API_TWO" in l["text"] and "not in your Keychain" in l["text"] for l in logs)
 
 
-def test_logs_ndjson_step_attribution(store):
-    """§5 on-disk log shape: {ts, t, step, k, text}; API shape stays {t, k, text}."""
+def test_log_files_per_step_attempt(store):
+    """§5 logs/ layout: one NDJSON file per (step, attempt) named
+    <stem>.a<n>.ndjson, lines {ts, t, k, seq, text} with a per-file seq."""
     from autodave.engine import Engine
 
     engine = Engine(store)
     a = store.create_automation(make_version(), "Attributed", None)
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
-    logs = store.read_logs(h["id"])
-    for l in logs:
-        assert set(l) == {"ts", "t", "step", "k", "text"}
-    by_text = {l["text"]: l for l in logs}
-    assert by_text["hello x3"]["step"] == "Say hello"
-    assert by_text["▸ Step 1 — Say hello"]["step"] == "Say hello"
-    assert by_text["▸ Step 2 — Finish"]["step"] == "Finish"
-    # API/UI-served shape unchanged
-    served = store.exec_json(h, full=True)["logs"]
-    assert all(set(l) == {"t", "k", "text"} for l in served)
+    logs_dir = store.exec_dir(h["id"]) / "logs"
+    assert (logs_dir / "01-say.a1.ndjson").exists()
+    assert (logs_dir / "02-finish.a1.ndjson").exists()
+    step1 = store.read_log(h["id"], 0, 1)
+    for l in step1:
+        assert set(l) == {"ts", "t", "k", "seq", "text"}
+    assert [l["seq"] for l in step1] == list(range(1, len(step1) + 1))
+    texts = [l["text"] for l in step1]
+    assert "▸ Step 1 — Say hello" in texts and "hello x3" in texts
+    assert any("▸ Step 2 — Finish" in l["text"] for l in store.read_log(h["id"], 1, 1))
+    # the full exec payload carries steps+attempts but never inline logs (§19)
+    served = store.exec_json(h, full=True)
+    assert "logs" not in served
+    assert [s["attempts"][0]["n"] for s in served["steps"]] == [1, 1]
 
 
-def test_run_level_log_lines_have_null_step(store):
+def test_execution_level_lines_go_to_execution_log(store):
     from autodave.engine import Engine
 
     engine = Engine(store)
@@ -427,9 +500,11 @@ def test_run_level_log_lines_have_null_step(store):
     a = store.create_automation(ver, "Attributed Fail", None)
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
-    logs = store.read_logs(h["id"])
-    final = [l for l in logs if l["text"].startswith("execution failed")]
-    assert final and final[0]["step"] is None
+    exec_log = store.read_log(h["id"])
+    assert any(l["text"].startswith("execution failed") for l in exec_log)
+    # the step's own lines are NOT in the execution log
+    assert not any("boom" in l["text"] for l in exec_log)
+    assert any("boom" in l["text"] for l in store.read_log(h["id"], 0, 1))
 
 
 def test_finished_at_persisted_and_reloaded(store):
@@ -466,7 +541,7 @@ def test_agent_step_without_enabled_agent_fails(store):
     h = engine.start(a, "Manual")
     wait_done(engine, h["id"])
     assert h["status"] == "failed"
-    assert any("needs an agent" in l["text"] for l in store.read_logs(h["id"]))
+    assert any("needs an agent" in l["text"] for l in read_all_logs(store, h["id"]))
 
 
 def test_failure_diagnostics_on_execution_record(store):

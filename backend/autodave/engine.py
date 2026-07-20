@@ -147,8 +147,7 @@ class Engine:
         self.on_finished = None  # set by the scheduler (retry-once hook)
 
     # ---------- public ----------
-    def start(self, auto: dict, trigger: str, version_label: str | None = None,
-              reuse_from: dict | None = None) -> dict:
+    def start(self, auto: dict, trigger: str, version_label: str | None = None) -> dict:
         """Create the execution record and execute it on a worker thread (§7)."""
         if auto.get("_live"):
             raise RuntimeError("already executing")
@@ -164,23 +163,46 @@ class Engine:
                 x["auto_id"] == auto["id"] and x["ver"] == ver_label
                 for x in self.store.execs.values()):
             self.store.snapshot_memory(auto, "pre-version", version=ver_label)
-        steps = [{"name": s["name"], "status": "queued", "dur_ms": None} for s in ver["steps"]]
-        start_idx = 0
-        if reuse_from:
-            start_idx = reuse_from["index"]
-            for i in range(start_idx):
-                steps[i]["status"] = "reused"
+        steps = [{"name": s["name"], "file": s.get("file"), "agent": bool(s.get("agent")),
+                  "status": "queued", "dur_ms": None, "attempts": []} for s in ver["steps"]]
         # §7: snapshot the resolved param values — the execution page shows them as used by this execution.
         h = self.store.create_execution(auto, ver_label, trigger, steps,
                                         params=self.store.merged_params(auto, ver))
-        if reuse_from:
-            src_ws = self.store.exec_dir(reuse_from["exec_id"]) / "workspace"
-            dst_ws = self.store.exec_dir(h["id"]) / "workspace"
-            if src_ws.exists():
-                shutil.rmtree(dst_ws, ignore_errors=True)
-                shutil.copytree(src_ws, dst_ws)
+        return self._launch(auto, ver, h)
+
+    def retry(self, auto: dict, h: dict) -> dict:
+        """§7 in-place retry: the same execution record re-executes from the
+        failed step as a new attempt; succeeded/skipped steps are untouched."""
+        if auto.get("_live"):
+            raise RuntimeError("already executing")
+        if h["status"] != "failed":
+            raise RuntimeError("only failed executions can be retried")
+        ver = self._resolve_version(auto, h["ver"])
+        if ver is None:
+            raise RuntimeError(f"version {h['ver']} not found")
+        full = self.store.exec_full(h["id"])
+        if full is None:
+            raise RuntimeError("execution not found")
+        h = full
+        self.store.execs[h["id"]] = h  # the live in-memory record is the full one
+        for s in h["steps"]:
+            if s["status"] == "failed":
+                s["status"] = "queued"
+        h["status"] = "executing"
+        h["finished_at"] = None
+        h["error"] = None
+        h["chip"] = None
+        h["chip_status"] = None
+        idx = next((i for i, s in enumerate(h["steps"]) if s["status"] == "queued"), None)
+        if idx is not None:
+            n = len(h["steps"][idx].get("attempts", [])) + 1
+            self._log(h, "sys", f"retrying from step {idx + 1} — attempt {n}", {})
+        self.store.update_execution(h)
+        return self._launch(auto, ver, h)
+
+    def _launch(self, auto: dict, ver: dict, h: dict) -> dict:
         state = {"proc": None, "cancel": False}
-        t = threading.Thread(target=self._execute, args=(auto, ver, h, start_idx, state), daemon=True)
+        t = threading.Thread(target=self._execute, args=(auto, ver, h, state), daemon=True)
         state["thread"] = t
         with self._lock:
             self._live[h["id"]] = state
@@ -200,11 +222,22 @@ class Engine:
             proc.terminate()
         return True
 
-    def reexecute_from_failed(self, auto: dict, old: dict, trigger: str = "Manual") -> dict:
-        """§7: earlier steps get `reused`, only the failed step onward re-executes."""
-        idx = next((i for i, s in enumerate(old["steps"]) if s["status"] == "failed"), 0)
-        return self.start(auto, trigger, version_label=old["ver"],
-                          reuse_from={"exec_id": old["id"], "index": idx})
+    def skip_step(self, exec_id: str, index: int) -> bool:
+        """§7 skip: kill the currently executing step and continue with the
+        next one. False unless `index` is the step executing right now."""
+        with self._lock:
+            state = self._live.get(exec_id)
+            if not state:
+                return False
+            h = self.store.execs.get(exec_id)
+            cur = (h or {}).get("_cur")
+            if not cur or cur["i"] != index:
+                return False
+            state["skip"] = index
+            proc = state.get("proc")
+        if proc and proc.poll() is None:
+            proc.terminate()
+        return True
 
     def is_live(self, exec_id: str) -> bool:
         with self._lock:
@@ -239,14 +272,25 @@ class Engine:
 
     def _log(self, h: dict, k: str, text: str, redactions: dict[str, str]) -> None:
         text = self._redact(h, text, redactions)
-        # On-disk shape (§5): {ts, t, step, k, text} — step is the current step
-        # name or null for execution-level lines. API/UI shape stays {t, k, text}.
+        cur = h.get("_cur")
+        name = cur["log"] if cur else self.store.EXEC_LOG
+        # Per-file monotonic seq (§5) — resumed by counting existing lines, so a
+        # retried execution's execution.ndjson keeps a gapless sequence.
+        seqs = h.setdefault("_log_seq", {})
+        if name not in seqs:
+            p = self.store.log_file(h["id"], name)
+            seqs[name] = sum(1 for _ in p.open(encoding="utf-8")) if p.exists() else 0
+        seqs[name] += 1
+        # On-disk shape (§5): {ts, t, k, seq, text} — the owning step/attempt is
+        # implicit in the filename. API/UI shape is {t, k, seq, text}.
         line = {"ts": datetime.now().isoformat(timespec="seconds"),
                 "t": datetime.now().strftime("%H:%M:%S"),
-                "step": h.get("_cur_step"), "k": k, "text": text}
-        self.store.append_log(h["id"], line)
+                "k": k, "seq": seqs[name], "text": text}
+        self.store.append_log_line(h["id"], name, line)
         hub.publish("exec.log", execId=h["id"], autoId=h["auto_id"],
-                    line={"t": line["t"], "k": k, "text": text})
+                    stepIndex=cur["i"] if cur else None,
+                    attempt=cur["n"] if cur else None,
+                    line={"t": line["t"], "k": k, "seq": line["seq"], "text": text})
 
     def _step_event(self, h: dict, i: int) -> None:
         self.store.update_execution(h)
@@ -255,9 +299,10 @@ class Engine:
 
         hub.publish("exec.step", execId=h["id"], autoId=h["auto_id"], index=i,
                     step={"name": s["name"], "status": s["status"],
-                          "dur": dur_label(s["dur_ms"]) if s.get("dur_ms") else ""})
+                          "dur": dur_label(s["dur_ms"]) if s.get("dur_ms") else "",
+                          "attempts": self.store.step_attempts_json(s)})
 
-    def _execute(self, auto: dict, ver: dict, h: dict, start_idx: int, state: dict) -> None:
+    def _execute(self, auto: dict, ver: dict, h: dict, state: dict) -> None:
         # §4.4: a draft carries its own grant selections — a Draft execution
         # honors them instead of the automation's live grants. Shadow copy only;
         # the stored automation is never touched.
@@ -267,6 +312,7 @@ class Engine:
                     else auto["enabled_agents"],
                     "allowed_secrets": ver["allowed_secrets"] if ver.get("allowed_secrets") is not None
                     else auto["allowed_secrets"]}
+        state["pass_start"] = time.time()  # §7: dur_ms accumulates across retry passes
         result: dict[str, Any] = {"status": "ok", "chip": None, "chips": [], "values": []}
         result_touched = False
         notify_text: str | None = None
@@ -354,62 +400,79 @@ class Engine:
 
             vdir = self._version_dir(auto, h["ver"])
             for i, s in enumerate(ver["steps"]):
-                if i < start_idx:
-                    continue
+                step = h["steps"][i]
+                if step["status"] in ("succeeded", "skipped"):
+                    continue  # §7 retry: terminal steps from an earlier pass never re-execute
                 if failed or state["cancel"]:
-                    h["steps"][i]["status"] = "cancelled" if state["cancel"] else "queued"
+                    step["status"] = "cancelled" if state["cancel"] else "queued"
                     self._step_event(h, i)
                     continue
-                h["steps"][i]["status"] = "executing"
-                h["_cur_step"] = s["name"]  # stamped onto every log line of this step
+                n = len(step["attempts"]) + 1
+                attempt = {"n": n, "status": "executing",
+                           "started_at": datetime.now().isoformat(timespec="seconds"),
+                           "dur_ms": None}
+                step["attempts"].append(attempt)
+                step["status"] = "executing"
+                step["dur_ms"] = None
+                h["_cur_step"] = s["name"]  # engine-error fallback for §4.5 error.step
+                h["_cur"] = {"i": i, "n": n,
+                             "log": self.store.log_name(step.get("file"), i, n)}
                 self._step_event(h, i)
                 self._log(h, "sys", f"▸ Step {i + 1} — {s['name']}", redactions)
                 t0 = time.time()
                 agent_cfg = None
+                rc = 1
+                notify_holder: dict = {}
                 if s.get("agent"):
                     agent_cfg = self._agent_for_step(auto, s)
                     if agent_cfg is None:
                         msg = f"Step {i + 1} needs an agent, but none is enabled — the execution fails here."
                         self._log(h, "err", msg, redactions)
-                        h["error"] = {"step": s["name"], "message": msg,
-                                      "reason": "No enabled agent can serve this step — enable one for this automation."}
-                        h["steps"][i]["status"] = "failed"
-                        h["steps"][i]["dur_ms"] = int((time.time() - t0) * 1000)
-                        self._step_event(h, i)
-                        failed = True
-                        continue
-                rc = self._execute_step(auto, ver, h, s, i + 1, vdir, params, secret_values, agent_cfg,
-                                    state, redactions, result, notify_holder := {})
+                        notify_holder["error"] = {
+                            "message": msg,
+                            "reason": "No enabled agent can serve this step — enable one for this automation."}
+                if not (s.get("agent") and agent_cfg is None):
+                    rc = self._execute_step(auto, ver, h, s, i + 1, vdir, params, secret_values,
+                                            agent_cfg, state, redactions, result, notify_holder)
                 if notify_holder.get("text"):
                     notify_text = notify_holder["text"]
                 if notify_holder.get("result_touched"):
                     result_touched = True
                 dur = int((time.time() - t0) * 1000)
-                h["steps"][i]["dur_ms"] = dur
+                step["dur_ms"] = dur
+                attempt["dur_ms"] = dur
+                skip = state.pop("skip", None)
                 if state["cancel"]:
-                    h["steps"][i]["status"] = "cancelled"
+                    status = "cancelled"
                     self._log(h, "sys", "execution cancelled by you — nothing else will happen", redactions)
                 elif rc == 0:
-                    h["steps"][i]["status"] = "succeeded"
+                    status = "succeeded"
+                    if skip == i:
+                        self._log(h, "sys", "skip arrived after the step finished", redactions)
+                elif skip == i:
+                    status = "skipped"
+                    self._log(h, "sys", "step skipped by you — continuing with the next step", redactions)
                 else:
-                    h["steps"][i]["status"] = "failed"
+                    status = "failed"
                     failed = True
                     # §7 failure diagnostics: the executor's structured error
                     # event (or the engine's own, e.g. a timeout) becomes the
                     # execution's error — message redacted like any log line.
                     err = notify_holder.get("error")
-                    h["error"] = {
-                        "step": s["name"],
-                        "message": self._redact(h, (err or {}).get("message")
-                                                or f"step failed (exit code {rc})", redactions),
-                        "reason": (err or {}).get("reason") or failure_reason(rc, err),
-                    }
+                    message = self._redact(h, (err or {}).get("message")
+                                           or f"step failed (exit code {rc})", redactions)
+                    reason = (err or {}).get("reason") or failure_reason(rc, err)
+                    attempt["error"] = {"message": message, "reason": reason}
+                    h["error"] = {"step": s["name"], "message": message, "reason": reason}
+                step["status"] = status
+                attempt["status"] = status
                 self._step_event(h, i)
                 h["_cur_step"] = None
+                h["_cur"] = None
             # ---- finalize ----
             h["_cur_step"] = None
-            started = datetime.fromisoformat(h["started_at"])
-            h["dur_ms"] = int((datetime.now() - started).total_seconds() * 1000)
+            h["_cur"] = None
+            h["dur_ms"] = (h["dur_ms"] or 0) + int((time.time() - state["pass_start"]) * 1000)
             if state["cancel"]:
                 h["status"] = "cancelled"
             elif failed:

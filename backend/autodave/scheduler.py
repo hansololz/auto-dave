@@ -120,7 +120,8 @@ class Scheduler:
                     old = self.store._latest_exec(a["id"])
                     try:
                         if old and old["status"] == "failed":
-                            self.engine.reexecute_from_failed(a, old, trigger=retry[1])
+                            # §6/§7: in-place retry — same record, new attempt.
+                            self.engine.retry(a, old)
                         else:
                             self.engine.start(a, retry[1])
                     except RuntimeError:

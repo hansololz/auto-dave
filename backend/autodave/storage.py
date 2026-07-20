@@ -1,9 +1,11 @@
-"""Storage (§5): YAML/markdown files for automations, SQLite for execution records.
+"""Storage (§5): YAML/markdown files everywhere; SQLite only as an index.
 
 All derived state lives in memory (`Store`) and is rebuilt from disk at every
 startup. Every write goes disk-first (atomic file / DB transaction), then
-memory updates. Execution logs, results, and workspaces stay as files under
-`executions/<uuid>/`; only the execution header lives in the DB (execdb.py).
+memory updates. Each execution's full record is `executions/<uuid>/executions.yaml`
+(steps with attempts, params, error, notes); per-step-attempt logs live under
+`executions/<uuid>/logs/`; `executions.db` (execdb.py) holds only the header
+rows the list surfaces need.
 """
 from __future__ import annotations
 
@@ -533,11 +535,17 @@ class Store:
                 "finished_at": None,
                 "dur_ms": None, "note": note, "chip": None, "chip_status": None,
                 "error": None, "redacted": [],
-                "steps": [{"name": s["name"], "status": s.get("status", "queued"), "dur_ms": s.get("dur_ms")} for s in steps],
+                "steps": [{"name": s["name"], "file": s.get("file"),
+                           "agent": bool(s.get("agent")),
+                           "status": s.get("status", "queued"),
+                           "dur_ms": s.get("dur_ms"),
+                           "attempts": s.get("attempts", [])} for s in steps],
             }
             d = self.exec_dir(h["id"])
             (d / "workspace").mkdir(parents=True, exist_ok=True)
             (d / "result").mkdir(parents=True, exist_ok=True)
+            (d / "logs").mkdir(parents=True, exist_ok=True)
+            self.write_exec_yaml(h)
             self.execdb.upsert(h)
             self.execs[h["id"]] = h
             if status == "executing":
@@ -548,9 +556,16 @@ class Store:
 
     def update_execution(self, h: dict) -> None:
         with self.lock:
+            self.write_exec_yaml(h)
             self.execdb.upsert(h)
-            if h["status"] != "executing":
-                a = self.autos.get(h["auto_id"])
+            a = self.autos.get(h["auto_id"])
+            if h["status"] == "executing":
+                # in-place retry flips a terminal record back to executing (§7)
+                if a:
+                    a["_live"] = h["id"]
+                    a["_last_status"] = "executing"
+                    a["_last_exec_at"] = h["started_at"]
+            else:
                 if a and a.get("_live") == h["id"]:
                     a["_live"] = None
                 if a:
@@ -559,20 +574,89 @@ class Store:
                         a["_last_status"] = latest["status"]
                         a["_last_exec_at"] = latest["started_at"]
 
-    def append_log(self, exec_id: str, line: dict) -> None:
+    # ---------- execution record yaml (§5 executions.yaml) ----------
+    def exec_yaml_path(self, exec_id: str) -> Path:
+        return self.exec_dir(exec_id) / "executions.yaml"
+
+    def write_exec_yaml(self, h: dict) -> None:
+        save_yaml(self.exec_yaml_path(h["id"]), {
+            "id": h["id"],
+            "automation_id": h["auto_id"],
+            "automation_name": h["auto_name"],
+            "version": h["ver"],
+            "status": h["status"],
+            "trigger": h["trigger"],
+            "started_at": h["started_at"],
+            "finished_at": h["finished_at"],
+            "dur_ms": h["dur_ms"],
+            "note": h["note"],
+            "chip": h.get("chip"),
+            "chip_status": h.get("chip_status"),
+            "error": h.get("error"),
+            "redacted_secrets": h["redacted"],
+            "params": h.get("params", []),
+            "steps": h["steps"],
+        })
+
+    def read_exec_yaml(self, exec_id: str) -> dict | None:
+        y = load_yaml(self.exec_yaml_path(exec_id))
+        if not y:
+            return None
+        return {
+            "id": y.get("id", exec_id), "auto_id": y.get("automation_id"),
+            "auto_name": y.get("automation_name"), "ver": y.get("version"),
+            "status": y.get("status"), "trigger": y.get("trigger"),
+            "started_at": y.get("started_at"), "finished_at": y.get("finished_at"),
+            "dur_ms": y.get("dur_ms"), "note": y.get("note"),
+            "chip": y.get("chip"), "chip_status": y.get("chip_status"),
+            "error": y.get("error"), "redacted": y.get("redacted_secrets") or [],
+            "params": y.get("params") or [], "steps": y.get("steps") or [],
+        }
+
+    def exec_full(self, exec_id: str) -> dict | None:
+        """Full record: the live/in-memory record when it already has a body,
+        else the header merged with `executions.yaml` (§5 bodies-lazily)."""
+        with self.lock:
+            h = self.execs.get(exec_id)
+            if h is None:
+                return None
+            if "steps" in h:
+                return h
+            body = self.read_exec_yaml(exec_id)
+            return {**h, **body} if body else {**h, "steps": [], "redacted": [], "params": []}
+
+    # ---------- logs (§5 logs/, one file per step attempt) ----------
+    EXEC_LOG = "execution.ndjson"
+
+    @staticmethod
+    def log_name(step_file: str | None, index: int, attempt: int) -> str:
+        stem = Path(step_file).stem if step_file else f"{index + 1:02d}-step"
+        return f"{stem}.a{attempt}.ndjson"
+
+    def log_file(self, exec_id: str, name: str) -> Path:
+        return self.exec_dir(exec_id) / "logs" / name
+
+    def append_log_line(self, exec_id: str, name: str, line: dict) -> None:
         import json
 
-        p = self.exec_dir(exec_id) / "logs.ndjson"
+        p = self.log_file(exec_id, name)
+        p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "a", encoding="utf-8") as f:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
-    def write_result(self, exec_id: str, result: dict) -> None:
-        save_yaml(self.exec_dir(exec_id) / "result" / "result.yaml", result)
-
-    def read_logs(self, exec_id: str) -> list[dict]:
+    def read_log(self, exec_id: str, step_idx: int | None = None,
+                 attempt: int | None = None) -> list[dict]:
         import json
 
-        p = self.exec_dir(exec_id) / "logs.ndjson"
+        if step_idx is None:
+            name = self.EXEC_LOG
+        else:
+            full = self.exec_full(exec_id)
+            steps = (full or {}).get("steps") or []
+            if step_idx < 0 or step_idx >= len(steps):
+                return []
+            name = self.log_name(steps[step_idx].get("file"), step_idx, attempt or 1)
+        p = self.log_file(exec_id, name)
         if not p.exists():
             return []
         out = []
@@ -582,6 +666,9 @@ class Store:
             except ValueError:
                 pass
         return out
+
+    def write_result(self, exec_id: str, result: dict) -> None:
+        save_yaml(self.exec_dir(exec_id) / "result" / "result.yaml", result)
 
     def read_result(self, exec_id: str) -> dict | None:
         return load_yaml(self.exec_dir(exec_id) / "result" / "result.yaml")
@@ -879,6 +966,15 @@ class Store:
             })
         return out
 
+    def step_attempts_json(self, s: dict) -> list[dict]:
+        out = []
+        for a in s.get("attempts", []):
+            adt = datetime.fromisoformat(a["started_at"]) if a.get("started_at") else None
+            out.append({"n": a["n"], "status": a["status"],
+                        "dur": timefmt.dur_label(a["dur_ms"]) if a.get("dur_ms") else "",
+                        "startedMs": int(adt.timestamp() * 1000) if adt else 0})
+        return out
+
     def exec_json(self, h: dict, full: bool = False) -> dict:
         dt = datetime.fromisoformat(h["started_at"]) if h["started_at"] else None
         out: dict[str, Any] = {
@@ -891,15 +987,16 @@ class Store:
             "startedMs": int(dt.timestamp() * 1000) if dt else 0,
             "note": h["note"],
             "error": h.get("error"),
-            "steps": [{"name": s["name"], "status": s["status"], "dur": timefmt.dur_label(s["dur_ms"]) if s.get("dur_ms") else ""}
-                      for s in h["steps"]],
         }
         if full:
-            logs = self.read_logs(h["id"])
-            out["logs"] = [{"t": l.get("t", ""), "k": l.get("k", "out"), "text": l.get("text", "")} for l in logs]
+            f = h if "steps" in h else (self.exec_full(h["id"]) or {**h, "steps": [], "redacted": [], "params": []})
+            out["steps"] = [{"name": s["name"], "status": s["status"],
+                             "dur": timefmt.dur_label(s["dur_ms"]) if s.get("dur_ms") else "",
+                             "attempts": self.step_attempts_json(s)}
+                            for s in f["steps"]]
             out["result"] = self.result_json(h)
-            out["redact"] = ", ".join(h["redacted"]) if h["redacted"] else None
-            out["params"] = h.get("params", [])
+            out["redact"] = ", ".join(f["redacted"]) if f.get("redacted") else None
+            out["params"] = f.get("params", [])
         return out
 
 

@@ -23,7 +23,6 @@ export function badgeOf(status: Status | string): { label: string; c: string; bg
     failed: ['Failed', P.red, P.redBg],
     cancelled: ['Cancelled', P.gray, P.grayBg],
     skipped: ['Skipped', P.gray, P.grayBg],
-    reused: ['Reused', P.gray, P.grayBg],
     interrupted: ['Interrupted', P.magenta, P.magentaBg],
     none: ['Not executed yet', P.gray, P.grayBg],
   }

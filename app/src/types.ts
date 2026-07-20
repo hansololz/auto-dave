@@ -2,7 +2,7 @@
 
 export type Status =
   | 'queued' | 'executing' | 'succeeded' | 'failed' | 'cancelled'
-  | 'skipped' | 'reused' | 'interrupted' | 'none'
+  | 'skipped' | 'interrupted' | 'none'
 
 export interface ParamDef {
   name: string
@@ -146,7 +146,11 @@ export interface MemorySnapshot {
   files: number
 }
 
-export interface ExecStep { name: string; status: Status; dur: string }
+// §4.5: one entry per execution of a step — a step's status is its latest
+// attempt's status; logs are fetched lazily per (step, attempt) (§19).
+export interface Attempt { n: number; status: Status; dur: string; startedMs: number }
+export interface ExecStep { name: string; status: Status; dur: string; attempts: Attempt[] }
+export interface LogLine { t: string; k: 'sys' | 'out' | 'wrn' | 'err'; seq: number; text: string }
 
 export interface Exec {
   id: string
@@ -162,8 +166,8 @@ export interface Exec {
   note: string | null
   // §4.5 failure diagnostics — failed executions only
   error: { step: string | null; message: string; reason: string | null } | null
-  steps: ExecStep[]
-  logs?: { t: string; k: 'sys' | 'out' | 'wrn' | 'err'; text: string }[]
+  // full record only (§19 GET /executions/{id}) — absent on list headers
+  steps?: ExecStep[]
   result?: ExecResult | null
   redact?: string | null
   params?: ParamDef[]

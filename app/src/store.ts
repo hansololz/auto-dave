@@ -1,7 +1,7 @@
 // One central model drives everything (§4 top-level, §9 navigation).
 import { create } from 'zustand'
 import { api, connectInfo, openWs } from './api'
-import type { Agent, Auto, Blocker, Exec, ExecResult, SecretMeta, Settings, StateSnapshot } from './types'
+import type { Agent, Auto, Blocker, Exec, ExecResult, LogLine, SecretMeta, Settings, StateSnapshot } from './types'
 
 export type Surface = 'onboard' | 'app' | 'create' | 'menubar'
 export type Page =
@@ -29,6 +29,9 @@ export interface Model {
 
   toast: string | null
   execFull: Record<string, Exec>
+  // §19 lazy logs, per execution: logKey(step, attempt) → fetched lines,
+  // extended live by matching exec.log events (deduped by seq)
+  execLogs: Record<string, Record<string, LogLine[]>>
   // §11 test — live state fed by the §19 test.* WS events. `analyzing` is
   // the window between a failed test and its §8 issue-analysis result; `issue`
   // holds the analysis blockers until CreateFlow consumes them into its panel.
@@ -51,6 +54,7 @@ export interface Model {
   setSurface(s: Surface, from?: 'app' | 'onboard' | 'edit' | null): void
   showToast(msg: string, ms?: number): void
   loadExec(execId: string): Promise<void>
+  loadExecLogs(execId: string, step?: number, attempt?: number): Promise<void>
   loadAuto(autoId: string): Promise<void>
   beginTest(testId: string): void
   clearTest(): void
@@ -78,6 +82,7 @@ export const useStore = create<Model>((set, get) => ({
   createFrom: null,
   toast: null,
   execFull: {},
+  execLogs: {},
   test: null,
   ollamaPull: null,
 
@@ -132,7 +137,9 @@ export const useStore = create<Model>((set, get) => ({
         const rest = m.execs.filter((e) => e.id !== ej.id)
         set({ execs: [ej, ...rest].sort((a, b) => b.startedMs - a.startedMs) })
         const full = m.execFull[ej.id]
-        if (full) set({ execFull: { ...m.execFull, [ej.id]: { ...full, ...ej, logs: full.logs, result: full.result } } })
+        // ej is a header (no steps/result) — merging keeps the full record's body
+        if (full) set({ execFull: { ...m.execFull, [ej.id]: { ...full, ...ej } } })
+        if (ev === 'exec.started' && full) void m.loadExec(ej.id) // §7 retry re-publish: re-fetch steps/attempts
         if (ev === 'exec.finished') {
           void m.refresh()
           void m.loadExec(ej.id)
@@ -152,24 +159,33 @@ export const useStore = create<Model>((set, get) => ({
       return
     }
     if (ev === 'exec.step') {
+      // Steps live only on the full record (§19: list headers carry none).
       const execId = msg.execId as string
       const idx = msg.index as number
-      const step = msg.step as Exec['steps'][number]
-      const patchSteps = (e: Exec) => ({ ...e, steps: e.steps.map((s, i) => (i === idx ? step : s)) })
-      set({
-        execs: m.execs.map((e) => (e.id === execId ? patchSteps(e) : e)),
-        execFull: m.execFull[execId]
-          ? { ...m.execFull, [execId]: patchSteps(m.execFull[execId]) }
-          : m.execFull,
-      })
+      const step = msg.step as NonNullable<Exec['steps']>[number]
+      const full = m.execFull[execId]
+      if (full?.steps) {
+        set({
+          execFull: {
+            ...m.execFull,
+            [execId]: { ...full, steps: full.steps.map((s, i) => (i === idx ? step : s)) },
+          },
+        })
+      }
       return
     }
     if (ev === 'exec.log') {
       const execId = msg.execId as string
-      const full = m.execFull[execId]
-      if (full) {
-        const line = msg.line as NonNullable<Exec['logs']>[number]
-        set({ execFull: { ...m.execFull, [execId]: { ...full, logs: [...(full.logs ?? []), line] } } })
+      const key = logKey(msg.stepIndex as number | null, msg.attempt as number | null)
+      const buckets = m.execLogs[execId]
+      const bucket = buckets?.[key]
+      if (bucket) {
+        const line = msg.line as LogLine
+        // seq dedupe: a line already covered by a fetched snapshot is dropped
+        const last = bucket.length ? bucket[bucket.length - 1].seq : 0
+        if (line.seq > last) {
+          set({ execLogs: { ...m.execLogs, [execId]: { ...buckets, [key]: [...bucket, line] } } })
+        }
       }
       return
     }
@@ -246,6 +262,20 @@ export const useStore = create<Model>((set, get) => ({
     } catch { /* deleted */ }
   },
 
+  async loadExecLogs(execId, step, attempt) {
+    try {
+      const { lines } = await api.getExecLogs(execId, step, attempt)
+      const all = get().execLogs
+      const buckets = all[execId] ?? {}
+      const key = logKey(step ?? null, attempt ?? null)
+      const bucket = buckets[key]
+      // keep WS lines that streamed in past the fetched snapshot
+      const seq = lines.length ? lines[lines.length - 1].seq : 0
+      const tail = bucket ? bucket.filter((l) => l.seq > seq) : []
+      set({ execLogs: { ...all, [execId]: { ...buckets, [key]: [...lines, ...tail] } } })
+    } catch { /* deleted */ }
+  },
+
   async loadAuto(autoId) {
     try {
       const a = await api.getAuto(autoId)
@@ -269,6 +299,11 @@ export const useStore = create<Model>((set, get) => ({
     if (t) set({ test: { ...t, issue: null } })
   },
 }))
+
+// §19 log buckets: step+attempt select an attempt file, null/null the execution log.
+export function logKey(step: number | null, attempt: number | null) {
+  return step === null ? 'x.0' : `${step}.${attempt ?? 1}`
+}
 
 function updateTrayAlert(autos: Auto[]) {
   void window.autodave?.trayAlert(autos.some((a) => a.lastStatus === 'failed'))

@@ -1,16 +1,17 @@
-"""SQLite store for execution records (§5) — the one exception to file-first storage.
+"""SQLite index over execution headers (§5).
 
-`<dataPath>/executions/executions.db` holds the metadata that was previously
-`execution.yaml`; logs (NDJSON), results, and workspaces stay as files under
-`executions/<uuid>/`. The connection is shared across threads and every call
-happens under `Store.lock` (check_same_thread=False relies on that).
+`<dataPath>/executions/executions.db` is a pure list/filter index: the
+authoritative record is `executions/<uuid>/executions.yaml`, and the engine
+writes both together (yaml first). The connection is shared across threads and
+every call happens under `Store.lock` (check_same_thread=False relies on that).
 """
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+
+SCHEMA_VERSION = 2
 
 DDL = """
 CREATE TABLE IF NOT EXISTS executions (
@@ -28,17 +29,7 @@ CREATE TABLE IF NOT EXISTS executions (
   chip_status      TEXT,
   error_step       TEXT,
   error_message    TEXT,
-  error_reason     TEXT,
-  redacted_secrets TEXT NOT NULL DEFAULT '[]',
-  params           TEXT NOT NULL DEFAULT '[]'
-);
-CREATE TABLE IF NOT EXISTS execution_steps (
-  execution_id TEXT NOT NULL REFERENCES executions(id) ON DELETE CASCADE,
-  idx          INTEGER NOT NULL,
-  name         TEXT NOT NULL,
-  status       TEXT NOT NULL,
-  dur_ms       INTEGER,
-  PRIMARY KEY (execution_id, idx)
+  error_reason     TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_exec_page   ON executions (started_at DESC, id);
 CREATE INDEX IF NOT EXISTS ix_exec_auto   ON executions (automation_id, started_at DESC);
@@ -59,53 +50,45 @@ class ExecDB:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA foreign_keys=ON")
+        if self.conn.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
+            with self.conn:
+                self.conn.execute("DROP TABLE IF EXISTS execution_steps")
+                self.conn.execute("DROP TABLE IF EXISTS executions")
+                self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         self.conn.executescript(DDL)
 
     def close(self) -> None:
         self.conn.close()
 
     def upsert(self, h: dict) -> None:
-        """Write a full execution header (internal shape, ISO timestamps)."""
+        """Write an execution header row (internal shape, ISO timestamps)."""
+        err = h.get("error") or {}
         with self.conn:
             self.conn.execute(
                 'INSERT INTO executions (id, automation_id, automation_name, version, status,'
                 ' "trigger", started_at, finished_at, dur_ms, note, chip, chip_status,'
-                " error_step, error_message, error_reason, redacted_secrets, params)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                " error_step, error_message, error_reason)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 " ON CONFLICT(id) DO UPDATE SET"
                 " automation_name=excluded.automation_name, status=excluded.status,"
                 " finished_at=excluded.finished_at, dur_ms=excluded.dur_ms, note=excluded.note,"
                 " chip=excluded.chip, chip_status=excluded.chip_status,"
                 " error_step=excluded.error_step, error_message=excluded.error_message,"
-                " error_reason=excluded.error_reason,"
-                " redacted_secrets=excluded.redacted_secrets, params=excluded.params",
+                " error_reason=excluded.error_reason",
                 (h["id"], h["auto_id"], h["auto_name"], h["ver"], h["status"], h["trigger"],
                  _ms(h["started_at"]), _ms(h.get("finished_at")), h["dur_ms"], h["note"],
                  h.get("chip"), h.get("chip_status"),
-                 (h.get("error") or {}).get("step"), (h.get("error") or {}).get("message"),
-                 (h.get("error") or {}).get("reason"),
-                 json.dumps(h["redacted"]), json.dumps(h.get("params", []))))
-            self.conn.execute("DELETE FROM execution_steps WHERE execution_id=?", (h["id"],))
-            self.conn.executemany(
-                "INSERT INTO execution_steps (execution_id, idx, name, status, dur_ms) VALUES (?,?,?,?,?)",
-                [(h["id"], i, s["name"], s["status"], s.get("dur_ms"))
-                 for i, s in enumerate(h["steps"])])
+                 err.get("step"), err.get("message"), err.get("reason")))
 
     def load_all(self) -> dict[str, dict]:
-        steps: dict[str, list[dict]] = {}
-        for eid, name, status, dur_ms in self.conn.execute(
-                "SELECT execution_id, name, status, dur_ms FROM execution_steps ORDER BY execution_id, idx"):
-            steps.setdefault(eid, []).append({"name": name, "status": status, "dur_ms": dur_ms})
         out: dict[str, dict] = {}
         for row in self.conn.execute(
                 'SELECT id, automation_id, automation_name, version, status, "trigger",'
                 " started_at, finished_at, dur_ms, note, chip, chip_status,"
-                " error_step, error_message, error_reason,"
-                " redacted_secrets, params FROM executions"):
+                " error_step, error_message, error_reason FROM executions"):
             (eid, auto_id, auto_name, ver, status, trigger,
              started, finished, dur_ms, note, chip, chip_status,
-             err_step, err_message, err_reason, redacted, params) = row
+             err_step, err_message, err_reason) = row
             out[eid] = {
                 "id": eid, "auto_id": auto_id, "auto_name": auto_name, "ver": ver,
                 "status": status, "trigger": trigger,
@@ -114,8 +97,6 @@ class ExecDB:
                 "chip": chip, "chip_status": chip_status,
                 "error": {"step": err_step, "message": err_message, "reason": err_reason}
                          if err_message else None,
-                "redacted": json.loads(redacted), "params": json.loads(params),
-                "steps": steps.get(eid, []),
             }
         return out
 

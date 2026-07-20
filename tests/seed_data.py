@@ -327,30 +327,48 @@ def seed(store: Store) -> None:
         ("out", "result saved · execution finished in 24.8s"),
     ]
 
+    def _step_file(i, name):
+        return f"{i + 1:02d}-{re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')}.py"
+
     def put_exec(auto, ver, status, trigger, started, dur_ms, steps, logs, result=None,
                  note=None, redacted=None, files=None):
-        h = store.create_execution(auto, ver, trigger,
-                                   [{"name": n, "status": st, "dur_ms": d} for n, st, d in steps],
+        started_iso = started.isoformat(timespec="seconds")
+        # Step entries are (name, status, dur) — one attempt unless queued — or
+        # (name, status, dur, [(att_status, att_dur), …]) for retried steps.
+        step_dicts = []
+        for i, entry in enumerate(steps):
+            name, st, d = entry[0], entry[1], entry[2]
+            att_spec = entry[3] if len(entry) > 3 else ([(st, d)] if st != "queued" else [])
+            step_dicts.append({
+                "name": name, "file": _step_file(i, name), "agent": False,
+                "status": st, "dur_ms": d,
+                "attempts": [{"n": j + 1, "status": a_st, "started_at": started_iso,
+                              "dur_ms": a_d} for j, (a_st, a_d) in enumerate(att_spec)]})
+        h = store.create_execution(auto, ver, trigger, step_dicts,
                                    note=note, status="executing")
-        h["started_at"] = started.isoformat(timespec="seconds")
+        h["started_at"] = started_iso
         h["status"] = status
         h["dur_ms"] = dur_ms
         h["redacted"] = redacted or []
         if status in ("succeeded", "failed", "cancelled", "interrupted"):
             h["finished_at"] = (started + timedelta(milliseconds=dur_ms or 0)).isoformat(timespec="seconds")
-        # Log lines carry the step they belong to ({ts, t, step, k, text}); a
-        # "▸ Step N — name" sys marker belongs to that step, later lines inherit
-        # it, and lines before any marker are execution-level (step: null).
-        step_names = [n for n, _, _ in steps]
+        # Log lines route by file (§5 logs/): a "▸ Step N — name" sys marker
+        # switches to that step's latest attempt's file; lines before any
+        # marker are execution-level (execution.ndjson).
         step_mark = re.compile(r"^▸ Step (\d+)")
-        cur_step = None
+        cur = None
+        seqs: dict[str, int] = {}
         for i, (k, text) in enumerate(logs):
             m = step_mark.match(text)
-            if k == "sys" and m and 0 < int(m.group(1)) <= len(step_names):
-                cur_step = step_names[int(m.group(1)) - 1]
+            if k == "sys" and m and 0 < int(m.group(1)) <= len(step_dicts):
+                si = int(m.group(1)) - 1
+                sd = step_dicts[si]
+                cur = store.log_name(sd["file"], si, max(1, len(sd["attempts"])))
+            name = cur or store.EXEC_LOG
+            seqs[name] = seqs.get(name, 0) + 1
             t = (started + timedelta(seconds=1 + i * 2)).strftime("%H:%M:%S")
-            store.append_log(h["id"], {"ts": started.isoformat(timespec="seconds"), "t": t,
-                                       "step": cur_step, "k": k, "text": text})
+            store.append_log_line(h["id"], name, {"ts": started_iso, "t": t, "k": k,
+                                                  "seq": seqs[name], "text": text})
         if result:
             # chip + status live on the execution header; result.yaml keeps chips/values
             h["chip"] = result.get("chip")
@@ -461,13 +479,14 @@ def seed(store: Store) -> None:
               ("out", "38 filed into 2026-06")],
              {"status": "ok", "chip": "All good", "chips": ["38 screenshots filed"],
               "values": [{"name": "Summary", "value": "The desktop is clean. Screenshots went into 2026-06."}]})
-    # one reused-status example: a re-execution of the failed report where early steps were reused
-    put_exec(report, "v5", "failed", "Manual", monday9 + timedelta(hours=2), 4200,
-             [("Gather the week’s numbers", "reused", None),
-              ("Write the summary", "reused", None),
-              ("Send the email", "failed", 4200),
+    # §16: a failed execution retried in place — the failing step carries two attempts
+    put_exec(report, "v5", "failed", "Manual", monday9 + timedelta(hours=2), 16600,
+             [("Gather the week’s numbers", "succeeded", 5800),
+              ("Write the summary", "succeeded", 3100),
+              ("Send the email", "failed", 4200, [("failed", 3500), ("failed", 4200)]),
               ("Record the send", "queued", None)],
-             [("sys", "▸ Step 3 — Send the email (steps 1–2 reused from the earlier execution)"),
+             [("sys", "retrying from step 3 — attempt 2"),
+              ("sys", "▸ Step 3 — Send the email"),
               ("err", "sign-in failed — the server rejected the password (535)")],
              redacted=["SMTP_PASSWORD"])
     store._refresh_exec_derived()

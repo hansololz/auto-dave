@@ -598,10 +598,20 @@ def list_execs(auto: str | None = None, status: str | None = None) -> list[dict]
 
 @app.get("/executions/{exec_id}", dependencies=[Depends(auth)])
 def get_exec(exec_id: str) -> dict:
-    h = store.execs.get(exec_id)
+    h = store.exec_full(exec_id)
     if not h:
         raise HTTPException(404, "execution not found")
     return store.exec_json(h, full=True)
+
+
+@app.get("/executions/{exec_id}/logs", dependencies=[Depends(auth)])
+def get_exec_logs(exec_id: str, step: int | None = None, attempt: int | None = None) -> dict:
+    """§19: lazy per-step-attempt log — no params selects the execution log."""
+    if exec_id not in store.execs:
+        raise HTTPException(404, "execution not found")
+    lines = store.read_log(exec_id, step, attempt)
+    return {"lines": [{"t": l.get("t", ""), "k": l.get("k", "out"),
+                       "seq": l.get("seq", 0), "text": l.get("text", "")} for l in lines]}
 
 
 @app.get("/executions/{exec_id}/result/{name}", dependencies=[Depends(auth)])
@@ -623,17 +633,29 @@ def cancel_exec(exec_id: str) -> dict:
     return {"ok": engine.cancel(exec_id)}
 
 
-@app.post("/executions/{exec_id}/reexecute", dependencies=[Depends(auth)])
-def reexecute_exec(exec_id: str) -> dict:
+@app.post("/executions/{exec_id}/retry", dependencies=[Depends(auth)])
+def retry_exec(exec_id: str) -> dict:
     h = store.execs.get(exec_id)
     if not h:
         raise HTTPException(404, "execution not found")
     a = _auto_or_404(h["auto_id"])
     try:
-        h2 = engine.reexecute_from_failed(a, h)
+        h2 = engine.retry(a, h)
     except RuntimeError as e:
         raise HTTPException(409, str(e)) from e
     return {"execId": h2["id"]}
+
+
+@app.post("/executions/{exec_id}/skip-step", dependencies=[Depends(auth)])
+def skip_step(exec_id: str, body: dict) -> dict:
+    if exec_id not in store.execs:
+        raise HTTPException(404, "execution not found")
+    index = body.get("index")
+    if not isinstance(index, int):
+        raise HTTPException(422, "index required")
+    if not engine.skip_step(exec_id, index):
+        raise HTTPException(409, "that step isn't executing right now")
+    return {"ok": True}
 
 
 # ---------- agents ----------
@@ -841,14 +863,19 @@ async def _bind_loop() -> None:
     hub.bind_loop(asyncio.get_running_loop())
     # §3: never resume as 'executing' after a restart — mark stale records interrupted.
     with store.lock:
-        for h in store.execs.values():
+        for h in list(store.execs.values()):
             if h["status"] == "executing" and not engine.is_live(h["id"]):
-                h["status"] = "interrupted"
-                h["note"] = h["note"] or "backend restarted mid-execution"
-                for s in h["steps"]:
-                    if s["status"] in ("executing", "queued"):
-                        s["status"] = "interrupted" if s["status"] == "executing" else "queued"
-                store.update_execution(h)
+                full = store.exec_full(h["id"]) or {**h, "steps": [], "redacted": [], "params": []}
+                full["status"] = "interrupted"
+                full["note"] = full["note"] or "backend restarted mid-execution"
+                for s in full["steps"]:
+                    if s["status"] == "executing":
+                        s["status"] = "interrupted"
+                        for a in s.get("attempts", []):
+                            if a["status"] == "executing":
+                                a["status"] = "interrupted"
+                store.execs[full["id"]] = full
+                store.update_execution(full)
         store._refresh_exec_derived()
     hub.publish("auto.changed")
 

@@ -334,16 +334,24 @@ id: uuid, autoId: uuid, ver ("v3" or "Draft"), status,
 trigger: Manual | Menu bar | Cron | Once | App start (future: Discord | iMessage | Pub/Sub) —
   the label of what started the execution (§4.3 kinds map cron → "Cron", time → "Once",
   app_start → "App start")
-dur, started ("Today, 8:00 AM"), startedMs
-steps: [{ name, status, dur }]
-logs: [{ t, k: sys|out|wrn|err, text }]
+dur, started ("Today, 8:00 AM"), startedMs — dur accumulates across in-place retry passes (§7);
+  started never changes on retry
+steps: [{ name, file, status, dur, attempts: [{ n, status, dur, startedMs }] }] — file is the
+  version-folder script filename (keys the per-attempt log files, §5); a step's status equals
+  its latest attempt's status, or queued when it has no attempts yet; attempt statuses use the
+  step vocabulary (§4.6); dur is the latest attempt's duration
 result: result object | null
 redact: secret names redacted in logs (joined string) | null
 note: optional note ("previous execution still in progress", "Mac went to sleep") | null
 error: { step, message, reason | null } | null — failed executions only: the failing step's
   name, its error message (redacted), and a plain-word possible reason when the engine can
-  classify the failure (§7 failure diagnostics)
+  classify the failure (§7 failure diagnostics). The same error is also stored on the failing
+  attempt ({ message, reason }); the execution-level field mirrors the latest failing attempt
+  and is cleared by a retry pass that succeeds (attempt history keeps the old error)
 ```
+
+Logs are not part of the record payload: they live as per-step-attempt NDJSON files in the
+execution directory (§5) and are fetched lazily per selected step/attempt (§19).
 
 Result object:
 ```
@@ -380,7 +388,11 @@ list rendering (loaded only when the execution is opened).
 ### 4.6 Statuses (single badge vocabulary, executions and steps)
 
 queued (gray) · executing (cyan) · succeeded (green) · failed (red) · cancelled (gray) ·
-skipped (gray) · reused (gray) · interrupted (magenta) · none → "Not executed yet" (gray).
+skipped (gray) · interrupted (magenta) · none → "Not executed yet" (gray).
+
+The same vocabulary applies to executions, steps, and step attempts. `skipped` on an
+execution means the whole occurrence was skipped by the scheduler (§6); on a step it means
+the user skipped that step mid-execution (§7).
 
 ### 4.7 Agent
 
@@ -440,10 +452,12 @@ the single **Developer mode** toggle row (devMode above).
 
 ## 5. Storage (decided)
 
-**File-first for automations: YAML/markdown files are their only persistence. Execution records
-are the one exception — they live in a SQLite database (`<dataPath>/executions/executions.db`);
-their logs, results, and workspaces stay as files. All derived state lives in memory and is
-rebuilt from disk at every startup.**
+**File-first everywhere: YAML/markdown files are the persistence. Each execution's full record
+lives in `executions.yaml` inside its execution directory — the directory is fully
+self-contained (record + logs + workspace + result). A SQLite database
+(`<dataPath>/executions/executions.db`) exists only as a list/filter index over the execution
+headers; the yaml is authoritative. All derived state lives in memory and is rebuilt from disk
+at every startup.**
 
 On-disk layout under `~/Library/Application Support/Auto Dave/`:
 
@@ -567,24 +581,38 @@ automations stay put):
 
 ```
 executions/
-  executions.db                # SQLite (WAL) — the execution records, source of truth:
+  executions.db                # SQLite (WAL) — a pure list/filter INDEX over execution
+                               # headers; `executions.yaml` is authoritative, the engine
+                               # writes both together (yaml first). One table:
                                #   executions: id (uuid PK), automation_id, automation_name
                                #     (snapshot at execution time — display fallback only),
                                #     version ("v3"/"Draft"), status, trigger, started_at /
                                #     finished_at (epoch ms; finished_at NULL while executing),
                                #     dur_ms, note, chip / chip_status (§4.5 — NULL when the
                                #     execution set no chip), error_step / error_message /
-                               #     error_reason (§4.5 — NULL unless failed),
-                               #     redacted_secrets (JSON), params (JSON)
-                               #   execution_steps: execution_id, idx, name, status, dur_ms
+                               #     error_reason (§4.5 — NULL unless failed; denormalized
+                               #     mirrors so list surfaces render without a yaml read)
                                #   indexes: (started_at DESC, id), (automation_id, started_at),
                                #     (status, started_at)
   <execution-uuid>/
-    logs.ndjson                # append-only {ts, t, step, k: sys|out|wrn|err, text} —
-                               # step = owning step name, null for execution-level lines
+    executions.yaml            # the full execution record (§4.5): header fields plus
+                               # params (snapshot), redacted_secrets, error, note, and
+                               # steps[] with per-step attempts[] ({n, status, started_at,
+                               # dur_ms, error? on failed attempts}); rewritten atomically
+                               # (temp+rename) on every transition
+    logs/
+      execution.ndjson         # execution-scoped log lines: package installs, secret
+                               # failures, retry markers, the final failure line
+      <stem>.a<n>.ndjson       # one log file per (step, attempt) — <stem> is the step's
+                               # script file stem ("01-fetch-pages"), n the attempt number;
+                               # line shape {ts, t, k: sys|out|wrn|err, seq, text}; seq is
+                               # a per-file monotonic counter (renderer dedupe, §19); the
+                               # file for (step, attempt) is derived by convention from
+                               # executions.yaml — no index anywhere
     workspace/                 # cwd for every step of this execution — disposable per-execution
                                # scratch space, shared across steps (step 1 writes a file,
-                               # step 2 reads it); deleted with the execution by retention
+                               # step 2 reads it) and across retry passes (§7); deleted with
+                               # the execution by retention
     result/
       result.yaml              # engine-written from builder calls: chips[],
                                # values[{name, value}] — only when either is non-empty
@@ -606,20 +634,23 @@ off that latest execution's header (§4.5) — never from `result/`. `skipped` r
 "latest" execution for this display state — they never ran, and §4.1's `lastStatus` vocabulary
 excludes them (a mid-execution trigger skip must not shadow the live execution's final status/chip).
 
-Executions load **headers-eagerly, bodies-lazily**: startup reads every record from
-`executions.db` into an in-memory `executions` table — one record per execution with
+Executions load **headers-eagerly, bodies-lazily**: startup reads every header row from the
+`executions.db` index into an in-memory `executions` table — one header per execution with
 `id, automation_id, status, trigger, version_label, started_at, finished_at, dur_ms`, plus the
-light display fields (`automation_name`, `note`, `chip`/`chip_status`, the §4.5 `error` fields,
-redacted names, the step list) — kept queryable
-by `trigger`, `status`, `automation_id`, and `started_at`; paths resolve on demand from the id.
-`result/` and `logs.ndjson` are read only when an execution is opened. The in-memory table is
-rebuilt from the DB at every launch. An automation folder whose `versions/` is
-empty cannot resolve a current version and is skipped at startup with a warning in the app log.
+light display fields (`automation_name`, `note`, `chip`/`chip_status`, the §4.5 `error`
+fields) — kept queryable by `trigger`, `status`, `automation_id`, and `started_at`; paths
+resolve on demand from the id. The body (`executions.yaml` — steps, attempts, params,
+redacted names — plus `result/` and log files) is read only when an execution is opened; the
+live execution's in-memory record is the engine's own full record, so it needs no disk read.
+The in-memory table is rebuilt from the DB at every launch. An automation folder whose
+`versions/` is empty cannot resolve a current version and is skipped at startup with a
+warning in the app log.
 
 Rules:
 
-- Every write goes disk-first (atomic temp-write + rename for files; a committed transaction for
-  `executions.db`), then the in-memory state updates. A crash between the two self-heals at the
+- Every write goes disk-first (atomic temp-write + rename for files — `executions.yaml`
+  included; a committed transaction for the `executions.db` index), then the in-memory state
+  updates. A crash between the two self-heals at the
   next startup, since startup rebuilds everything from disk. Nothing exists only in memory.
 - Retention cleanup (§4.9 `days`) deletes execution directories and DB rows, then their
   in-memory records.
@@ -658,8 +689,8 @@ never used for lookups.
   (a one-shot `time` trigger is still consumed by that skip, §4.3). A failed trigger-fired
   execution is retried once after 5 minutes — once per failure streak, keyed on the automation:
   a retry that also fails is not retried again until a trigger-fired success resets it. The
-  retry resumes from the failed step (§7 re-execute semantics: earlier steps `reused`, workspace
-  copied), not from scratch. **App-start firing:** the Electron main process calls §19
+  retry happens **in place** (§7 retry semantics): the same execution record re-executes from
+  the failed step as a new attempt — not from scratch, and never as a new execution. **App-start firing:** the Electron main process calls §19
   `POST /app-started` once per app launch (on ready; while the backend isn't answering it
   re-reads `backend.json` and retries every 2 s for up to 60 s, then the occurrence lapses —
   no queue). The backend then starts one execution per automation holding an enabled
@@ -702,7 +733,8 @@ never used for lookups.
   redaction-scans the assembled prompt and fails the step (before sending) if any secret value
   appears. The reply is returned to the script as untrusted text/JSON — never executed or
   evaluated. Per-step timeout plus prompt- and output-size caps (200k chars each) apply; the full
-  redacted prompt and response (up to those caps) are written to `logs.ndjson` for audit.
+  redacted prompt and response (up to those caps) are written to the step's attempt log
+  file (§5) for audit.
   Worst-case prompt injection from fetched content is therefore a wrong answer in a result, never
   an action.
 
@@ -870,11 +902,27 @@ destructive moments recoverable.
   installed-check costs milliseconds when everything is present; anything missing installs with
   a sys log line ("installing packages: `pandas==2.2.3`…"). An install failure fails the
   execution before any step with the package category below.
-- Streaming: each step queued → executing (sys log "▸ Step N — `<name>`", then step logs) →
-  terminal status with duration. Then the execution gets its final status, duration, result
-  object; automation gets latest/resultChip/lastExecLabel "Today"; toast summarizes.
-- Cancel: kills timers/processes; execution cancelled, all executing/queued steps cancelled, sys
-  log "execution cancelled by you — nothing else will happen".
+- Streaming: each step queued → executing → terminal status with duration. Executing a step
+  appends an **attempt** (`n = attempts+1`) to that step; the step's status always equals its
+  latest attempt's status. Each attempt streams into its own log file (§5) — the sys opener
+  "▸ Step N — `<name>`", the step's own output, and its timeout/cancel/skip lines all land
+  there; execution-level lines (package installs, secret failures, retry markers, the final
+  failure line) go to `logs/execution.ndjson`. Then the execution gets its final status,
+  duration, result object; automation gets latest/resultChip/lastExecLabel "Today"; toast
+  summarizes. An execution whose steps include `skipped` ones but no failures finishes
+  `succeeded`.
+- Cancel: kills timers/processes; execution cancelled, the executing attempt and its step
+  cancelled, queued steps cancelled, sys log "execution cancelled by you — nothing else will
+  happen".
+- **Skip step:** while a step is executing, the user can skip it (§19
+  `POST /executions/{id}/skip-step` with the step index — 409 unless that exact step is the
+  one currently executing, closing the finished-while-clicking race). The engine kills the
+  step's subprocess, marks the attempt and step `skipped` (no error recorded), writes the sys
+  line "step skipped by you — continuing with the next step" to the attempt log, and
+  continues with the next step. If the process exited successfully before the kill landed,
+  the step stays `succeeded` (sys line "skip arrived after the step finished"). A cancel
+  arriving with a pending skip wins. Skipped steps are terminal — a later retry never
+  re-executes them.
 - **Failure diagnostics:** when a step fails, the executor reports the exception as a structured
   control event (exception type + message) alongside the traceback err lines; the engine stores
   §4.5 `error` on the record — the failing step's name, the message ("`ExcType: message`",
@@ -892,28 +940,55 @@ destructive moments recoverable.
   expected shape — a page or file layout may have changed."). Engine-level failures (missing
   script file, agent step with no agent) set `error` the same way. Shown on the automation
   detail page (§9.2) and the execution page.
-- **Execute again** has two variants on the execution page. Failed executions get a primary accent
-  "Execute again" (tooltip "Executes the automation again. Steps that already succeeded are reused
-  automatically.") starting from the failed step: earlier steps get status `reused`, only the
-  failed step onward re-executes; the re-execution copies the source execution's workspace so reused
-  steps' outputs remain available. Other terminal executions get a quiet bordered "Execute again"
-  (tooltip "Executes the automation again from the start") — a plain fresh execution.
+- **Retry (in place):** a failed execution can be retried — the same execution record
+  re-executes from the failed step; no new execution is created. The failed step's status
+  flips back to `queued` (its attempt history stays), the execution goes `status: executing`
+  with `finished_at`/`error`/chip cleared, and the engine re-enters the step loop, which
+  executes exactly the steps still `queued` — succeeded and skipped steps are never
+  re-executed and keep their attempts. Each executed step appends the next attempt. Same
+  workspace (earlier steps' outputs are already there — nothing is copied), same result dir
+  (a failed pass's stale result files may remain until steps overwrite them), accumulated
+  duration (`dur_ms` sums the passes; `started_at` never changes). `exec.finished` fires
+  again per pass, so the end-of-execution toast repeats — intended. Retry is allowed only on
+  terminal `failed` executions and answers 409 while the automation is live or when the
+  version no longer resolves. Manual retries are uncapped; the §6 trigger auto-retry uses
+  this same mechanism, capped once per failure streak.
+- **Header actions** on the execution page: while executing, **Skip step** (quiet bordered,
+  same tooltip as the row icon — skips the currently executing step) beside **Cancel**. A failed execution
+  gets a primary accent **Retry** (tooltip "Retries this execution from the failed step.
+  Steps that already succeeded keep their results.") plus a quiet bordered "Execute again"
+  (tooltip "Executes the automation again from the start" — a plain fresh execution).
+  Succeeded / cancelled / interrupted executions get only the quiet "Execute again".
 - Trigger labels: Manual, Menu bar, Cron, Once (§4.5). `interrupted` covers e.g. "Mac went to sleep" — applied
   by startup recovery when a restarted backend finds stale `executing` executions; a sleep the
   backend process survives simply resumes the execution. `skipped`/`cancelled` executions may carry a
   note ("previous execution still in progress").
 
-**Execution page:** back link, title row with status badge and
-Cancel / Execute-again actions; below the title a mono metadata line: full execution id (copyable) ·
-trigger · version · started · duration. Body is a two-column layout: a **STEPS sidebar** (per-step status
-dot, name, duration — compact, no inline log expansion) plus a parameters block — per param:
-label, its help description, and the §4.2 one-line summary value ("Values as used
-by this execution."), and a main pane with **Results / Logs tabs** (auto-select Logs when no result). On a failed
+**Execution page:** back link, title row with status badge and the header actions above;
+below the title a mono metadata line: full execution id (copyable) · trigger · version ·
+started · duration. Body is a two-column layout: a **STEPS sidebar** plus a parameters block —
+per param: label, its help description, and the §4.2 one-line summary value ("Values as used
+by this execution."), and a main pane with **Results / Logs tabs** (auto-select Logs when no
+result). The STEPS sidebar's rows are **selectable**: each row shows the status dot (pulsing
+while executing), name, a right-aligned attempt-count chip ("×2", mono, faint — only when the
+step has more than one attempt) and the latest attempt's duration; the currently executing
+step's row also carries a small **Skip** icon button (forward-step icon, tooltip "Skip this
+step — kills it and continues with the next one") — the same action as the header's
+Skip-step button, which is the discoverable entry point. Above step 1 sits an **"Execution log"**
+pseudo-row (terminal icon in place of a status dot) selecting the execution-scoped log.
+Selecting any row switches the main pane to the Logs tab for that selection. While the
+execution is live the selection auto-follows the executing step until the user selects a row
+themselves (reset when navigating to another execution); when a failed execution loads, the
+failed step's latest attempt is auto-selected. On a failed
 execution a **failure notice** sits above the tabs: red-tinted card, "Failed at step
 `<name>`", the §4.5 possible reason as plain text when present, and the error message in mono.
-The Logs tab is one unified color-coded log pane (kinds sys/out/wrn/err, live auto-scroll) with
-a redaction note ("secrets redacted: `<name>`") and empty state "No logs — this execution never
-started." The Results tab is a collapsible **Results section** holding a stack of individually
+The Logs tab shows the selected step's log (header: step name, or "Execution" for the
+pseudo-row, plus the redaction note "secrets redacted: `<name>`"); when the selected step has
+more than one attempt, a segmented **attempt control** sits in the header — one status-tinted
+pill per attempt ("Attempt 2 · Failed · 3s"), latest selected by default. The pane is the
+color-coded log view (kinds sys/out/wrn/err); logs load lazily per selected step/attempt
+(§19) and live lines stream in over WS (deduped by `seq`), with live auto-scroll and the
+blinking cursor on the live attempt. Empty state "No logs — this execution never started." The Results tab is a collapsible **Results section** holding a stack of individually
 collapsible **result views**, each with a chevron + title header and right-aligned mono meta
 ("4 values", "4.1 KB") — everything expanded by default, collapse state per-session only
 (never persisted). The section header row carries the result chip when the execution set one — tinted
@@ -934,7 +1009,7 @@ Deleted-automation handling: historical name, marked deleted.
 **Executions list:** all executions across automations; each row shows the automation name with
 the full execution id (mono) on a second line beneath it, status badge, a trigger column combining trigger and version
 ("Manual · v3"), timestamps, durations; filter All / Succeeded / Failed. Rows carry no note
-text — skipped/cancelled notes appear on the detail page's RECENT RUNS rows and on the
+text — skipped/cancelled notes appear on the detail page's RECENT EXECUTIONS rows and on the
 execution page.
 
 ## 8. Agent drafting pipeline (decided)
@@ -1783,8 +1858,10 @@ column),
 "Nightly folder backup" (cron `0 2 * * *`), "Weekly report email" (cron `0 9 * * 1`, failed, uses
 `SMTP_PASSWORD`, retry-from-step), "Clean screenshots folder" (cron `0 21 * * 0`). Demo secrets:
 `SMTP_PASSWORD`, `VAULT_DRIVE_KEY`. Twelve seed executions cover every terminal status including
-skipped, reused, cancelled ("previous execution still in progress") and interrupted ("Mac went to
-sleep"); `executing` is inherently live and is not seeded.
+skipped, cancelled ("previous execution still in progress") and interrupted ("Mac went to
+sleep"); `executing` is inherently live and is not seeded. The fixture includes one execution
+with a skipped step (execution still `succeeded`) and one failed-then-retried execution whose
+failing step carries two attempts.
 
 ## 17. Repository structure
 
@@ -1979,10 +2056,15 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   blocked at the steps call keeps call 1's spec in its payload, so the §11 Blocker modal can
   amend and rebuild it); `DELETE /drafts/{jobId}` cancels
   (kills the harness process)
-- `GET /executions?auto=&status=` (headers) · `GET /executions/{id}` (steps + logs + result) ·
+- `GET /executions?auto=&status=` (headers only — no steps) · `GET /executions/{id}` (steps
+  with attempts + params + error + result — logs are lazy, never inline) ·
+  `GET /executions/{id}/logs?step=&attempt=` → `{ lines: [{t, k, seq, text}] }` — both params
+  select that step attempt's file, neither selects `logs/execution.ndjson`, a missing file
+  answers empty lines ·
   `GET /executions/{id}/result/{name}` (raw result-dir file for the §7 file views; plain
   filenames only — no path traversal) · `POST /executions/{id}/cancel` ·
-  `POST /executions/{id}/reexecute` (§7 retry from failed step — earlier steps `reused`)
+  `POST /executions/{id}/retry` (§7 in-place retry; 409 unless failed and not live) ·
+  `POST /executions/{id}/skip-step` `{ index }` (§7 skip; 409 unless that step is executing)
 - `GET/POST /agents` · `PATCH/DELETE /agents/{id}` · `POST /agents/{id}/check` (health/badge) —
   one shared readiness check (`harness.check_ready`) decides ready vs. needs-setup everywhere:
   the harness binary must resolve (rule below), Ollama's server must answer, and Claude Code
@@ -2000,8 +2082,11 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   /secrets/{name}` — values go straight to the Keychain, never into responses or files
 - `GET /settings` · `PATCH /settings` · `POST /settings/data-path` `{ path }` (sets the
   execution-data location; creates the dir, reloads from it, moves nothing)
-- `WS /ws?token=` — events, each `{ ev, ... }`: `exec.started`, `exec.step` (status change),
-  `exec.log` (one NDJSON line), `exec.finished`, `auto.changed`, `agents.changed`,
+- `WS /ws?token=` — events, each `{ ev, ... }`: `exec.started` (also re-published when a
+  failed execution retries in place — same execution id, updated record), `exec.step`
+  (status change; carries the full step incl. its attempts), `exec.log` (one NDJSON line with
+  `stepIndex`/`attempt` — null for execution-level lines — and the per-file `seq` for
+  fetch-vs-stream dedupe), `exec.finished`, `auto.changed`, `agents.changed`,
   `secrets.changed`, `settings.changed`, `draft.changed` (the §4.4 pending slot was kept
   or discarded — clients re-`GET /state`), `draft.progress`, `test.step` (§11 test step
   status change), `test.log` (one redacted NDJSON line), `test.done` (`{ status, result? }` —
@@ -2025,8 +2110,9 @@ didn't have to face. Do not "fix" the app to match the prototype on these points
 - **Detection covers all five providers.** The prototype's onboarding knobs can only simulate
   finding Claude Code / Ollama / Codex; the real detector (§19 `GET /agents/detect`) also finds
   Gemini CLI and OpenCode.
-- **Seed executions.** The prototype seeds 11 executions including a permanently-`executing` one
-  and covers `skipped`/`reused` only as step statuses. §16 seeds twelve, covers every terminal
+- **Seed executions.** The prototype seeds 11 executions including a permanently-`executing`
+  one, covers `skipped` only as a step status, and has a `reused` step status that no longer
+  exists (§4.6 — in-place retry replaced it). §16 seeds twelve, covers every terminal
   execution status, and never seeds `executing` (it is inherently live).
 - **Framework-knowledge panel copy follows §6/§6.1.** The prototype panel says memory is "one
   JSON file" and shows `secret("smtp-password")`; the real panel must describe the memory

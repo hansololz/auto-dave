@@ -49,8 +49,16 @@ export const api = {
   executeNow: (autoId: string, version?: string, trigger = 'Manual') =>
     req<{ execId: string }>('POST', `/automations/${autoId}/execute`, { version, trigger }),
   cancelExec: (execId: string) => req('POST', `/executions/${execId}/cancel`),
-  reexecuteExec: (execId: string) => req<{ execId: string }>('POST', `/executions/${execId}/reexecute`),
+  // §7 in-place retry: same execution record, from the failed step
+  retryExec: (execId: string) => req<{ execId: string }>('POST', `/executions/${execId}/retry`),
+  // §7 skip: index must be the currently executing step (409 otherwise)
+  skipStep: (execId: string, index: number) =>
+    req('POST', `/executions/${execId}/skip-step`, { index }),
   getExec: (execId: string) => req<import('./types').Exec>('GET', `/executions/${execId}`),
+  // §19 lazy logs: both params → that step attempt's file; neither → the execution log
+  getExecLogs: (execId: string, step?: number, attempt?: number) =>
+    req<{ lines: import('./types').LogLine[] }>('GET', `/executions/${execId}/logs`
+      + (step !== undefined ? `?step=${step}&attempt=${attempt}` : '')),
   getAuto: (autoId: string) => req<import('./types').Auto>('GET', `/automations/${autoId}`),
   patchAuto: (autoId: string, patch: Record<string, unknown>) =>
     req<import('./types').Auto>('PATCH', `/automations/${autoId}`, patch),

@@ -50,6 +50,23 @@ def store(home):
     return s
 
 
+def read_all_logs(store, exec_id):
+    """Test convenience: every log line of an execution, merged across the
+    per-step-attempt files plus the execution log (§5 logs/ layout)."""
+    import json
+
+    d = store.exec_dir(exec_id) / "logs"
+    out = []
+    if d.exists():
+        for p in sorted(d.iterdir()):
+            for ln in p.read_text(encoding="utf-8").splitlines():
+                try:
+                    out.append(json.loads(ln))
+                except ValueError:
+                    pass
+    return out
+
+
 def make_version(**over):
     ver = {
         "desc": "Test automation",

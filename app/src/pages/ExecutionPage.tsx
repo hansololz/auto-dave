@@ -1,13 +1,15 @@
-// Execution page (§7): compact STEPS sidebar, Results/Logs tabs,
-// live log streaming with auto-scroll, Cancel / Execute again.
+// Execution page (§7): selectable STEPS sidebar with per-attempt logs,
+// Execution-log pseudo-row, skip-live-step, Results/Logs tabs, live log
+// streaming with auto-scroll, Cancel / Retry / Execute again.
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
-import { useStore } from '../store'
+import { logKey, useStore } from '../store'
 import { Badge, badgeOf, FailureNotice, paramSummary, Spinner } from '../ui'
 import { ResultSection } from '../result'
-import type { Exec } from '../types'
+import type { ExecStep, LogLine } from '../types'
 
-type LogLine = NonNullable<Exec['logs']>[number]
+// null = the execution-scoped log (§5 execution.ndjson)
+type Sel = { step: number | null; attempt: number | null }
 
 const eyebrow: React.CSSProperties = {
   fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600,
@@ -38,12 +40,48 @@ function BackLink({ onClick }: { onClick: () => void }) {
   )
 }
 
-/** Compact step row (§7): status dot + name + duration — no inline log expansion. */
-function StepRow({ step }: { step: Exec['steps'][number] }) {
+const rowBase: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', width: '100%',
+  textAlign: 'left', cursor: 'pointer', background: 'none', border: 'none',
+}
+
+function rowBg(selected: boolean, hov: boolean): React.CSSProperties {
+  return {
+    background: selected ? 'rgba(255,255,255,.06)' : hov ? 'rgba(255,255,255,.03)' : 'none',
+    boxShadow: selected ? 'inset 2px 0 0 var(--accent)' : 'none',
+  }
+}
+
+/** §7: the "Execution log" pseudo-row above step 1 — selects execution.ndjson. */
+function ExecLogRow({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
+  const [hov, setHov] = useState(false)
+  return (
+    <button
+      onClick={onSelect}
+      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{ ...rowBase, ...rowBg(selected, hov) }}
+    >
+      <i className="fa-solid fa-terminal" style={{ fontSize: 8, width: 8, color: 'var(--text-faint)', flex: 'none' }} />
+      <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>Execution log</span>
+    </button>
+  )
+}
+
+/** Selectable step row (§7): status dot + name + attempt chip + duration; the
+ * executing step carries the Skip button. */
+function StepRow({ step, selected, onSelect, onSkip }: {
+  step: ExecStep; selected: boolean; onSelect: () => void; onSkip?: () => void
+}) {
+  const [hov, setHov] = useState(false)
+  const [hovSkip, setHovSkip] = useState(false)
   const executing = step.status === 'executing'
   const dot = step.status === 'queued' ? '#3a414c' : badgeOf(step.status).c
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px' }}>
+    <button
+      onClick={onSelect}
+      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{ ...rowBase, ...rowBg(selected, hov) }}
+    >
       <span style={{
         width: 8, height: 8, borderRadius: '50%', background: dot, flex: 'none',
         animation: executing ? 'adPulse 1.2s ease-in-out infinite' : 'none',
@@ -55,30 +93,59 @@ function StepRow({ step }: { step: Exec['steps'][number] }) {
       }}>
         {step.name}
       </span>
+      {step.attempts.length > 1 && (
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-faint)', flex: 'none' }}>
+          ×{step.attempts.length}
+        </span>
+      )}
+      {executing && onSkip && (
+        <span
+          role="button"
+          title="Skip this step — kills it and continues with the next one"
+          onClick={(ev) => { ev.stopPropagation(); onSkip() }}
+          onMouseEnter={() => setHovSkip(true)} onMouseLeave={() => setHovSkip(false)}
+          style={{
+            flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 20, height: 20, borderRadius: 5, cursor: 'pointer',
+            color: hovSkip ? 'var(--text)' : 'var(--text-faint)',
+            background: hovSkip ? 'rgba(255,255,255,.08)' : 'none',
+          }}
+        >
+          <i className="fa-solid fa-forward-step" style={{ fontSize: 10 }} />
+        </span>
+      )}
       <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--text-faint)', flex: 'none' }}>{step.dur}</span>
-    </div>
+    </button>
   )
 }
 
 export default function ExecutionPage() {
-  const { execId, execs, execFull, autos, go, showToast, loadExec } = useStore()
+  const { execId, execs, execFull, execLogs, autos, go, showToast, loadExec, loadExecLogs } = useStore()
   const full = execId ? execFull[execId] : undefined
   const e = full ?? (execId ? execs.find((x) => x.id === execId) : undefined)
   const auto = e ? autos.find((a) => a.id === e.autoId) : undefined
 
   const [tab, setTab] = useState<'results' | 'logs'>('results')
+  const [sel, setSel] = useState<Sel | null>(null)
   const [hovTitle, setHovTitle] = useState(false)
   const [hovAgain, setHovAgain] = useState(false)
   const tabInit = useRef(false)
+  const manualSel = useRef(false) // a user click stops the live auto-follow (§7)
   const logRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
+
+  const steps = full?.steps ?? []
+  const executing = e?.status === 'executing'
+  const liveIdx = steps.findIndex((s) => s.status === 'executing')
 
   // Mount / execId change: guard, reset, (re)fetch the full record.
   useEffect(() => {
     if (!execId) { go('executions'); return }
     tabInit.current = false
+    manualSel.current = false
     stickRef.current = true
     setTab('results')
+    setSel(null)
     void loadExec(execId)
   }, [execId])
 
@@ -89,14 +156,41 @@ export default function ExecutionPage() {
     tabInit.current = true
   }, [full])
 
-  const logs = full?.logs ?? []
-  const executing = e?.status === 'executing'
+  // Selection (§7): auto-follow the live step until the user picks a row; a
+  // failed execution auto-selects the failed step's latest attempt.
+  useEffect(() => {
+    if (!full?.steps?.length) return
+    const latest = (i: number) => Math.max(1, full.steps![i].attempts.length)
+    if (executing && liveIdx >= 0 && !manualSel.current) {
+      if (sel?.step !== liveIdx || sel.attempt !== latest(liveIdx)) {
+        setSel({ step: liveIdx, attempt: latest(liveIdx) })
+      }
+      return
+    }
+    if (sel !== null) return
+    const failedIdx = full.steps.findIndex((s) => s.status === 'failed')
+    const pick = failedIdx >= 0 ? failedIdx
+      : [...full.steps].reduce((acc, s, i) => (s.attempts.length ? i : acc), -1)
+    setSel(pick >= 0 ? { step: pick, attempt: latest(pick) } : { step: null, attempt: null })
+  }, [full, executing, liveIdx])
+
+  // Fetch the selected log lazily (§19); live lines append via exec.log events.
+  useEffect(() => {
+    if (!execId || sel === null) return
+    void loadExecLogs(execId, sel.step ?? undefined, sel.attempt ?? undefined)
+  }, [execId, sel])
+
+  const logs: LogLine[] = (execId && sel !== null
+    ? execLogs[execId]?.[logKey(sel.step, sel.attempt)]
+    : undefined) ?? []
+  const liveSelected = executing && sel?.step === liveIdx && liveIdx >= 0
+    && sel.attempt === Math.max(1, steps[liveIdx]?.attempts.length ?? 1)
 
   // Live auto-scroll — only while executing and only if the user hasn't scrolled up.
   useEffect(() => {
     const el = logRef.current
-    if (el && executing && stickRef.current) el.scrollTop = el.scrollHeight
-  }, [logs.length, executing, tab])
+    if (el && liveSelected && stickRef.current) el.scrollTop = el.scrollHeight
+  }, [logs.length, liveSelected, tab])
 
   if (!execId) return null
 
@@ -117,20 +211,35 @@ export default function ExecutionPage() {
   const cancelExecution = () => {
     void api.cancelExec(e.id).catch((err: Error) => showToast(err.message))
   }
-  const runAgain = () => {
+  const skipStep = (i: number) => {
+    void api.skipStep(e.id, i).catch((err: Error) => showToast(err.message))
+  }
+  const retry = () => {
+    // §7 in-place retry: same execution record — stay on this page, the
+    // re-published exec.started flips the badge back to Executing.
+    manualSel.current = false
+    void api.retryExec(e.id).catch((err: Error) => showToast(err.message))
+  }
+  const executeAgain = () => {
     void (async () => {
       try {
-        const r = e.status === 'failed' ? await api.reexecuteExec(e.id) : await api.executeNow(e.autoId)
+        const r = await api.executeNow(e.autoId)
         go('execution', { execId: r.execId })
       } catch (err) {
         showToast((err as Error).message)
       }
     })()
   }
+  const selectRow = (step: number | null) => {
+    manualSel.current = true
+    const attempt = step === null ? null : Math.max(1, steps[step]?.attempts.length ?? 1)
+    setSel({ step, attempt })
+    setTab('logs')
+  }
 
   const canOpenAuto = !e.autoDeleted && !!auto
-  const runAgainPrimary = e.status === 'failed' && !e.autoDeleted
-  const runAgainQuiet = ['succeeded', 'cancelled', 'interrupted', 'skipped'].includes(e.status) && !e.autoDeleted
+  const retryPrimary = e.status === 'failed' && !e.autoDeleted
+  const againQuiet = ['succeeded', 'failed', 'cancelled', 'interrupted', 'skipped'].includes(e.status) && !e.autoDeleted
   // §7: values as used by this execution — snapshotted on the record; older records fall back
   // to the automation's current params.
   const params = (full?.params?.length ? full.params : auto?.params) ?? []
@@ -141,7 +250,7 @@ export default function ExecutionPage() {
     : e.status === 'failed'
       ? 'The execution failed before a result was built. The logs show what happened.'
       : e.status === 'cancelled'
-        ? (e.steps.length === 0 && e.note
+        ? (steps.length === 0 && e.note
           ? `The execution was cancelled before it started — ${e.note}.`
           : 'The execution was cancelled before a result was built.')
         : 'This execution didn’t produce a result.'
@@ -156,6 +265,9 @@ export default function ExecutionPage() {
       secrets redacted: {e.redact}
     </span>
   )
+
+  const selStep = sel?.step != null ? steps[sel.step] : undefined
+  const attempts = selStep?.attempts ?? []
 
   return shell(
     <>
@@ -193,29 +305,27 @@ export default function ExecutionPage() {
             Cancel
           </button>
         )}
-        {runAgainPrimary && (
+        {retryPrimary && (
           <button
-            onClick={runAgain}
+            onClick={retry}
             onMouseEnter={() => setHovAgain(true)}
             onMouseLeave={() => setHovAgain(false)}
-            title="Executes the automation again. Steps that already succeeded are reused automatically."
+            title="Retries this execution from the failed step. Steps that already succeeded keep their results."
             style={{
               background: hovAgain ? 'var(--accent-hover)' : 'var(--accent)', color: 'var(--on-accent)',
               borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer',
             }}
           >
-            Execute again
+            Retry
           </button>
         )}
-        {runAgainQuiet && (
+        {againQuiet && (
           <button
-            onClick={runAgain}
-            onMouseEnter={() => setHovAgain(true)}
-            onMouseLeave={() => setHovAgain(false)}
+            onClick={executeAgain}
             title="Executes the automation again from the start"
             style={{
               background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
-              border: `1px solid ${hovAgain ? 'var(--border-hover)' : 'var(--border-btn)'}`,
+              border: '1px solid var(--border-btn)',
               borderRadius: 8, padding: '8px 14px', fontWeight: 500, fontSize: 12.5, cursor: 'pointer',
             }}
           >
@@ -229,18 +339,33 @@ export default function ExecutionPage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: 16, alignItems: 'start' }}>
-        {/* Left column: step timeline (+ parameters) */}
+        {/* Left column: selectable step timeline (+ parameters) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, padding: '14px 0' }}>
             <div style={{ ...eyebrow, padding: '0 16px', marginBottom: 10 }}>STEPS</div>
-            {e.steps.length === 0 && (
+            {!full ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0 10px' }}><Spinner size={14} /></div>
+            ) : steps.length === 0 ? (
               <div style={{ padding: '2px 16px 6px', fontSize: 12, lineHeight: 1.5, color: 'var(--text-faint)' }}>
                 {e.note ? `Nothing ran — ${e.note}.` : 'Nothing ran.'}
               </div>
+            ) : (
+              <>
+                <ExecLogRow
+                  selected={tab === 'logs' && sel?.step === null && sel !== null}
+                  onSelect={() => selectRow(null)}
+                />
+                {steps.map((s, i) => (
+                  <StepRow
+                    key={i}
+                    step={s}
+                    selected={tab === 'logs' && sel?.step === i}
+                    onSelect={() => selectRow(i)}
+                    onSkip={executing && i === liveIdx ? () => skipStep(i) : undefined}
+                  />
+                ))}
+              </>
             )}
-            {e.steps.map((s, i) => (
-              <StepRow key={i} step={s} />
-            ))}
           </div>
           {params.length > 0 && (
             <div className="ad-copy" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, padding: '13px 16px' }}>
@@ -304,10 +429,38 @@ export default function ExecutionPage() {
           {tab === 'logs' && (
             <div style={{ background: '#07090d', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12, overflow: 'hidden' }}>
               <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
                 padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,.05)',
               }}>
-                <span style={eyebrow}>{executing ? 'LIVE LOG' : 'LOG'}</span>
+                <span style={eyebrow}>
+                  {sel?.step != null ? selStep?.name : 'EXECUTION LOG'}
+                  {liveSelected ? ' · LIVE' : ''}
+                </span>
+                {/* §7 attempt control — pills only when the step retried */}
+                {attempts.length > 1 && (
+                  <span style={{ display: 'inline-flex', gap: 4 }}>
+                    {attempts.map((a) => {
+                      const active = sel?.attempt === a.n
+                      const b = badgeOf(a.status)
+                      return (
+                        <button
+                          key={a.n}
+                          onClick={() => { manualSel.current = true; setSel({ step: sel!.step, attempt: a.n }) }}
+                          style={{
+                            fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600,
+                            padding: '2px 8px', borderRadius: 5, cursor: 'pointer',
+                            color: active ? b.c : 'var(--text-faint)',
+                            background: active ? b.bg : 'rgba(255,255,255,.04)',
+                            border: 'none',
+                          }}
+                        >
+                          Attempt {a.n} · {b.label}{a.dur ? ` · ${a.dur}` : ''}
+                        </button>
+                      )
+                    })}
+                  </span>
+                )}
+                <div style={{ flex: 1 }} />
                 {e.redact && redactNote}
               </div>
               <div
@@ -323,8 +476,8 @@ export default function ExecutionPage() {
                   <Spinner size={14} />
                 ) : (
                   <>
-                    {logs.map((l, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 12 }}>
+                    {logs.map((l) => (
+                      <div key={l.seq} style={{ display: 'flex', gap: 12 }}>
                         <span style={{ color: '#3d434d', flex: 'none' }}>{l.t}</span>
                         <span style={{
                           color: logColor(l.k), whiteSpace: 'pre-wrap', minWidth: 0,
@@ -335,9 +488,13 @@ export default function ExecutionPage() {
                       </div>
                     ))}
                     {logs.length === 0 && (
-                      <div style={{ color: 'var(--text-faintest)' }}>No logs — this execution never started.</div>
+                      <div style={{ color: 'var(--text-faintest)' }}>
+                        {steps.length === 0
+                          ? 'No logs — this execution never started.'
+                          : 'No log lines here.'}
+                      </div>
                     )}
-                    {executing && (
+                    {liveSelected && (
                       <span style={{
                         display: 'inline-block', width: 7, height: 13, background: 'var(--cyan)',
                         animation: 'adBlink 1s step-end infinite', verticalAlign: 'middle', marginLeft: 2,
