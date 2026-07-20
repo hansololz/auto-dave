@@ -704,7 +704,7 @@ def test_draft_test_executes_in_draft_dirs(store, monkeypatch):
     """§11: a test points the shared step executor at draft/workspace +
     draft/result (kept after the test) and produces a §4.5-style result —
     result.yaml beside the files the step wrote, files + path on test.done."""
-    from autodave import testrun as tr
+    from autodave import testexec as tr
     from autodave.events import hub
 
     monkeypatch.setattr(tr, "store", store)
@@ -728,10 +728,10 @@ def test_draft_test_executes_in_draft_dirs(store, monkeypatch):
         orig(ev, **payload)
 
     monkeypatch.setattr(hub, "publish", capture)
-    runs = tr.TestRuns()
+    runs = tr.TestExecutions()
     tid = runs.start(ver, a, None, [], [], {})
     t0 = time.time()
-    while tid in runs._runs:
+    while tid in runs._by_id:
         assert time.time() - t0 < 30, "test didn't finish in time"
         time.sleep(0.05)
 
@@ -751,7 +751,7 @@ def test_create_mode_test_uses_pending_slot(store, monkeypatch):
     pending slot's workspace/ + result/ and the result payload carries
     files + path there too."""
     from autodave import paths
-    from autodave import testrun as tr
+    from autodave import testexec as tr
     from autodave.events import hub
 
     monkeypatch.setattr(tr, "store", store)
@@ -772,10 +772,10 @@ def test_create_mode_test_uses_pending_slot(store, monkeypatch):
         orig(ev, **payload)
 
     monkeypatch.setattr(hub, "publish", capture)
-    runs = tr.TestRuns()
+    runs = tr.TestExecutions()
     tid = runs.start(ver, None, None, [], [], {})
     t0 = time.time()
-    while tid in runs._runs:
+    while tid in runs._by_id:
         assert time.time() - t0 < 30, "test didn't finish in time"
         time.sleep(0.05)
 

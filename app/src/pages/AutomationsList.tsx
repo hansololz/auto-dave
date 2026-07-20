@@ -3,9 +3,8 @@ import React, { useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto } from '../types'
-import { Badge, BtnGhost, BtnPrimary, ConfirmModal, resultChipColors } from '../ui'
+import { Badge, BtnGhost, BtnPrimary, ConfirmModal, resultChipColors, EXECUTING_TOAST } from '../ui'
 
-const EXECUTING_TOAST = 'Already executing — one execution at a time. A trigger firing now would be skipped.'
 
 function AutoCard({ a }: { a: Auto }) {
   const go = useStore((s) => s.go)

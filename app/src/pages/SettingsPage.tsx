@@ -51,9 +51,9 @@ export default function SettingsPage() {
   // Native folder picker; the chosen directory simply becomes the
   // execution-data location — nothing is moved (§4.9).
   const changeDataPath = async () => {
-    const p = await window.autodave?.pickFolder(settings.dataPath)
-    if (!p) return
     try {
+      const p = await window.autodave?.pickFolder(settings.dataPath)
+      if (!p) return
       await api.setDataPath(p)
       showToast('Execution data location changed.')
     } catch (e) { showToast((e as Error).message) }

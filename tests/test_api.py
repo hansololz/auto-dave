@@ -172,50 +172,7 @@ def test_draft_edit_honors_in_editor_grants(client):
     assert "Build the automation that implements" not in logged  # no steps call on edit
 
 
-def test_checks_honor_in_editor_grants(client, monkeypatch):
-    from autodave import api
-    from autodave.storage import store
-
-    ver = make_version(steps=[
-        {"file": "01-use.py", "name": "Use secret", "desc": "",
-         "code": "x = secrets.MY_SECRET\n"},
-        {"file": "02-ask.py", "name": "Ask", "desc": "", "agent": True, "why": "judgment",
-         "code": 'agent.ask("q", {})\n'},
-    ])
-    # saved grants: no secret allowed, only a nonexistent agent enabled
-    a = store.create_automation(ver, "Checks Demo", "mock", enabled_agents=["ghost"])
-    client.put("/secrets/MY_SECRET", json={"value": "v"})
-    client.patch(f"/automations/{a['id']}", json={"paramValues": {"count": 0}})
-
-    events = []
-    monkeypatch.setattr(api.hub, "publish", lambda ev, **kw: events.append({"ev": ev, **kw}))
-
-    def checks(body):
-        events.clear()
-        client.post(f"/automations/{a['id']}/checks", json=body)
-        for _ in range(100):
-            if any(e["ev"] == "checks.done" for e in events):
-                return [e for e in events if e["ev"] == "checks.line"]
-            time.sleep(0.05)
-        raise AssertionError(f"checks never finished: {events}")
-
-    lines = checks({})  # saved grants
-    assert any("MY_SECRET isn't allowed" in e["text"] for e in lines)
-    assert any("no agent is enabled" in e["text"] for e in lines)
-    # number param below its min is advisory-amber
-    bad_num = next(e for e in lines if e["text"].startswith("Count:"))
-    assert bad_num["kind"] == "warn" and "needs attention" in bad_num["text"]
-
-    lines = checks({"allowedSecrets": ["MY_SECRET"], "enabledAgents": ["mock"]})  # in-editor grants
-    assert any("MY_SECRET is in your Keychain and allowed" in e["text"] for e in lines)
-    assert any("an enabled agent is ready" in e["text"] for e in lines)
-
-    lines = checks({"allowedSecrets": [], "enabledAgents": []})  # explicit empty overrides
-    assert any("MY_SECRET isn't allowed" in e["text"] for e in lines)
-    assert any("no agent is enabled" in e["text"] for e in lines)
-
-
-def test_run_and_execution_pages(client):
+def test_execution_and_execution_pages(client):
     from autodave.storage import store
 
     a = store.create_automation(make_version(), "API Exec", "mock")
@@ -284,7 +241,7 @@ def _until(events, ev, timeout=30):
     raise AssertionError(f"{ev} never arrived (got {[e['ev'] for e in events]})")
 
 
-def test_test_run_param_values_override(client, monkeypatch):
+def test_test_param_values_override(client, monkeypatch):
     # §19: paramValues override the defaults for this test only.
     events = _capture_events(monkeypatch)
     r = client.post("/tests", json={"draft": _echo_draft(), "paramValues": {"greeting": "bonjour"}})
@@ -296,7 +253,7 @@ def test_test_run_param_values_override(client, monkeypatch):
     assert any("greeting=bonjour" in t for t in logs)
 
 
-def test_test_run_stored_values_and_no_record(client, monkeypatch):
+def test_test_stored_values_and_no_record(client, monkeypatch):
     # §19: with autoId (edit mode) the stored values are the base; a test writes
     # no execution record.
     from autodave.storage import store

@@ -157,7 +157,8 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
         raise HarnessError(f"{cmd[0]} is not installed on this Mac")
     cmd[0] = binpath
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            stdin=subprocess.DEVNULL, text=True, cwd=_neutral_cwd())
+                            stdin=subprocess.DEVNULL, text=True, errors="replace",
+                            cwd=_neutral_cwd())
     if proc_holder is not None:
         proc_holder["proc"] = proc
     # §8 live progress: read stdout as it streams instead of communicate();
@@ -196,7 +197,9 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
     finally:
         timer.cancel()
     drain.join(timeout=5)
-    if timed_out.is_set():
+    if timed_out.is_set() and proc.returncode != 0:
+        # returncode guard: a timer firing in the instant after a successful
+        # exit must not discard a complete valid reply.
         raise HarnessError(f"{harness} timed out after {timeout}s")
     raw = "".join(raw_parts)
     if proc.returncode != 0:

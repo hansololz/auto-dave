@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo
 DOW_LONG = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"]
 DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-CRON_KINDS = ("cron",)
 RESERVED_KINDS = ("discord", "imessage", "pubsub")  # §4.3 message triggers — coming soon
 
 # Unsatisfiable expressions (e.g. "0 0 30 2 *") stop searching after this many days.

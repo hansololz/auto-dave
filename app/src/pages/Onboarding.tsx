@@ -4,12 +4,12 @@
 import React, { useEffect, useReducer, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import { RadioRing, Spinner } from '../ui'
+import { Logo, RadioRing, Spinner } from '../ui'
 
 interface Det { id: string; name: string; detail: string }
 
-type ClState = 'idle' | 'installing' | 'sudo' | 'denied' | 'waiting' | 'connected'
-type LoState = 'idle' | 'installing' | 'sudo' | 'denied' | 'downloading' | 'ready'
+type ClState = 'idle' | 'installing' | 'sudo' | 'waiting' | 'connected'
+type LoState = 'idle' | 'installing' | 'sudo' | 'downloading' | 'ready'
 
 interface Ob {
   phase: 'welcome' | 'connect'
@@ -66,18 +66,7 @@ function freshOb(): Ob {
   }
 }
 
-// ---------- local primitives (prototype-exact; Logo copied from App.tsx pattern) ----------
-
-function Logo() {
-  return (
-    <span style={{
-      width: 32, height: 32, borderRadius: 9, background: 'var(--accent)',
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
-    }}>
-      <i className="fa-solid fa-hammer" style={{ color: '#0b0d11', fontSize: 15 }} />
-    </span>
-  )
-}
+// ---------- local primitives (prototype-exact) ----------
 
 function AccentBtn({ children, onClick, style }: {
   children: React.ReactNode; onClick?: (e: React.MouseEvent) => void; style?: React.CSSProperties
@@ -269,13 +258,8 @@ export default function Onboarding() {
       }
     }, 80)
   }
-  const claudeInstall = (afterRetry: boolean) => {
-    up((o) => { o.cl = 'installing'; o.clPct = afterRetry ? 55 : 0 })
-    if (afterRetry) {
-      up((o) => { o.cl = 'sudo' })
-      claudeSudoWait(2000)
-      return
-    }
+  const claudeInstall = () => {
+    up((o) => { o.cl = 'installing'; o.clPct = 0 })
     claudeRise()
   }
 
@@ -316,12 +300,7 @@ export default function Onboarding() {
       }
     }, 80)
   }
-  const ollamaInstall = (afterRetry: boolean) => {
-    if (afterRetry) {
-      up((o) => { o.lo = 'sudo' })
-      ollamaSudoWait(2000)
-      return
-    }
+  const ollamaInstall = () => {
     up((o) => { o.lo = 'installing'; o.loInsPct = 0; o.loPct = 0 })
     ollamaRise()
   }
@@ -486,7 +465,7 @@ export default function Onboarding() {
     return (
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '30px 32px 60px', animation: 'adFadeUp .5s ease both' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-          <Logo />
+          <Logo size={32} />
           <span style={{ fontWeight: 600, fontSize: 15, letterSpacing: '-.01em' }}>Auto Dave</span>
         </div>
         <h1 style={{ fontWeight: 600, fontSize: 30, lineHeight: 1.25, letterSpacing: '-.02em', margin: '0 0 12px' }}>
@@ -692,7 +671,7 @@ export default function Onboarding() {
           You&rsquo;ll need Claude Code installed and a Claude account on Pro or higher.
         </p>
         {ob.cl === 'idle' && (
-          <AccentBtn onClick={(e) => { e.stopPropagation(); claudeInstall(false) }} style={{ alignSelf: 'flex-start' }}>Set up Claude Code</AccentBtn>
+          <AccentBtn onClick={(e) => { e.stopPropagation(); claudeInstall() }} style={{ alignSelf: 'flex-start' }}>Set up Claude Code</AccentBtn>
         )}
         {ob.cl === 'installing' && (
           <div>
@@ -705,15 +684,6 @@ export default function Onboarding() {
         )}
         {ob.cl === 'sudo' && (
           <SudoNotice body="Your Mac shows its own password or Touch ID prompt for this step — Auto Dave never sees your password." />
-        )}
-        {ob.cl === 'denied' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ fontWeight: 500, fontSize: 13 }}>Install paused — permission was declined.</div>
-            <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)' }}>
-              Nothing was changed on your Mac. When you&rsquo;re ready, try again and approve the macOS prompt.
-            </div>
-            <AccentBtn onClick={(e) => { e.stopPropagation(); claudeInstall(true) }} style={{ alignSelf: 'flex-start' }}>Try again</AccentBtn>
-          </div>
         )}
         {ob.cl === 'waiting' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -760,7 +730,7 @@ export default function Onboarding() {
           Sets up Ollama with Qwen3 8B. Local to this Mac, works offline.
         </p>
         {ob.lo === 'idle' && (
-          <SubtleBtn onClick={(e) => { e.stopPropagation(); ollamaInstall(false) }}>Download and install · 5.2 GB</SubtleBtn>
+          <SubtleBtn onClick={(e) => { e.stopPropagation(); ollamaInstall() }}>Download and install · 5.2 GB</SubtleBtn>
         )}
         {ob.lo === 'installing' && (
           <div>
@@ -773,15 +743,6 @@ export default function Onboarding() {
         )}
         {ob.lo === 'sudo' && (
           <SudoNotice body="Your Mac shows its own password or Touch ID prompt to finish installing Ollama — Auto Dave never sees your password." />
-        )}
-        {ob.lo === 'denied' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ fontWeight: 500, fontSize: 13 }}>Install paused — permission was declined.</div>
-            <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)' }}>
-              Nothing was changed on your Mac. When you&rsquo;re ready, try again and approve the macOS prompt.
-            </div>
-            <SubtleBtn onClick={(e) => { e.stopPropagation(); ollamaInstall(true) }}>Try again</SubtleBtn>
-          </div>
         )}
         {ob.lo === 'downloading' && (
           <div>

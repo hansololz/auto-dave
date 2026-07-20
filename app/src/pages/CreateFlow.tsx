@@ -2,22 +2,14 @@
 // editing/syncing are §8 backend jobs (POST /drafts + polling); on create, Review
 // renders in a drafting state and fills in as the pipeline delivers (spec card first,
 // steps skeletons after). This page also renders the Review dirty-gating, version
-// menu, per-step agent/secret tags, secrets and checks panels.
+// menu, per-step agent/secret tags, and the secrets/agents warning cards.
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, PackageDep, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
-import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, resultChipColors, usePopover, validUrl } from '../ui'
+import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, agName, dispModel, logColor, resultChipColors, usePopover, validUrl } from '../ui'
 import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown, SpecMarkdown } from '../result'
-
-// ---------- helpers ----------
-
-function dispModel(ag: Agent): string {
-  return ag.model ?? 'Default configured model'
-}
-const agName = (ag: Agent) => ag.name || ag.harness
-
 
 // markdown-ish text ↔ SpecBlock[] ('# ', '## ', '- ', plain lines)
 function specToText(blocks: SpecBlock[]): string {
@@ -80,14 +72,6 @@ function instrToMd(text: string): string {
 // what the agent is told.
 let fwCache: string | null = null
 let defaultBuildCache = ''
-
-// §4.5 log-line kinds streamed by the §11 test
-function logColor(kind: string): string {
-  if (kind === 'err') return 'var(--red)'
-  if (kind === 'wrn') return 'var(--amber)'
-  if (kind === 'out') return '#c6cdd6'
-  return 'var(--text-faint)' // sys
-}
 
 // ---------- small shared bits ----------
 
@@ -787,10 +771,16 @@ export default function CreateFlow() {
     let specDelivered = false
     let lastStage: string | null = null
     let lastDetail: string | null = null
+    // Staleness guard: a slow in-flight tick may resolve after this job was
+    // cancelled/replaced (jobIdRef changed) or after another tick already
+    // handled the terminal status (jobIdRef cleared below). Checking the ref
+    // covers both — callbacks fire once, and never against a different job.
     pollRef.current = setInterval(() => {
       void (async () => {
         try {
           const j = await api.getDraftJob(jobId)
+          if (jobIdRef.current !== jobId) return
+          if (j.status !== 'building') jobIdRef.current = null
           // §8/§11: the job's live stage drives the skeleton + save-hint labels
           // ("Installing the packages…" after the steps land); `detail` is the
           // finer live-progress line under it.
@@ -819,6 +809,8 @@ export default function CreateFlow() {
             onCancelled?.()
           }
         } catch (e) {
+          if (jobIdRef.current !== jobId) return
+          jobIdRef.current = null
           stopPoll()
           onFail((e as Error).message)
         }
@@ -827,6 +819,10 @@ export default function CreateFlow() {
   }
   useEffect(() => () => {
     stopPoll()
+    // Leaving the editor any way (sidebar nav, system back) must not orphan an
+    // in-flight §8 drafting job — nobody would poll it and the harness would
+    // keep working for a discarded result. Cancelling a finished job is a no-op.
+    if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
     // Leaving the editor abandons any live test — it's ephemeral (§11).
     const t = useStore.getState().test
     if (t?.status === 'executing') void api.cancelTest(t.testId).catch(() => { /* already gone */ })
@@ -950,7 +946,9 @@ export default function CreateFlow() {
   const resolveAg = (s: Step): Agent | null =>
     s.agentId ? availAgents.find((g) => g.id === s.agentId) ?? null : availAgents[0] ?? null
   const agentStepIdx = rev ? rev.steps.map((s, i) => (s.agent ? i : -1)).filter((i) => i >= 0) : []
-  const secRefs = rev ? secretRefsOf(rev.steps) : []
+  // Memoized: this regex-scans every step's code and would otherwise re-run on
+  // every keystroke anywhere in the editor.
+  const secRefs = React.useMemo(() => (rev ? secretRefsOf(rev.steps) : []), [rev?.steps])
   const secNotAllowed = secRefs.filter((r) => secrets.some((z) => z.name === r.name) && !(rev?.allowedSecrets ?? []).includes(r.name))
   const secMissing = secRefs.filter((r) => !secrets.some((z) => z.name === r.name))
   const agWarn = !!rev && agentStepIdx.length > 0 && availAgents.length === 0
@@ -1060,6 +1058,9 @@ export default function CreateFlow() {
   // spec (specOverride) and repeats the sync with it.
   const runSync = async (specOverride?: SpecBlock[]) => {
     if (!rev || rev.syncBusy || rev.askBusy) return
+    // A cancel must return the panel to the state it was in (§11) — a sync
+    // started from a clean draft must not leave it marked out-of-sync.
+    dirtyBeforeSync.current = rev.dirty
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // discard unsaved edits
       syncBusy: true, genStage: null, genDetail: null, touched: true, stepsErr: null,
@@ -1214,14 +1215,18 @@ export default function CreateFlow() {
   }
 
   // §11: Cancel on the in-flight sync spinner — kill the job, keep the steps
-  // and spec untouched, return the panel to its out-of-sync state.
+  // and spec untouched, return the panel to the state it was in before.
+  const dirtyBeforeSync = useRef(false)
   const cancelSync = () => {
     if (!rev?.syncBusy) return
     stopPoll()
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
     jobIdRef.current = null
-    setRev((r) => r && ({ ...r, syncBusy: false, dirty: true }))
-    showToast('Sync stopped — the workflow is still out of sync.', 4200)
+    const wasDirty = dirtyBeforeSync.current
+    setRev((r) => r && ({ ...r, syncBusy: false, dirty: wasDirty }))
+    showToast(wasDirty
+      ? 'Sync stopped — the workflow is still out of sync.'
+      : 'Sync stopped — nothing changed.', 4200)
   }
 
   // §11 repair modal apply — same door for both sources: write the edited cards
@@ -2456,7 +2461,7 @@ export default function CreateFlow() {
                         )}
                         <div style={{ padding: '10px 20px 12px', font: "400 11.5px/1.8 var(--mono)", background: '#07090d', maxHeight: 260, overflowY: 'auto' }}>
                           {test.lines.map((l, i) => (
-                            <div key={i} style={{ color: logColor(l.k), whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}>{l.text}</div>
+                            <div key={i} style={{ color: logColor(l.k), whiteSpace: 'pre-wrap', overflowWrap: 'break-word', fontStyle: l.k === 'sys' ? 'italic' : 'normal' }}>{l.text}</div>
                           ))}
                           {test.status === 'executing' && (
                             <div style={{ color: 'var(--text-faint)', marginTop: 6 }}>
@@ -2579,7 +2584,7 @@ export default function CreateFlow() {
               </div>
               <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)', marginBottom: 14 }}>
                 {rev.repair!.source === 'test'
-                  ? 'A step failed when the draft ran. Edit the fix below, then apply it to the spec and sync the steps.'
+                  ? 'A step failed when the draft executed. Edit the fix below, then apply it to the spec and sync the steps.'
                   : rev.repair!.source === 'create'
                     ? 'It couldn’t build the steps as the spec asks. Edit the fix below, then apply it to the spec and rebuild.'
                     : 'It couldn’t sync the steps with the spec. Edit the fix below, then apply it to the spec and sync again.'}

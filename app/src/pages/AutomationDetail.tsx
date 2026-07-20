@@ -4,13 +4,12 @@ import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto, ParamDef, SnapshotSettings, Step, Trigger } from '../types'
 import {
-  Badge, BtnPrimary, ConfirmModal, Eyebrow, FailureNotice, PyCode, Toggle,
+  Badge, BtnPrimary, ConfirmModal, EXECUTING_TOAST, Eyebrow, FailureNotice, PyCode, Toggle,
   nextIn, usePopover, validUrl,
 } from '../ui'
 import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, timeAt, triggerShort, tzSuffix } from '../cron'
 import { ResultSection, SpecMarkdown } from '../result'
 
-const EXECUTING_TOAST = 'Already executing — one execution at a time. A trigger firing now would be skipped.'
 const badgeAnim = (s: string) => (s === 'executing' ? 'adPulse 1.4s ease-in-out infinite' : 'none')
 
 // ---------- small hover helpers (local — pages may not edit ui.tsx) ----------
@@ -31,15 +30,15 @@ function HoverBtn({ children, onClick, title, style, hoverStyle, disabled }: {
   )
 }
 
-function HoverRow({ children, onClick, style, hoverBg = 'rgba(255,255,255,.02)' }: {
-  children: React.ReactNode; onClick?: () => void; style: React.CSSProperties; hoverBg?: string
+function HoverRow({ children, onClick, style }: {
+  children: React.ReactNode; onClick?: () => void; style: React.CSSProperties
 }) {
   const [hov, setHov] = useState(false)
   return (
     <div
       onClick={onClick}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ ...style, background: hov ? hoverBg : (style.background as string) ?? 'transparent' }}
+      style={{ ...style, background: hov ? 'rgba(255,255,255,.02)' : (style.background as string) ?? 'transparent' }}
     >
       {children}
     </div>
@@ -230,10 +229,24 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
   const [rows, setRows] = useState<{ k: string; v: string }[]>(() => (p.rows ?? []).map((r) => ({ ...r })))
   const [text, setText] = useState<string | null>(null)
   const [num, setNum] = useState<string | null>(null)
+  const [tog, setTog] = useState<boolean | null>(null) // optimistic toggle — a double-click must not compute twice from stale props
   const [foc, setFoc] = useState(false)
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pending = useRef<unknown>(undefined)
+
+  // Resync from the server value when it changes underneath (a restore, a new
+  // version's defaults, an edit from another window) — but never while an edit
+  // is pending or an input is focused, so typing is never clobbered.
+  const serverLines = JSON.stringify(p.lines ?? [])
+  useEffect(() => {
+    if (!timer.current && !foc) setLines([...(p.lines ?? [])])
+  }, [serverLines])
+  const serverRows = JSON.stringify(p.rows ?? [])
+  useEffect(() => {
+    if (!timer.current && !foc) setRows((p.rows ?? []).map((r) => ({ ...r })))
+  }, [serverRows])
+  useEffect(() => { setTog(null) }, [p.on])
 
   const commit = (value: unknown) => {
     if (timer.current) { clearTimeout(timer.current); timer.current = null }
@@ -287,7 +300,24 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
         <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 3 }}>{p.help}</div>
       </div>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
-        {p.kind === 'toggle' && <Toggle on={!!p.on} onChange={() => commit(!p.on)} />}
+        {p.kind === 'toggle' && (
+          <Toggle
+            on={tog ?? !!p.on}
+            onChange={() => {
+              const v = !(tog ?? !!p.on)
+              setTog(v)
+              void (async () => {
+                try {
+                  await api.patchAuto(autoId, { paramValues: { [p.name]: v } })
+                  void loadAuto(autoId)
+                } catch (err) {
+                  setTog(null) // roll the optimistic value back — the server still holds the old one
+                  showToast((err as Error).message)
+                }
+              })()
+            }}
+          />
+        )}
         {p.kind === 'number' && (
           <input
             value={num ?? String(p.value ?? '')}
@@ -544,15 +574,20 @@ export default function AutomationDetail() {
   const nextShort = nextTriggerShort(trigs)
   // §4.3: an enabled app_start has no computable next — nextAt stays null.
   const appStartOnly = auto.nextAt == null && trigs.some((t) => t.kind === 'app_start' && !t.off)
+  // nextAt can be null with an enabled non-app_start trigger too (e.g. an
+  // elapsed one-shot not yet consumed) — never render a dangling "next in ".
+  const noNext = auto.nextAt == null
   const trigChip = executing ? `${auto.triggerChip} · executing now`
     : noTrigs ? 'No triggers'
     : allOff ? `${auto.triggerChip} · triggers off`
     : appStartOnly ? `${auto.triggerChip} · on app start`
+    : noNext ? auto.triggerChip
     : `${auto.triggerChip} · next in ${countdown}`
   const trigStatusText = executing ? 'Executing now… the triggers are unchanged.'
     : noTrigs ? 'No triggers set — executes only when you press Execute now or use the menu bar.'
     : allOff ? 'All triggers are off — won’t execute on its own. Execute now and the menu bar still work.'
     : appStartOnly ? 'Executes when this app next starts — Execute now and the menu bar still work.'
+    : noNext ? 'No upcoming occurrence — Execute now and the menu bar still work.'
     : `Next execution in ${countdown}${nextShort ? ` (${nextShort})` : ''} · executes even when the app is closed.`
   const trigChipOn = executing || (!allOff && !noTrigs)
   const execLabel = executing ? 'Executing…' : 'Execute now'
@@ -609,7 +644,8 @@ export default function AutomationDetail() {
 
   const revealMemory = () => {
     const p = auto.memory?.path
-    if (p) void window.autodave?.revealPath(p)
+    if (!p) return
+    void window.autodave?.revealPath(p)
     showToast(`Shown in Finder — Auto Dave › Memory › ${auto.name}`)
   }
 

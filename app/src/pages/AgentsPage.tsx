@@ -4,14 +4,9 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent } from '../types'
-import { ConfirmModal, MenuRow, menuStyle, P, Spinner, usePopover } from '../ui'
+import { ConfirmModal, MenuRow, menuStyle, P, Spinner, usePopover, dispModel } from '../ui'
 import { openAgentEdit } from './AgentNewPage'
 
-/** Display label for an agent's model — a null model means the harness's
- *  own configured default (§4.7). */
-function dispModel(ag: Agent): string {
-  return ag.model ?? 'Default configured model'
-}
 
 function detailOf(ag: Agent, ready: boolean): string {
   const local = `Serves ${ag.model} on this Mac through Ollama. Private, works offline.`
@@ -174,23 +169,24 @@ export default function AgentsPage() {
   const [checks, setChecks] = useState<Record<string, CheckState>>({})
   const [delAgent, setDelAgent] = useState<Agent | null>(null)
   const started = useRef(new Set<string>())
-  const staggerRef = useRef(0)
+  const timers = useRef<number[]>([])
 
-  // On page visit, check every agent's connection with a small stagger.
+  // On page visit, check every agent's connection with a small stagger — the
+  // delay comes from the batch index, and pending timers die with the page.
   useEffect(() => {
+    let i = 0
     for (const ag of agents) {
       if (started.current.has(ag.id)) continue
       started.current.add(ag.id)
       setChecks((c) => ({ ...c, [ag.id]: 'checking' }))
-      const delay = staggerRef.current
-      staggerRef.current += 100
-      setTimeout(() => {
+      timers.current.push(window.setTimeout(() => {
         api.checkAgent(ag.id)
           .then((r) => setChecks((c) => ({ ...c, [ag.id]: r.status === 'ready' ? 'ready' : 'needs' })))
           .catch(() => setChecks((c) => ({ ...c, [ag.id]: 'needs' })))
-      }, delay)
+      }, i++ * 100))
     }
   }, [agents])
+  useEffect(() => () => { timers.current.forEach((id) => clearTimeout(id)) }, [])
 
   const confirmDelete = async () => {
     if (!delAgent) return

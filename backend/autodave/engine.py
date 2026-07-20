@@ -2,6 +2,7 @@
 streams status/logs, enforces policies, persists everything file-first."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -61,6 +62,48 @@ def failure_reason(rc: int, err: dict | None) -> str | None:
     return None
 
 
+def _step_sha(s: dict) -> str:
+    return hashlib.sha256((s.get("code") or "").encode()).hexdigest()[:16]
+
+
+def build_redactions(secret_values: dict[str, str]) -> dict[str, str]:
+    """value → secret name, plus each non-blank line of a multi-line value
+    (§4.8: log lines are redacted one at a time, so a partial paste of a
+    multi-line key must match too). Shared by executions and §11 tests."""
+    redactions = {v: k for k, v in secret_values.items()}
+    for name, v in secret_values.items():
+        if "\n" in v:
+            for part in v.splitlines():
+                if part.strip():
+                    redactions.setdefault(part, name)
+    return redactions
+
+
+def agent_for_step(agents: dict[str, dict], enabled: list, s: dict) -> dict | None:
+    """§6: the step's named agent when it's enabled, else the first enabled
+    agent, else None. Shared by executions and §11 tests."""
+    cand = s.get("agent_id") or s.get("agentId")
+    if cand and cand in agents and cand in enabled:
+        return agents[cand]
+    return next((agents[a] for a in enabled if a in agents), None)
+
+
+def ensure_declared_packages(declared: list, log) -> str | None:
+    """§6.2 preflight shared by executions and §11 tests: fast installed-check,
+    install what's missing (with a sys log line), return an error message on
+    failure — None when everything is (now) installed."""
+    if not declared:
+        return None
+    missing = [p for p in pkglib.check(declared) if p["status"] != "installed"]
+    if not missing:
+        return None
+    log("sys", "installing packages: " + ", ".join(p["pip"] for p in missing))
+    bad = [p for p in pkglib.ensure(declared) if p["status"] != "installed"]
+    if bad:
+        return "; ".join(f"{p['pip']}: {p.get('error') or 'install failed'}" for p in bad)
+    return None
+
+
 def run_step_process(script: Path, ctx: dict, state: dict, log, result: dict,
                      holder: dict) -> int:
     """One step as a §6.1 executor subprocess — shared by real executions and
@@ -69,7 +112,8 @@ def run_step_process(script: Path, ctx: dict, state: dict, log, result: dict,
     `state['proc']` holds the live Popen so a caller can cancel."""
     proc = subprocess.Popen(
         [sys.executable, "-m", "autodave.executor", str(script)],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace",  # binary garbage on stdout must not kill the read loop
     )
     state["proc"] = proc
     try:
@@ -90,46 +134,50 @@ def run_step_process(script: Path, ctx: dict, state: dict, log, result: dict,
     watchdog = threading.Timer(timeout_s, _on_timeout)
     watchdog.daemon = True
     watchdog.start()
-    for raw in proc.stdout:  # type: ignore[union-attr]
-        if timed_out.is_set():
-            break
-        line = raw.rstrip("\n")
-        if line.startswith(CTRL):
-            try:
-                msg = json.loads(line[len(CTRL):])
-            except ValueError:
-                continue
-            op = msg.get("op")
-            if op == "log":
-                log(msg.get("k", "out"), msg.get("text", ""))
-            elif op == "result":
-                holder["result_touched"] = True
-                f, v = msg.get("field"), msg.get("value")
-                if f == "status":
-                    result["status"] = v
-                elif f == "chip":
-                    result["chip"] = v
-                elif f == "chips":
-                    result["chips"] = v
-                elif f == "value":
-                    result["values"].append(v)
-            elif op == "notify":
-                holder["text"] = msg.get("text")
-            elif op == "error":
-                # §7 failure diagnostics — the executor's structured report
-                # of the exception that failed the step.
-                holder["error"] = {"type": msg.get("type"),
-                                   "message": msg.get("message")}
-            elif op == "agent_audit":
-                # §6: the FULL redacted prompt/response go to logs for audit
-                # (the 200k prompt/reply size caps already apply upstream).
-                log("sys", f"agent prompt: {msg.get('prompt', '')}")
-                log("sys", f"agent reply: {msg.get('reply', '')}")
-        elif line.strip():
-            log("out", line)
-    proc.wait()
-    watchdog.cancel()
-    state["proc"] = None
+    try:
+        for raw in proc.stdout:  # type: ignore[union-attr]
+            if timed_out.is_set():
+                break
+            line = raw.rstrip("\n")
+            if line.startswith(CTRL):
+                try:
+                    msg = json.loads(line[len(CTRL):])
+                except ValueError:
+                    continue
+                op = msg.get("op")
+                if op == "log":
+                    log(msg.get("k", "out"), msg.get("text", ""))
+                elif op == "result":
+                    holder["result_touched"] = True
+                    f, v = msg.get("field"), msg.get("value")
+                    if f == "status":
+                        result["status"] = v
+                    elif f == "chip":
+                        result["chip"] = v
+                    elif f == "chips":
+                        result["chips"] = v
+                    elif f == "value":
+                        result["values"].append(v)
+                elif op == "notify":
+                    holder["text"] = msg.get("text")
+                elif op == "error":
+                    # §7 failure diagnostics — the executor's structured report
+                    # of the exception that failed the step.
+                    holder["error"] = {"type": msg.get("type"),
+                                       "message": msg.get("message")}
+                elif op == "agent_audit":
+                    # §6: the FULL redacted prompt/response go to logs for audit
+                    # (the 200k prompt/reply size caps already apply upstream).
+                    log("sys", f"agent prompt: {msg.get('prompt', '')}")
+                    log("sys", f"agent reply: {msg.get('reply', '')}")
+            elif line.strip():
+                log("out", line)
+        proc.wait()
+    finally:
+        # Always cancel the timer and drop the proc handle — even if the read
+        # loop raises — so the watchdog can't later kill an unrelated process.
+        watchdog.cancel()
+        state["proc"] = None
     if timed_out.is_set() and proc.returncode != 0:
         msg = f"step timed out after {int(timeout_s)}s"
         log("err", msg)
@@ -148,57 +196,74 @@ class Engine:
 
     # ---------- public ----------
     def start(self, auto: dict, trigger: str, version_label: str | None = None) -> dict:
-        """Create the execution record and execute it on a worker thread (§7)."""
-        if auto.get("_live"):
-            raise RuntimeError("already executing")
-        ver_label = version_label or f"v{auto['current_version']}"
-        if ver_label.lower() == "draft":  # §19 accepts "draft"; canonical label is "Draft"
-            ver_label = "Draft"
-        ver = self._resolve_version(auto, ver_label)
-        if ver is None:
-            raise RuntimeError(f"version {ver_label} not found")
-        # §6.3 pre-version snapshot: first execution of a real version with no recorded
-        # execution yet — memory as the previous version left it, restorable after rollback.
-        if ver_label != "Draft" and not any(
-                x["auto_id"] == auto["id"] and x["ver"] == ver_label
-                for x in self.store.execs.values()):
-            self.store.snapshot_memory(auto, "pre-version", version=ver_label)
-        steps = [{"name": s["name"], "file": s.get("file"), "agent": bool(s.get("agent")),
-                  "status": "queued", "dur_ms": None, "attempts": []} for s in ver["steps"]]
-        # §7: snapshot the resolved param values — the execution page shows them as used by this execution.
-        h = self.store.create_execution(auto, ver_label, trigger, steps,
-                                        params=self.store.merged_params(auto, ver))
-        return self._launch(auto, ver, h)
+        """Create the execution record and execute it on a worker thread (§7).
+        The §6 one-execution-at-a-time check and the record creation happen
+        under one lock — two concurrent starters can never both pass."""
+        with self.store.lock:
+            if auto.get("_live"):
+                raise RuntimeError("already executing")
+            ver_label = version_label or f"v{auto['current_version']}"
+            if ver_label.lower() == "draft":  # §19 accepts "draft"; canonical label is "Draft"
+                ver_label = "Draft"
+            ver = self._resolve_version(auto, ver_label)
+            if ver is None:
+                raise LookupError(f"version {ver_label} not found")
+            # §6.3 pre-version snapshot: first execution of a real version with no
+            # recorded execution yet — memory as the previous version left it,
+            # restorable after rollback. Skipped records never executed (§5), so
+            # they must not suppress the snapshot.
+            if ver_label != "Draft" and not any(
+                    x["auto_id"] == auto["id"] and x["ver"] == ver_label
+                    and x["status"] != "skipped"
+                    for x in self.store.execs.values()):
+                self.store.snapshot_memory(auto, "pre-version", version=ver_label)
+            # `sha` snapshots each step's script (§4.5) so a Draft retry can
+            # detect a re-saved draft whose code changed under the same names.
+            steps = [{"name": s["name"], "file": s.get("file"), "agent": bool(s.get("agent")),
+                      "sha": _step_sha(s), "status": "queued", "dur_ms": None, "attempts": []}
+                     for s in ver["steps"]]
+            # §7: snapshot the resolved param values — the execution page shows them as used by this execution.
+            h = self.store.create_execution(auto, ver_label, trigger, steps,
+                                            params=self.store.merged_params(auto, ver))
+            return self._launch(auto, ver, h)
 
     def retry(self, auto: dict, h: dict) -> dict:
         """§7 in-place retry: the same execution record re-executes from the
         failed step as a new attempt; succeeded/skipped steps are untouched."""
-        if auto.get("_live"):
-            raise RuntimeError("already executing")
-        if h["status"] != "failed":
-            raise RuntimeError("only failed executions can be retried")
-        ver = self._resolve_version(auto, h["ver"])
-        if ver is None:
-            raise RuntimeError(f"version {h['ver']} not found")
-        full = self.store.exec_full(h["id"])
-        if full is None:
-            raise RuntimeError("execution not found")
-        h = full
-        self.store.execs[h["id"]] = h  # the live in-memory record is the full one
-        for s in h["steps"]:
-            if s["status"] == "failed":
-                s["status"] = "queued"
-        h["status"] = "executing"
-        h["finished_at"] = None
-        h["error"] = None
-        h["chip"] = None
-        h["chip_status"] = None
-        idx = next((i for i, s in enumerate(h["steps"]) if s["status"] == "queued"), None)
-        if idx is not None:
-            n = len(h["steps"][idx].get("attempts", [])) + 1
-            self._log(h, "sys", f"retrying from step {idx + 1} — attempt {n}", {})
-        self.store.update_execution(h)
-        return self._launch(auto, ver, h)
+        with self.store.lock:
+            if auto.get("_live"):
+                raise RuntimeError("already executing")
+            if h["status"] != "failed":
+                raise RuntimeError("only failed executions can be retried")
+            ver = self._resolve_version(auto, h["ver"])
+            if ver is None:
+                raise LookupError(f"version {h['ver']} not found")
+            full = self.store.exec_full(h["id"])
+            if full is None:
+                raise LookupError("execution not found")
+            h = full
+            # A Draft is mutable: a re-saved draft may no longer match the failed
+            # record's steps — re-entering the loop would pair old statuses with
+            # new scripts. Real versions are immutable, so only Draft can drift.
+            # Compare code hashes too: an edit can keep the same names/files.
+            if [(s["name"], s.get("file"), s.get("sha")) for s in h["steps"]] != \
+                    [(s["name"], s.get("file"), _step_sha(s)) for s in ver["steps"]]:
+                raise RuntimeError("the draft's steps changed since this execution — execute it fresh instead")
+            self.store.execs[h["id"]] = h  # the live in-memory record is the full one
+            for s in h["steps"]:
+                if s["status"] == "failed":
+                    s["status"] = "queued"
+            h["status"] = "executing"
+            h["finished_at"] = None
+            h["error"] = None
+            h["chip"] = None
+            h["chip_status"] = None
+            idx = next((i for i, s in enumerate(h["steps"]) if s["status"] == "queued"), None)
+            if idx is not None:
+                n = len(h["steps"][idx].get("attempts", [])) + 1
+                self._log(h, "sys", f"retrying from step {idx + 1} — attempt {n}", {})
+            self.store.update_execution(h)
+            return self._launch(auto, ver, h)
 
     def _launch(self, auto: dict, ver: dict, h: dict) -> dict:
         state = {"proc": None, "cancel": False}
@@ -206,7 +271,7 @@ class Engine:
         state["thread"] = t
         with self._lock:
             self._live[h["id"]] = state
-        hub.publish("exec.started", exec_=None, execId=h["id"], autoId=auto["id"],
+        hub.publish("exec.started", execId=h["id"], autoId=auto["id"],
                     exec_json=self.store.exec_json(h))
         t.start()
         return h
@@ -349,40 +414,26 @@ class Engine:
                         failed = True
                     else:
                         secret_values[name] = v
-            # Log lines are redacted one at a time, so a multi-line value can
-            # never match whole — redact each of its lines individually too.
-            redactions = {v: k for k, v in secret_values.items()}
-            for name, v in secret_values.items():
-                if "\n" in v:
-                    for part in v.splitlines():
-                        if part.strip():
-                            redactions.setdefault(part, name)
+            redactions = build_redactions(secret_values)
 
             # §7: ensure the version's declared packages (§6.2) before step 1 —
             # the fast check costs milliseconds when everything is present;
             # self-heals after an app update or a cleared site-packages dir.
-            declared = ver.get("packages") or []
-            if declared and not failed:
-                missing = [p for p in pkglib.check(declared) if p["status"] != "installed"]
-                if missing:
-                    self._log(h, "sys", "installing packages: "
-                              + ", ".join(p["pip"] for p in missing), redactions)
-                    bad = [p for p in pkglib.ensure(declared) if p["status"] != "installed"]
-                    if bad:
-                        msg = "; ".join(f"{p['pip']}: {p.get('error') or 'install failed'}"
-                                        for p in bad)
-                        self._log(h, "err", f"package install failed — {msg}", redactions)
-                        h["error"] = {"step": None, "message": self._redact(h, msg, redactions),
-                                      "reason": "A required package couldn't be installed — check "
-                                                "your connection, then execute again or retry from "
-                                                "the edit page."}
-                        failed = True
+            if not failed:
+                msg = ensure_declared_packages(
+                    ver.get("packages") or [],
+                    lambda k, text: self._log(h, k, text, redactions))
+                if msg:
+                    self._log(h, "err", f"package install failed — {msg}", redactions)
+                    h["error"] = {"step": None, "message": self._redact(h, msg, redactions),
+                                  "reason": "A required package couldn't be installed — check "
+                                            "your connection, then execute again or retry from "
+                                            "the edit page."}
+                    failed = True
 
-            params = {p["name"]: resolve_param_value(p, auto["param_values"])
-                      for p in ver.get("params", [])}
             warns: list[str] = []
-            for p in ver.get("params", []):
-                resolve_param_value(p, auto["param_values"], warns)
+            params = {p["name"]: resolve_param_value(p, auto["param_values"], warns)
+                      for p in ver.get("params", [])}
             for w in warns:
                 self._log(h, "wrn", w, redactions)
 
@@ -492,23 +543,43 @@ class Engine:
             self.store.update_execution(h)
             self._notify_end(auto, h, result if result_touched else None, notify_text)
         except Exception as e:  # noqa: BLE001
+            # This path must always complete — if the original failure was a
+            # disk error, logging/persisting can raise again; swallow those so
+            # the finally block still clears the live state (a stuck `_live`
+            # would 409 every later start until a backend restart).
             h["status"] = "failed"
             h["finished_at"] = datetime.now().isoformat(timespec="seconds")
-            self._log(h, "err", f"engine error: {e}", redactions)
+            h["_cur"] = None
+            try:
+                self._log(h, "err", f"engine error: {e}", redactions)
+            except Exception:  # noqa: BLE001
+                pass
             if not h.get("error"):
                 h["error"] = {"step": h.get("_cur_step"),
                               "message": self._redact(h, f"engine error: {e}", redactions),
                               "reason": None}
-            self.store.update_execution(h)
+            try:
+                self.store.update_execution(h)
+            except Exception:  # noqa: BLE001
+                pass
         finally:
             if caffeinate:
                 caffeinate.terminate()
+                try:
+                    caffeinate.wait(timeout=5)  # reap — no zombie until interpreter GC
+                except Exception:  # noqa: BLE001
+                    pass
             with self._lock:
                 self._live.pop(h["id"], None)
-            hub.publish("exec.finished", execId=h["id"], autoId=h["auto_id"],
-                        exec_json=self.store.exec_json(h),
-                        auto_json=self.store.auto_json(self.store.autos.get(h["auto_id"], {}), full=False)
-                        if h["auto_id"] in self.store.autos else None)
+            with self.store.lock:
+                # Belt and braces: even if update_execution failed above, the
+                # automation must never stay pinned "executing" in memory.
+                a = self.store.autos.get(h["auto_id"])
+                if a and a.get("_live") == h["id"] and h["status"] != "executing":
+                    a["_live"] = None
+                hub.publish("exec.finished", execId=h["id"], autoId=h["auto_id"],
+                            exec_json=self.store.exec_json(h),
+                            auto_json=self.store.auto_json(a, full=False) if a else None)
             if self.on_finished:
                 try:
                     self.on_finished(h)
@@ -517,13 +588,7 @@ class Engine:
 
     def _agent_for_step(self, auto: dict, s: dict) -> dict | None:
         agents = {a["id"]: a for a in self.store.agents}
-        cand = s.get("agent_id") or s.get("agentId")
-        if cand and cand in agents and cand in auto["enabled_agents"]:
-            return agents[cand]
-        for aid in auto["enabled_agents"]:
-            if aid in agents:
-                return agents[aid]
-        return None
+        return agent_for_step(agents, auto["enabled_agents"], s)
 
     def _execute_step(self, auto: dict, ver: dict, h: dict, s: dict, step_index: int, vdir: Path,
                   params: dict, secret_values: dict, agent_cfg: dict | None,
@@ -569,7 +634,7 @@ class Engine:
         setting = self.store.settings.get("notif", "attention")
         status = h["status"]
         interesting = (
-            status in ("failed", "interrupted")
+            status == "failed"
             or (result or {}).get("status") in ("changes", "attention")
         )
         if setting == "all" or interesting:

@@ -1,7 +1,7 @@
 // App shell (§9): 212px sidebar + independently scrolling content, state-driven nav.
 import React, { useEffect, useState } from 'react'
 import { useStore } from './store'
-import { CountPill, Spinner, Toast } from './ui'
+import { CountPill, Logo, Spinner, Toast } from './ui'
 import AgentNewPage from './pages/AgentNewPage'
 import AgentsPage from './pages/AgentsPage'
 import AutomationDetail from './pages/AutomationDetail'
@@ -22,28 +22,20 @@ const NAV: { page: string; label: string; icon: string }[] = [
   { page: 'settings', label: 'Settings', icon: 'fa-sliders' },
 ]
 
-function Logo({ size = 26 }: { size?: number }) {
-  return (
-    <span style={{
-      width: size, height: size, borderRadius: size * 0.32, background: 'var(--accent)',
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
-    }}>
-      <i className="fa-solid fa-hammer" style={{ color: '#0b0d11', fontSize: size * 0.5 }} />
-    </span>
-  )
-}
-
-export { Logo }
-
 function Sidebar() {
-  const { page, go, autos, execs } = useStore()
+  const page = useStore((s) => s.page)
+  const go = useStore((s) => s.go)
+  const nAutos = useStore((s) => s.autos.length)
+  const nExecs = useStore((s) => s.execs.length)
+  const nAgents = useStore((s) => s.agents.length)
+  const nSecrets = useStore((s) => s.secrets.length)
   const [hovPage, setHovPage] = useState<string | null>(null)
   const activeRoot = page === 'automation' ? 'automations' : page === 'execution' ? 'executions' : page === 'agentNew' ? 'agents' : page
   const counts: Record<string, number> = {
-    automations: autos.length,
-    executions: execs.length,
-    agents: useStore.getState().agents.length,
-    secrets: useStore.getState().secrets.length,
+    automations: nAutos,
+    executions: nExecs,
+    agents: nAgents,
+    secrets: nSecrets,
   }
   return (
     <div style={{
@@ -121,7 +113,12 @@ function BootSplash({ waiting }: { waiting: boolean }) {
 }
 
 export default function App() {
-  const { connected, surface, toast, boot, disconnect, createFrom } = useStore()
+  const connected = useStore((s) => s.connected)
+  const surface = useStore((s) => s.surface)
+  const toast = useStore((s) => s.toast)
+  const createFrom = useStore((s) => s.createFrom)
+  const boot = useStore((s) => s.boot)
+  const disconnect = useStore((s) => s.disconnect)
 
   useEffect(() => { void boot(); return disconnect }, [])
 

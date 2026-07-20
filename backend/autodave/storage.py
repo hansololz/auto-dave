@@ -42,12 +42,15 @@ def new_id() -> str:
     return str(uuid.uuid4())
 
 
-def _size_label(n: int) -> str:
+def size_label(n: int) -> str:
+    """One humanized byte label for every surface (§4.1, §4.9)."""
     if n < 1024:
         return f"{n} B"
     if n < 1024 * 1024:
         return f"{n / 1024:.1f} KB"
-    return f"{n / 1024 / 1024:.1f} MB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / 1024 / 1024:.1f} MB"
+    return f"{n / 1024 / 1024 / 1024:.1f} GB"
 
 
 def param_default(d: dict) -> Any:
@@ -129,7 +132,29 @@ class Store:
             self.close_exec_db()
             self.execdb = ExecDB(self.executions_dir() / "executions.db")
             self.execs = self.execdb.load_all()
+            self._reconcile_exec_index()
             self._refresh_exec_derived()
+
+    def _reconcile_exec_index(self) -> None:
+        """§5: `executions.yaml` is authoritative; the DB is only an index. An
+        execution directory the index doesn't know (crash between the yaml write
+        and the DB upsert, or a schema wipe) is restored from its yaml here, so
+        startup truly rebuilds everything from disk."""
+        d = self.executions_dir()
+        if not d.exists():
+            return
+        for ed in d.iterdir():
+            if not ed.is_dir() or ed.name in self.execs:
+                continue
+            y = self.read_exec_yaml(ed.name)
+            if not y or y.get("id") != ed.name or not y.get("started_at"):
+                continue
+            h = {k: y[k] for k in ("id", "auto_id", "auto_name", "ver", "status", "trigger",
+                                   "started_at", "finished_at", "dur_ms", "note",
+                                   "chip", "chip_status", "error")}
+            self.execdb.upsert(h)
+            self.execs[h["id"]] = h
+            log.warning("execution %s was missing from the index — restored from its executions.yaml", h["id"])
 
     def close_exec_db(self) -> None:
         with self.lock:
@@ -230,10 +255,13 @@ class Store:
         }
 
     def _refresh_exec_derived(self) -> None:
-        """Fill last_status / last_exec_at / live per automation (§5 load model);
-        the result chip rides on the execution header itself."""
+        """Fill last_status / last_exec_at / live / latest-header per automation
+        (§5 load model); the result chip rides on the execution header itself.
+        `_latest` is kept current by create/update_execution so serialization
+        never re-scans all executions per automation."""
         for a in self.autos.values():
             latest = self._latest_exec(a["id"])
+            a["_latest"] = latest
             a["_last_status"] = latest["status"] if latest else "none"
             a["_last_exec_at"] = latest["started_at"] if latest else None
             a["_live"] = latest["id"] if latest and latest["status"] == "executing" else None
@@ -263,8 +291,16 @@ class Store:
 
     def _write_version_folder(self, vd: Path, ver: dict, extra: dict | None = None) -> None:
         """`extra` merges additional keys into automation.yaml — used by the
-        §4.4 pending create-mode slot for its identity fields."""
+        §4.4 pending create-mode slot for its identity fields.
+
+        Crash-safe by write order (§5): step scripts and spec land first, the
+        manifest (automation.yaml) last — it is the commit point (`_load_automation`
+        ignores a folder without it), so a crash mid-write leaves either the old
+        consistent folder or an ignorable partial, never a half-adopted version.
+        Stale files from a previous draft save are pruned only after the new
+        manifest is in place."""
         vd.mkdir(parents=True, exist_ok=True)
+        keep = {"automation.yaml", "spec.md", "instructions.md"}
         manifest_steps = []
         for i, s in enumerate(ver["steps"], 1):
             fname = s.get("file") or f"{i:02d}-{re.sub(r'[^a-z0-9]+', '-', s['name'].lower()).strip('-')}.py"
@@ -274,7 +310,13 @@ class Store:
                 entry["agent_id"] = s.get("agent_id")
                 entry["why"] = s.get("why", "")
             manifest_steps.append(entry)
+            keep.add(fname)
             atomic_write_text(vd / fname, s.get("code", ""))
+        atomic_write_text(vd / "spec.md", blocks_to_md(ver.get("spec", [])))
+        if ver.get("instr"):
+            atomic_write_text(vd / "instructions.md", ver["instr"].strip() + "\n")
+        elif (vd / "instructions.md").exists():
+            (vd / "instructions.md").unlink()
         # §6.2: statuses are transient (draft payload / API only) — the stored
         # manifest keeps just the declaration; absent when none are declared.
         pkgs = [{"pip": p.get("pip"), "import": p.get("import")}
@@ -292,11 +334,9 @@ class Store:
             "steps": manifest_steps,
             **(extra or {}),
         })
-        atomic_write_text(vd / "spec.md", blocks_to_md(ver.get("spec", [])))
-        if ver.get("instr"):
-            atomic_write_text(vd / "instructions.md", ver["instr"].strip() + "\n")
-        elif (vd / "instructions.md").exists():
-            (vd / "instructions.md").unlink()
+        for f in vd.iterdir():
+            if f.is_file() and f.name not in keep and not f.name.startswith(".ad-tmp-"):
+                f.unlink()
 
     def create_automation(self, ver: dict, name: str, agent_id: str | None,
                           triggers: list[dict] | None = None,
@@ -360,10 +400,10 @@ class Store:
     def save_draft(self, a: dict, ver: dict) -> None:
         # §5: draft/ is a container — only the automation/ working copy is
         # rewritten; draft/memory/ (§4.4) survives re-saves from the editor.
+        # No rmtree: _write_version_folder rewrites in place (manifest last,
+        # stale files pruned after), so a crash never loses the previous draft.
         with self.lock:
             dd = self.auto_dir(a) / "draft" / "automation"
-            if dd.exists():
-                shutil.rmtree(dd)
             self._write_version_folder(dd, ver)
             a["draft"] = self._load_version_folder(dd)
 
@@ -385,8 +425,6 @@ class Store:
             dd = paths.pending_draft_dir() / "automation"
             prev = load_yaml(dd / "automation.yaml", {}) or {}
             now = datetime.now().isoformat(timespec="seconds")
-            if dd.exists():
-                shutil.rmtree(dd)
             self._write_version_folder(dd, ver, extra={
                 "name": name, "agent_id": agent_id, "triggers": triggers or [],
                 "created_at": prev.get("created_at") or now, "updated_at": now,
@@ -423,15 +461,7 @@ class Store:
         d = self.load_pending_draft()
         if d is None:
             return {"draft": None, "agentId": None}
-        steps = []
-        for s in d.get("steps", []):
-            out = {"name": s.get("name", ""), "desc": s.get("desc", ""),
-                   "code": s.get("code", ""), "file": s.get("file")}
-            if s.get("agent"):
-                out["agent"] = True
-                out["agentId"] = s.get("agent_id")
-                out["why"] = s.get("why", "")
-            steps.append(out)
+        steps = [self.step_json(None, s) for s in d.get("steps", [])]
         return {"draft": {
             "name": d.get("name"), "desc": d.get("desc", ""), "note": d.get("note"),
             "params": d.get("params", []), "packages": d.get("packages", []),
@@ -537,6 +567,7 @@ class Store:
                 "error": None, "redacted": [],
                 "steps": [{"name": s["name"], "file": s.get("file"),
                            "agent": bool(s.get("agent")),
+                           **({"sha": s["sha"]} if s.get("sha") else {}),
                            "status": s.get("status", "queued"),
                            "dur_ms": s.get("dur_ms"),
                            "attempts": s.get("attempts", [])} for s in steps],
@@ -550,6 +581,7 @@ class Store:
             self.execs[h["id"]] = h
             if status == "executing":
                 auto["_live"] = h["id"]
+                auto["_latest"] = h
                 auto["_last_status"] = "executing"
                 auto["_last_exec_at"] = h["started_at"]
             return h
@@ -563,6 +595,7 @@ class Store:
                 # in-place retry flips a terminal record back to executing (§7)
                 if a:
                     a["_live"] = h["id"]
+                    a["_latest"] = h
                     a["_last_status"] = "executing"
                     a["_last_exec_at"] = h["started_at"]
             else:
@@ -570,6 +603,7 @@ class Store:
                     a["_live"] = None
                 if a:
                     latest = self._latest_exec(a["id"])
+                    a["_latest"] = latest
                     if latest:
                         a["_last_status"] = latest["status"]
                         a["_last_exec_at"] = latest["started_at"]
@@ -681,7 +715,7 @@ class Store:
         out = []
         for f in sorted(d.iterdir(), key=lambda p: p.name.lower()):
             if f.is_file():
-                out.append({"name": f.name, "size": _size_label(f.stat().st_size)})
+                out.append({"name": f.name, "size": size_label(f.stat().st_size)})
         return out
 
     def result_json(self, h: dict) -> dict | None:
@@ -699,9 +733,18 @@ class Store:
 
     def delete_execution(self, exec_id: str) -> None:
         with self.lock:
+            h = self.execs.pop(exec_id, None)
             shutil.rmtree(self.exec_dir(exec_id), ignore_errors=True)
             self.execdb.delete(exec_id)
-            self.execs.pop(exec_id, None)
+            # Keep `_latest` honest inside the mutator — no caller should have
+            # to remember to recompute after deleting.
+            if h:
+                a = self.autos.get(h["auto_id"])
+                if a and (a.get("_latest") or {}).get("id") == exec_id:
+                    latest = self._latest_exec(a["id"])
+                    a["_latest"] = latest
+                    a["_last_status"] = latest["status"] if latest else "none"
+                    a["_last_exec_at"] = latest["started_at"] if latest else None
 
     def retention_cleanup(self) -> int:
         with self.lock:
@@ -709,11 +752,18 @@ class Store:
                 return 0
             days = max(1, int(self.settings.get("days", 90)))
             cutoff = datetime.now().timestamp() - days * 86400
-            doomed = [h["id"] for h in self.execs.values()
-                      if h["status"] != "executing" and h["started_at"]
-                      and datetime.fromisoformat(h["started_at"]).timestamp() < cutoff]
+            doomed = []
+            for h in self.execs.values():
+                if h["status"] == "executing" or not h["started_at"]:
+                    continue
+                try:
+                    if datetime.fromisoformat(h["started_at"]).timestamp() < cutoff:
+                        doomed.append(h["id"])
+                except ValueError:
+                    # One unparsable row must never abort the whole sweep.
+                    log.warning("retention: unparsable started_at on %s — skipping it", h["id"])
             for eid in doomed:
-                self.delete_execution(eid)
+                self.delete_execution(eid)  # maintains each automation's `_latest`
             return len(doomed)
 
     # ---------- agents / secrets / settings ----------
@@ -747,7 +797,7 @@ class Store:
                     st = f.stat()
                     size += st.st_size
                     newest = max(newest or 0, st.st_mtime)
-        label = (f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB") if size else "empty"
+        label = size_label(size) if size else "empty"
         updated = timefmt.date_label(datetime.fromtimestamp(newest)) if newest else "never written"
         return {"size": label, "updated": updated, "path": str(d)}
 
@@ -856,7 +906,7 @@ class Store:
         dt = datetime.fromisoformat(m["created_at"])
         return {"id": m["id"], "name": m.get("name"), "reason": m["reason"],
                 "when": timefmt.date_label(dt), "version": m.get("version"),
-                "size": _size_label(int(m.get("size") or 0)), "files": int(m.get("files") or 0)}
+                "size": size_label(int(m.get("size") or 0)), "files": int(m.get("files") or 0)}
 
     def merged_params(self, a: dict, ver: dict) -> list[dict]:
         out = []
@@ -890,11 +940,14 @@ class Store:
                 **({"allowedSecrets": ver["allowed_secrets"]} if ver.get("allowed_secrets") is not None else {}),
                 **({"triggers": ver["triggers"]} if ver.get("triggers") is not None else {})}
 
-    def step_json(self, a: dict, s: dict) -> dict:
+    def step_json(self, a: dict | None, s: dict) -> dict:
+        """One step-serialization for versions, drafts, and the pending slot —
+        `a` (when given) supplies the enabled-agents fallback for agent steps."""
         out = {"name": s.get("name", ""), "desc": s.get("desc", ""), "code": s.get("code", ""), "file": s.get("file")}
         if s.get("agent"):
+            enabled = a["enabled_agents"] if a else []
             out["agent"] = True
-            out["agentId"] = s.get("agent_id") or (a["enabled_agents"][0] if a["enabled_agents"] else None)
+            out["agentId"] = s.get("agent_id") or (enabled[0] if enabled else None)
             out["why"] = s.get("why", "")
         return out
 
@@ -912,7 +965,7 @@ class Store:
         last_at = a.get("_last_exec_at")
         last_dt = datetime.fromisoformat(last_at) if last_at else None
         live = a.get("_live")
-        latest_h = self._latest_exec(a["id"])
+        latest_h = a.get("_latest")  # kept current by create/update_execution — no per-call scan
         chip = None
         chip_status = None  # tints the chip everywhere (§7 colors), incl. the list row
         if latest_h and latest_h["status"] == "succeeded":

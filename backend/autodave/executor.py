@@ -12,6 +12,7 @@ import json
 import sys
 import time
 import traceback
+import urllib.error
 import urllib.robotparser
 import urllib.request
 from pathlib import Path
@@ -202,8 +203,19 @@ def fetch_page(url: str) -> str:
     if rp is None:
         rp = urllib.robotparser.RobotFileParser()
         try:
-            rp.set_url(f"{urlparse(url).scheme}://{host}/robots.txt")
-            rp.read()
+            # Fetch robots.txt ourselves: RobotFileParser.read() has no timeout,
+            # so a black-holing server would hang the step until the watchdog.
+            req = urllib.request.Request(f"{urlparse(url).scheme}://{host}/robots.txt",
+                                         headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                rp.parse(r.read().decode("utf-8", errors="replace").splitlines())
+        except urllib.error.HTTPError as e:
+            # Same semantics as RobotFileParser.read(): 401/403 mean "crawlers
+            # not welcome" (disallow all); other 4xx (no robots.txt) allow all.
+            if e.code in (401, 403):
+                rp.disallow_all = True  # type: ignore[attr-defined]
+            else:
+                rp.allow_all = True  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001
             rp.allow_all = True  # type: ignore[attr-defined]
         _robots[host] = rp
@@ -217,7 +229,7 @@ def fetch_page(url: str) -> str:
     if wait > 0:
         time.sleep(wait)
     last_err: Exception | None = None
-    for _ in range(3):  # first try + retry twice
+    for attempt in range(3):  # first try + retry twice
         _site_last[host] = time.time()
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
@@ -225,7 +237,8 @@ def fetch_page(url: str) -> str:
                 return r.read().decode("utf-8", errors="replace")
         except Exception as e:  # noqa: BLE001
             last_err = e
-            time.sleep(2)
+            if attempt < 2:  # no pointless sleep after the final failure
+                time.sleep(2)
     raise RuntimeError(f"couldn't fetch {url}: {last_err}")
 
 
@@ -280,10 +293,7 @@ def main() -> int:
         if value is not None:
             os.environ[key] = str(value)
 
-    notify_holder = {}
-
     def notify(text: str) -> None:
-        notify_holder["text"] = str(text)
         emit("notify", text=str(text))
 
     g = {
@@ -333,6 +343,23 @@ def main() -> int:
         emit("error", type="MissingSecret", message=str(e))
         emit("log", k="err", text=str(e))
         return 3
+    except SystemExit as e:
+        # A step calling sys.exit() / sys.exit(0) is an ordinary early exit,
+        # not a failure; a nonzero or message exit still fails the step —
+        # keeping the author's message (sys.exit("why")) as the diagnostic.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        if e.code is None or e.code == 0:
+            return 0
+        if isinstance(e.code, int):
+            msg = f"step exited with code {e.code}"
+            rc = e.code
+        else:
+            msg = f"SystemExit: {e.code}"
+            rc = 1
+        emit("error", type="SystemExit", message=msg)
+        emit("log", k="err", text=msg)
+        return rc
     except BaseException as e:  # noqa: BLE001
         # §7 failure diagnostics: the engine stores this structured event as the
         # execution's error; the traceback still goes to the logs line by line.

@@ -6,7 +6,7 @@ import re
 import secrets as pysecrets
 import subprocess
 import threading
-from datetime import datetime
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -18,8 +18,8 @@ from .drafting import draft_jobs
 from .engine import Engine
 from .events import hub
 from .scheduler import fire_trigger
-from .storage import SECRET_REF_RE, Store, param_default, resolve_param_value, store
-from .testrun import test_runs
+from .storage import size_label, store
+from .testexec import test_execs
 
 AUTH_TOKEN = pysecrets.token_hex(24)
 SECRET_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -49,6 +49,14 @@ def _auto_or_404(auto_id: str) -> dict:
     return a
 
 
+def _auto_json_locked(a: dict) -> dict:
+    """Serialize an automation under store.lock — the only correct way to build
+    a response payload from live state (auto_json reads fields the engine and
+    scheduler mutate concurrently)."""
+    with store.lock:
+        return store.auto_json(a)
+
+
 def _agent_or_404(agent_id: str) -> dict:
     for a in store.agents:
         if a["id"] == agent_id:
@@ -56,13 +64,22 @@ def _agent_or_404(agent_id: str) -> dict:
     raise HTTPException(404, "agent not found")
 
 
-def _dir_size_label(p: Path) -> str:
+# The executions tree can be GBs across thousands of directories; the size
+# label is display-only, so one walk per TTL window is plenty — and it must
+# never run while holding store.lock (it would stall live log streaming).
+_DATA_SIZE_TTL_S = 30
+_data_size_cache: tuple[float, str] | None = None
+
+
+def _data_size_label() -> str:
+    global _data_size_cache
+    now = time.monotonic()
+    if _data_size_cache and now - _data_size_cache[0] < _DATA_SIZE_TTL_S:
+        return _data_size_cache[1]
+    p = store.executions_dir()
     total = sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.exists() else 0
-    if total < 1024 * 1024:
-        return f"{total / 1024:.0f} KB"
-    if total < 1024 * 1024 * 1024:
-        return f"{total / 1024 / 1024:.1f} MB"
-    return f"{total / 1024 / 1024 / 1024:.1f} GB"
+    _data_size_cache = (now, size_label(total))
+    return _data_size_cache[1]
 
 
 def _agents_json() -> list[dict]:
@@ -77,7 +94,7 @@ def _agents_json() -> list[dict]:
 def _settings_json() -> dict:
     s = dict(store.settings)
     s["dataPath"] = str(store.data_path())
-    s["dataSize"] = _dir_size_label(store.executions_dir())
+    s["dataSize"] = _data_size_label()
     s["appPath"] = str(paths.app_support())
     return s
 
@@ -124,6 +141,7 @@ def instructions() -> dict:
 
 @app.get("/state", dependencies=[Depends(auth)])
 def state() -> dict:
+    settings = _settings_json()  # walks the executions tree — never under the lock
     with store.lock:
         return {
             "version": __version__,
@@ -132,7 +150,7 @@ def state() -> dict:
                             key=lambda e: e["startedMs"], reverse=True),
             "agents": _agents_json(),
             "secrets": _secrets_json(),
-            "settings": _settings_json(),
+            "settings": settings,
             "pendingDraft": store.pending_draft_summary(),
         }
 
@@ -140,12 +158,13 @@ def state() -> dict:
 # ---------- automations ----------
 @app.get("/automations", dependencies=[Depends(auth)])
 def list_autos() -> list[dict]:
-    return [store.auto_json(a) for a in store.autos.values()]
+    with store.lock:
+        return [store.auto_json(a) for a in store.autos.values()]
 
 
 @app.get("/automations/{auto_id}", dependencies=[Depends(auth)])
 def get_auto(auto_id: str) -> dict:
-    return store.auto_json(_auto_or_404(auto_id))
+    return _auto_json_locked(_auto_or_404(auto_id))
 
 
 @app.patch("/automations/{auto_id}", dependencies=[Depends(auth)])
@@ -159,7 +178,7 @@ def patch_auto(auto_id: str, patch: dict) -> dict:
         patch = {**patch, "triggers": norm}
     store.patch_automation(a, patch)
     hub.publish("auto.changed", autoId=auto_id)
-    return store.auto_json(a)
+    return _auto_json_locked(a)
 
 
 @app.delete("/automations/{auto_id}", dependencies=[Depends(auth)])
@@ -200,7 +219,7 @@ def create_auto(body: dict) -> dict:
     store.delete_pending_draft()
     hub.publish("draft.changed")
     hub.publish("auto.changed", autoId=a["id"])
-    return store.auto_json(a)
+    return _auto_json_locked(a)
 
 
 @app.post("/automations/{auto_id}/versions", dependencies=[Depends(auth)])
@@ -224,7 +243,7 @@ def save_version(auto_id: str, body: dict) -> dict:
         store.patch_automation(a, patch)
     store.delete_draft(a)
     hub.publish("auto.changed", autoId=auto_id)
-    return {"version": n, "auto": store.auto_json(a)}
+    return {"version": n, "auto": _auto_json_locked(a)}
 
 
 @app.put("/automations/{auto_id}/draft", dependencies=[Depends(auth)])
@@ -285,12 +304,15 @@ def del_pending_draft() -> dict:
 @app.post("/automations/{auto_id}/restore", dependencies=[Depends(auth)])
 def restore(auto_id: str, body: dict) -> dict:
     a = _auto_or_404(auto_id)
-    v = int(body.get("v", 0))
+    try:
+        v = int(body.get("v", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(422, "v must be an integer") from None
     if v not in a["versions"]:
         raise HTTPException(404, f"v{v} not found")
     n = store.restore_version(a, v)
     hub.publish("auto.changed", autoId=auto_id)
-    return {"version": n, "auto": store.auto_json(a)}
+    return {"version": n, "auto": _auto_json_locked(a)}
 
 
 @app.post("/automations/{auto_id}/execute", dependencies=[Depends(auth)])
@@ -299,6 +321,8 @@ def execute_auto(auto_id: str, body: dict | None = None) -> dict:
     body = body or {}
     try:
         h = engine.start(a, body.get("trigger", "Manual"), version_label=body.get("version"))
+    except LookupError as e:  # unknown version label — not a liveness conflict
+        raise HTTPException(404, str(e)) from e
     except RuntimeError as e:
         raise HTTPException(409, str(e)) from e
     return {"execId": h["id"]}
@@ -325,7 +349,11 @@ def post_test(body: dict) -> dict:
     d = body.get("draft")
     if not d or not d.get("steps"):
         raise HTTPException(422, "draft with steps required")
-    auto = store.autos.get(body.get("autoId", "")) if body.get("autoId") else None
+    auto = None
+    if body.get("autoId"):
+        # A stale/unknown autoId must 404 — falling through to create mode
+        # would wipe the unrelated pending slot's workspace/result dirs.
+        auto = _auto_or_404(body["autoId"])
     # The agent serves the §8 issue-analysis call only — a test without any
     # agent still executes; a failure then opens with the raw error instead.
     aid = body.get("agentId") or next((a["id"] for a in store.agents if a.get("default")),
@@ -337,13 +365,13 @@ def post_test(body: dict) -> dict:
     allowed = body.get("allowedSecrets")
     if allowed is None:
         allowed = auto["allowed_secrets"] if auto else []
-    test_id = test_runs.start(d, auto, agent, enabled, allowed, body.get("paramValues") or {})
+    test_id = test_execs.start(d, auto, agent, enabled, allowed, body.get("paramValues") or {})
     return {"testId": test_id}
 
 
 @app.delete("/tests/{test_id}", dependencies=[Depends(auth)])
 def cancel_test(test_id: str) -> dict:
-    return {"ok": test_runs.cancel(test_id)}
+    return {"ok": test_execs.cancel(test_id)}
 
 
 # ---------- declared packages (§6.2 — §19 /packages/*) ----------
@@ -381,20 +409,6 @@ def packages_update(body: dict) -> dict:
     if updated:
         hub.publish("auto.changed")
     return {"packages": pkglib.ensure(entries), "updated": updated}
-
-
-# ---------- review checks (§11 decided semantics) ----------
-@app.post("/automations/{auto_id}/checks", dependencies=[Depends(auth)])
-def checks(auto_id: str, body: dict | None = None) -> dict:
-    a = _auto_or_404(auto_id)
-    body = body or {}
-    d = body.get("draft")
-    ver = {"params": d["params"], "steps": d["steps"]} if d else a["versions"][a["current_version"]]
-    # In-editor grants override the saved ones when present (unsaved Review-screen state).
-    allowed_secrets = body["allowedSecrets"] if "allowedSecrets" in body else a["allowed_secrets"]
-    enabled_agents = body["enabledAgents"] if "enabledAgents" in body else a["enabled_agents"]
-    _start_checks(a, auto_id, ver, allowed_secrets, enabled_agents)
-    return {"ok": True}
 
 
 @app.post("/automations/{auto_id}/memory/clear", dependencies=[Depends(auth)])
@@ -448,88 +462,6 @@ def delete_snapshot(auto_id: str, sid: str) -> dict:
         raise HTTPException(404, "snapshot not found")
     hub.publish("auto.changed", autoId=auto_id)
     return {"ok": True}
-
-
-@app.post("/checks", dependencies=[Depends(auth)])
-def checks_draft(body: dict) -> dict:
-    # §19 create-mode checks: no saved automation yet — checks evaluate the sent draft.
-    d = body.get("draft")
-    if not d:
-        raise HTTPException(422, "draft required")
-    ver = {"params": d.get("params", []), "steps": d.get("steps", [])}
-    _start_checks(None, None, ver, body.get("allowedSecrets", []), body.get("enabledAgents", []))
-    return {"ok": True}
-
-
-def _start_checks(a: dict | None, auto_id: str | None, ver: dict,
-                  allowed_secrets: list, enabled_agents: list) -> None:
-    def lines() -> None:
-        import urllib.request
-
-        def say(kind: str, text: str) -> None:
-            hub.publish("checks.line", autoId=auto_id, kind=kind, text=text)
-
-        def probe(u: str) -> tuple[str, bool]:
-            try:
-                req = urllib.request.Request(u, method="HEAD", headers={"User-Agent": "AutoDave/1.0"})
-                urllib.request.urlopen(req, timeout=5)
-                return u, True
-            except Exception:  # noqa: BLE001
-                return u, False
-
-        for p in ver.get("params", []):
-            v = resolve_param_value(p, a["param_values"] if a else {})
-            label = p.get("label", p["name"])
-            if p["kind"] == "list" and p.get("validate"):
-                urls = [l for l in v if re.match(r"^https?://\S+\.\S+", l.strip())]
-                bad = [l for l in v if l.strip() and not re.match(r"^https?://\S+\.\S+", l.strip())]
-                say("ok" if not bad else "warn",
-                    f"{label}: {len(urls)} valid links" + (f" · {len(bad)} need attention" if bad else ""))
-                # §11: HEAD probe every valid URL (5 s timeout each), in parallel.
-                if urls:
-                    from concurrent.futures import ThreadPoolExecutor
-
-                    with ThreadPoolExecutor(max_workers=min(8, len(urls))) as pool:
-                        for u, ok in pool.map(probe, urls):
-                            say("ok" if ok else "warn",
-                                (f"reachable — {u}" if ok else f"didn't answer — {u}"))
-            elif p["kind"] == "number":
-                mn = p.get("min", 0)
-                try:
-                    good = float(v) >= float(mn)
-                except (TypeError, ValueError):
-                    good = False
-                say("ok" if good else "warn",
-                    f"{label}: {v}" + ("" if good else f" needs attention — expected a number of at least {mn}"))
-            elif p["kind"] == "kv":
-                entries = v if isinstance(v, list) else []
-                say("ok", f"{label}: {len(entries)} " + ("entry" if len(entries) == 1 else "entries"))
-            else:
-                say("ok", f"{label}: {v if v not in ('', []) else 'default'}")
-        refs = sorted({m for s in ver.get("steps", []) for m in SECRET_REF_RE.findall(s.get("code", ""))})
-        for name in refs:
-            if name not in allowed_secrets:
-                say("err", f"secret {name} isn't allowed for this automation")
-            elif keychain.get_secret(name) is None:
-                say("err", f"secret {name} isn't in your Keychain")
-            else:
-                say("ok", f"secret {name} is in your Keychain and allowed")
-        agents = {g["id"] for g in store.agents}
-        for i, s in enumerate(ver.get("steps", []), 1):
-            if s.get("agent"):
-                ok = any(aid in agents for aid in enabled_agents)
-                say("ok" if ok else "err",
-                    f"step {i} makes an agent call — " + ("an enabled agent is ready" if ok else "no agent is enabled"))
-        if a is not None:
-            mem = store.memory_stats(a)
-            say("ok", f"memory: {mem['size']} · {mem['updated']}")
-        else:
-            say("ok", "memory: empty — new automation")
-        say("ok", "notification plan: " + ("after every execution" if store.settings.get("notif") == "all"
-                                           else "only when something needs attention"))
-        hub.publish("checks.done", autoId=auto_id)
-
-    threading.Thread(target=lines, daemon=True).start()
 
 
 # ---------- drafts ----------
@@ -588,20 +520,22 @@ def cancel_draft(job_id: str) -> dict:
 # ---------- executions ----------
 @app.get("/executions", dependencies=[Depends(auth)])
 def list_execs(auto: str | None = None, status: str | None = None) -> list[dict]:
-    hs = list(store.execs.values())
-    if auto:
-        hs = [h for h in hs if h["auto_id"] == auto]
-    if status:
-        hs = [h for h in hs if h["status"] == status]
-    return sorted((store.exec_json(h) for h in hs), key=lambda e: e["startedMs"], reverse=True)
+    with store.lock:
+        hs = list(store.execs.values())
+        if auto:
+            hs = [h for h in hs if h["auto_id"] == auto]
+        if status:
+            hs = [h for h in hs if h["status"] == status]
+        return sorted((store.exec_json(h) for h in hs), key=lambda e: e["startedMs"], reverse=True)
 
 
 @app.get("/executions/{exec_id}", dependencies=[Depends(auth)])
 def get_exec(exec_id: str) -> dict:
-    h = store.exec_full(exec_id)
-    if not h:
-        raise HTTPException(404, "execution not found")
-    return store.exec_json(h, full=True)
+    with store.lock:
+        h = store.exec_full(exec_id)
+        if not h:
+            raise HTTPException(404, "execution not found")
+        return store.exec_json(h, full=True)
 
 
 @app.get("/executions/{exec_id}/logs", dependencies=[Depends(auth)])
@@ -641,7 +575,9 @@ def retry_exec(exec_id: str) -> dict:
     a = _auto_or_404(h["auto_id"])
     try:
         h2 = engine.retry(a, h)
-    except RuntimeError as e:
+    except (RuntimeError, LookupError) as e:
+        # §7: retry answers 409 while live, when the version no longer
+        # resolves, or when a re-saved draft's steps drifted from the record.
         raise HTTPException(409, str(e)) from e
     return {"execId": h2["id"]}
 
@@ -659,17 +595,23 @@ def skip_step(exec_id: str, body: dict) -> dict:
 
 
 # ---------- agents ----------
+HARNESSES = ("Claude Code", "Gemini CLI", "Codex", "OpenCode", "Ollama")
+
+
 @app.get("/agents", dependencies=[Depends(auth)])
 def list_agents() -> list[dict]:
-    return _agents_json()
+    with store.lock:
+        return _agents_json()
 
 
 @app.post("/agents", dependencies=[Depends(auth)])
 def add_agent(body: dict) -> dict:
     harness_name = body.get("harness")
-    if harness_name not in ("Claude Code", "Gemini CLI", "Codex", "OpenCode", "Ollama"):
+    if harness_name not in HARNESSES:
         raise HTTPException(422, "unknown harness")
     mode = body.get("mode", "default")
+    if mode not in ("default", "ollama"):
+        raise HTTPException(422, "mode must be default | ollama")
     # §4.7: model is null unless mode is ollama — a null model means the
     # harness uses whatever it is already configured with.
     model = (body.get("model") or None) if mode == "ollama" else None
@@ -677,52 +619,63 @@ def add_agent(body: dict) -> dict:
         raise HTTPException(422, "Ollama mode needs a model")
     import uuid
 
-    ag = {"id": str(uuid.uuid4()), "name": body.get("name") or None, "desc": body.get("desc") or "",
-          "harness": harness_name, "mode": mode, "model": model, "default": not store.agents}
-    store.agents.append(ag)
-    store.save_agents()
+    with store.lock:
+        ag = {"id": str(uuid.uuid4()), "name": body.get("name") or None, "desc": body.get("desc") or "",
+              "harness": harness_name, "mode": mode, "model": model, "default": not store.agents}
+        store.agents.append(ag)
+        store.save_agents()
     hub.publish("agents.changed")
     return ag
 
 
 @app.patch("/agents/{agent_id}", dependencies=[Depends(auth)])
 def patch_agent(agent_id: str, body: dict) -> dict:
-    ag = _agent_or_404(agent_id)
-    if body.get("default"):
-        for g in store.agents:
-            g["default"] = g["id"] == agent_id
-    if "harness" in body:
-        if body["harness"] not in ("Claude Code", "Gemini CLI", "Codex", "OpenCode", "Ollama"):
-            raise HTTPException(422, "unknown harness")
-        ag["harness"] = body["harness"]
-    for k in ("name", "model", "mode", "desc"):
-        if k in body:
-            ag[k] = body[k]
-    if ag.get("mode") != "ollama":
-        ag["model"] = None
-    store.save_agents()
+    # Same validation as POST — a PATCH must not be able to create an agent
+    # shape POST rejects (e.g. mode ollama with no model, §4.7).
+    if "harness" in body and body["harness"] not in HARNESSES:
+        raise HTTPException(422, "unknown harness")
+    if "mode" in body and body["mode"] not in ("default", "ollama"):
+        raise HTTPException(422, "mode must be default | ollama")
+    with store.lock:
+        ag = _agent_or_404(agent_id)
+        mode = body.get("mode", ag.get("mode", "default"))
+        model = body["model"] if "model" in body else ag.get("model")
+        if mode == "ollama" and not model:
+            raise HTTPException(422, "Ollama mode needs a model")
+        if body.get("default"):
+            for g in store.agents:
+                g["default"] = g["id"] == agent_id
+        if "harness" in body:
+            ag["harness"] = body["harness"]
+        for k in ("name", "model", "mode", "desc"):
+            if k in body:
+                ag[k] = body[k]
+        if ag.get("mode") != "ollama":
+            ag["model"] = None
+        store.save_agents()
     hub.publish("agents.changed")
     return ag
 
 
 @app.delete("/agents/{agent_id}", dependencies=[Depends(auth)])
 def delete_agent(agent_id: str) -> dict:
-    ag = _agent_or_404(agent_id)
-    store.agents = [g for g in store.agents if g["id"] != agent_id]
-    # §4.7: reassign the default
-    if ag.get("default") and store.agents:
-        store.agents[0]["default"] = True
-    for a in store.autos.values():
-        changed = False
-        if a["agent_id"] == agent_id:
-            a["agent_id"] = next((g["id"] for g in store.agents if g.get("default")), None)
-            changed = True
-        if agent_id in a["enabled_agents"]:
-            a["enabled_agents"] = [x for x in a["enabled_agents"] if x != agent_id]
-            changed = True
-        if changed:
-            store.patch_automation(a, {})
-    store.save_agents()
+    with store.lock:
+        ag = _agent_or_404(agent_id)
+        store.agents = [g for g in store.agents if g["id"] != agent_id]
+        # §4.7: reassign the default
+        if ag.get("default") and store.agents:
+            store.agents[0]["default"] = True
+        for a in store.autos.values():
+            changed = False
+            if a["agent_id"] == agent_id:
+                a["agent_id"] = next((g["id"] for g in store.agents if g.get("default")), None)
+                changed = True
+            if agent_id in a["enabled_agents"]:
+                a["enabled_agents"] = [x for x in a["enabled_agents"] if x != agent_id]
+                changed = True
+            if changed:
+                store.patch_automation(a, {})
+        store.save_agents()
     hub.publish("agents.changed")
     hub.publish("auto.changed")
     return {"ok": True}
@@ -777,29 +730,35 @@ def put_secret(name: str, body: dict) -> dict:
     if not SECRET_NAME_RE.match(name):
         raise HTTPException(422, "secret names must match [A-Z][A-Z0-9_]* — "
                                  "uppercase letters, digits and underscores, starting with a letter")
-    existing = next((s for s in store.secrets if s["name"] == name), None)
     value = body.get("value", "")
-    # §4.8: a new secret needs a value; a blank value on an existing one keeps
-    # the stored value (description-only update).
-    if not value and existing is None:
-        raise HTTPException(422, "value required")
+    with store.lock:
+        existing = next((s for s in store.secrets if s["name"] == name), None)
+        # §4.8: a new secret needs a value; a blank value on an existing one keeps
+        # the stored value (description-only update).
+        if not value and existing is None:
+            raise HTTPException(422, "value required")
     if value:
+        # Keychain IPC can block for seconds (locked keychain, consent prompt) —
+        # never hold store.lock across it; the engine would stall mid-execution.
         keychain.set_secret(name, value)
-    if existing is None:
-        existing = {"name": name, "desc": ""}
-        store.secrets.append(existing)
-    if "desc" in body:
-        existing["desc"] = body.get("desc") or ""
-    store.save_secrets()
+    with store.lock:
+        existing = next((s for s in store.secrets if s["name"] == name), None)
+        if existing is None:
+            existing = {"name": name, "desc": ""}
+            store.secrets.append(existing)
+        if "desc" in body:
+            existing["desc"] = body.get("desc") or ""
+        store.save_secrets()
     hub.publish("secrets.changed")
     return {"ok": True}
 
 
 @app.delete("/secrets/{name}", dependencies=[Depends(auth)])
 def delete_secret(name: str) -> dict:
-    keychain.delete_secret(name)
-    store.secrets = [s for s in store.secrets if s["name"] != name]
-    store.save_secrets()
+    keychain.delete_secret(name)  # Keychain IPC — outside the lock (see put_secret)
+    with store.lock:
+        store.secrets = [s for s in store.secrets if s["name"] != name]
+        store.save_secrets()
     hub.publish("secrets.changed")
     return {"ok": True}
 
@@ -812,28 +771,43 @@ def get_settings() -> dict:
 
 @app.patch("/settings", dependencies=[Depends(auth)])
 def patch_settings(body: dict) -> dict:
-    for k in ("login", "mbIcon", "notif", "days", "keepForever", "devMode"):
-        if k in body:
-            store.settings[k] = body[k]
-    store.save_settings()
+    with store.lock:
+        for k in ("login", "mbIcon", "notif", "days", "keepForever", "devMode"):
+            if k in body:
+                store.settings[k] = body[k]
+        store.save_settings()
     hub.publish("settings.changed")
     return _settings_json()
 
 
 @app.post("/settings/data-path", dependencies=[Depends(auth)])
 def set_data_path(body: dict) -> dict:
+    global _data_size_cache
     raw = str(body.get("path", "")).strip()
     if not raw:
         raise HTTPException(422, "path required")
     new_root = Path(raw).expanduser()
     target = new_root if new_root.name == "executions" else new_root / "executions"
-    target.mkdir(parents=True, exist_ok=True)
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(422, f"can't create that directory: {e}") from e
     # Nothing moves: execution state lives in the executions dir, so switching
-    # the path just closes the old DB and reloads from the new location.
-    store.close_exec_db()
-    store.settings["dataPath"] = str(target)
-    store.save_settings()
-    store.load_all()
+    # the path just closes the old DB and reloads from the new location. The
+    # whole swap holds the lock — an engine thread finishing mid-swap would
+    # otherwise hit a closed DB and die with the execution stuck "executing" —
+    # and is refused while an execution is live (it writes to the old dir).
+    with store.lock:
+        if any(h["status"] == "executing" for h in store.execs.values()):
+            raise HTTPException(409, "an execution is in progress — try again when it finishes")
+        store.close_exec_db()
+        store.settings["dataPath"] = str(target)
+        store.save_settings()
+        store.load_all()
+        # The new location may hold records a crashed backend left "executing" —
+        # repair them here too, or the automation would be wedged in 409s.
+        _repair_stale_executing()
+    _data_size_cache = None
     hub.publish("settings.changed")
     hub.publish("auto.changed")
     return _settings_json()
@@ -849,19 +823,17 @@ async def ws(sock: WebSocket, token: str = Query("")) -> None:
     q = hub.subscribe()
     try:
         while True:
-            msg = await q.get()
-            msg.pop("exec_", None)
-            await sock.send_json(msg)
+            await sock.send_json(await q.get())
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
         hub.unsubscribe(q)
 
 
-@app.on_event("startup")
-async def _bind_loop() -> None:
-    hub.bind_loop(asyncio.get_running_loop())
-    # §3: never resume as 'executing' after a restart — mark stale records interrupted.
+def _repair_stale_executing() -> None:
+    """§3: a record can only be 'executing' while an engine thread owns it —
+    anything else (backend restart, a data-path switch onto a crashed tree) is
+    marked interrupted. Callers hold store.lock (RLock, re-entry is fine)."""
     with store.lock:
         for h in list(store.execs.values()):
             if h["status"] == "executing" and not engine.is_live(h["id"]):
@@ -877,8 +849,10 @@ async def _bind_loop() -> None:
                 store.execs[full["id"]] = full
                 store.update_execution(full)
         store._refresh_exec_derived()
+
+
+@app.on_event("startup")
+async def _bind_loop() -> None:
+    hub.bind_loop(asyncio.get_running_loop())
+    _repair_stale_executing()
     hub.publish("auto.changed")
-
-
-def make_datetime_now() -> datetime:  # test seam
-    return datetime.now()

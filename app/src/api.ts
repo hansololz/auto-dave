@@ -11,6 +11,7 @@ declare global {
       revealPath(p: string): Promise<void>
       setLoginItem(on: boolean): Promise<void>
       trayAlert(on: boolean): Promise<void>
+      onOpenTarget(cb: (hash: string) => void): void
     }
   }
 }
@@ -58,7 +59,7 @@ export const api = {
   // §19 lazy logs: both params → that step attempt's file; neither → the execution log
   getExecLogs: (execId: string, step?: number, attempt?: number) =>
     req<{ lines: import('./types').LogLine[] }>('GET', `/executions/${execId}/logs`
-      + (step !== undefined ? `?step=${step}&attempt=${attempt}` : '')),
+      + (step !== undefined ? `?step=${step}&attempt=${attempt ?? 1}` : '')),
   getAuto: (autoId: string) => req<import('./types').Auto>('GET', `/automations/${autoId}`),
   patchAuto: (autoId: string, patch: Record<string, unknown>) =>
     req<import('./types').Auto>('PATCH', `/automations/${autoId}`, patch),
@@ -101,7 +102,6 @@ export const api = {
   postDraftJob: (body: Record<string, unknown>) => req<{ jobId: string }>('POST', '/drafts', body),
   getDraftJob: (jobId: string) => req<DraftJob>('GET', `/drafts/${jobId}`),
   cancelDraftJob: (jobId: string) => req('DELETE', `/drafts/${jobId}`),
-  agents: () => req<import('./types').Agent[]>('GET', '/agents'),
   addAgent: (body: Record<string, unknown>) => req<import('./types').Agent>('POST', '/agents', body),
   patchAgent: (id: string, body: Record<string, unknown>) => req('PATCH', `/agents/${id}`, body),
   deleteAgent: (id: string) => req('DELETE', `/agents/${id}`),
@@ -132,7 +132,12 @@ export function openWs(onEvent: (msg: Record<string, unknown>) => void): () => v
     if (closed) return
     sock = new WebSocket(`${base.replace('http', 'ws')}/ws?token=${token}`)
     sock.onmessage = (e) => onEvent(JSON.parse(e.data))
-    sock.onclose = () => { if (!closed) setTimeout(connect, 1500) }
+    sock.onclose = () => {
+      if (closed) return
+      // A backend restart binds a NEW port and token — re-read backend.json
+      // before each reconnect attempt or the loop retries a dead address forever.
+      setTimeout(() => { void connectInfo().finally(connect) }, 1500)
+    }
     sock.onopen = () => onEvent({ ev: 'ws.open' })
   }
   connect()

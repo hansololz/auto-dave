@@ -4,7 +4,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { logKey, useStore } from '../store'
-import { Badge, badgeOf, FailureNotice, paramSummary, Spinner } from '../ui'
+import { Badge, badgeOf, FailureNotice, logColor, paramSummary, Spinner } from '../ui'
 import { ResultSection } from '../result'
 import type { ExecStep, LogLine } from '../types'
 
@@ -14,13 +14,6 @@ type Sel = { step: number | null; attempt: number | null }
 const eyebrow: React.CSSProperties = {
   fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600,
   letterSpacing: '.09em', color: 'var(--text-faint)',
-}
-
-function logColor(k: LogLine['k']): string {
-  if (k === 'sys') return 'var(--text-faint)'
-  if (k === 'wrn') return 'var(--amber)'
-  if (k === 'err') return 'var(--red)'
-  return 'var(--text-2em)'
 }
 
 function BackLink({ onClick }: { onClick: () => void }) {
@@ -344,7 +337,7 @@ export default function ExecutionPage() {
               <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0 10px' }}><Spinner size={14} /></div>
             ) : steps.length === 0 ? (
               <div style={{ padding: '2px 16px 6px', fontSize: 12, lineHeight: 1.5, color: 'var(--text-faint)' }}>
-                {e.note ? `Nothing ran — ${e.note}.` : 'Nothing ran.'}
+                {e.note ? `Nothing executed — ${e.note}.` : 'Nothing executed.'}
               </div>
             ) : (
               <>
@@ -429,7 +422,7 @@ export default function ExecutionPage() {
                 padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,.05)',
               }}>
                 <span style={eyebrow}>
-                  {sel?.step != null ? selStep?.name : 'EXECUTION LOG'}
+                  {sel?.step != null ? selStep?.name : 'Execution'}
                   {liveSelected ? ' · LIVE' : ''}
                 </span>
                 {/* §7 attempt control — pills only when the step retried */}

@@ -84,6 +84,12 @@ the packaged app does not yet register its bundled backend itself.
   service stays registered regardless once onboarding completes.
 - Discovery: the backend listens on localhost and writes its port + auth token to
   `~/Library/Application Support/Auto Dave/backend.json` (0600); UI and CLI read it to connect.
+  Every backend start binds a fresh port and token, so the renderer re-reads `backend.json`
+  (via the preload bridge) before each WebSocket reconnect attempt — a backend restart never
+  strands the UI on a dead address.
+- **One app process** (`requestSingleInstanceLock`): a second launch (a login item racing a
+  manual open, `open -n`) quits immediately and focuses the existing window via the
+  `second-instance` event — never a second tray icon, never a second §6 `POST /app-started`.
 - Updates: on launch, the app compares its bundled backend version with the running service and,
   on mismatch, re-registers and restarts the service (never mid-execution — it waits for live
   executions to finish or marks them `interrupted`).
@@ -269,6 +275,9 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
 - `nextAt` null but an enabled `app_start` exists → "Executes when this app next starts —
   Execute now and the menu bar still work." (clock icon); the detail-page trigger chip reads
   "`<triggerChip>` · on app start"
+- `nextAt` null otherwise (e.g. an elapsed enabled one-shot not yet consumed) → "No upcoming
+  occurrence — Execute now and the menu bar still work."; the chip shows just `triggerChip`,
+  never a dangling countdown
 - else → "Next execution in `<countdown>` (`<short label of the next trigger>`) · executes even
   when the app is closed." (clock icon)
 
@@ -339,7 +348,9 @@ dur, started ("Today, 8:00 AM"), startedMs — dur accumulates across in-place r
 steps: [{ name, file, status, dur, attempts: [{ n, status, dur, startedMs }] }] — file is the
   version-folder script filename (keys the per-attempt log files, §5); a step's status equals
   its latest attempt's status, or queued when it has no attempts yet; attempt statuses use the
-  step vocabulary (§4.6); dur is the latest attempt's duration
+  step vocabulary (§4.6); dur is the latest attempt's duration. On disk each step also stores
+  `sha`, a short hash of the script as executed — the §7 Draft-retry drift check compares it,
+  since a re-saved draft can change a step's code without changing its name or file
 result: result object | null
 redact: secret names redacted in logs (joined string) | null
 note: optional note ("previous execution still in progress", "Mac went to sleep") | null
@@ -650,8 +661,11 @@ Rules:
 
 - Every write goes disk-first (atomic temp-write + rename for files — `executions.yaml`
   included; a committed transaction for the `executions.db` index), then the in-memory state
-  updates. A crash between the two self-heals at the
-  next startup, since startup rebuilds everything from disk. Nothing exists only in memory.
+  updates. A crash between the two self-heals at the next startup, since startup rebuilds
+  everything from disk: after loading the DB index, startup scans `executions/` for
+  directories the index doesn't know (crash between the yaml write and the DB upsert, or a
+  DB schema wipe) and restores their header rows from `executions.yaml` — the yaml stays
+  authoritative. Nothing exists only in memory.
 - Retention cleanup (§4.9 `days`) deletes execution directories and DB rows, then their
   in-memory records.
 - Changing the data location (§4.9) closes the DB connection first, updates `dataPath`, then
@@ -779,6 +793,9 @@ processes a step spawns can self-identify: `AUTODAVE_AUTOMATION_ID`, `AUTODAVE_A
 `AUTODAVE_EXECUTION_ID`, `AUTODAVE_STEP_INDEX`, `AUTODAVE_STEP_NAME`, `AUTODAVE_TRIGGER`,
 `AUTODAVE_WORKSPACE`, `AUTODAVE_MEMORY_DIR`, `AUTODAVE_RESULT_DIR`. Param values, secret values,
 and agent config never enter the environment; the executor never reads env as input.
+`sys.exit()` in a step follows the CPython convention: no code / `0` is an ordinary early exit
+(the step succeeds), an integer fails the step with that exit code, and `sys.exit("message")`
+fails it with the author's message preserved as the error (`SystemExit: message`).
 
 ### 6.2 Curated & declared packages (decided)
 
@@ -950,8 +967,10 @@ destructive moments recoverable.
   (a failed pass's stale result files may remain until steps overwrite them), accumulated
   duration (`dur_ms` sums the passes; `started_at` never changes). `exec.finished` fires
   again per pass, so the end-of-execution toast repeats — intended. Retry is allowed only on
-  terminal `failed` executions and answers 409 while the automation is live or when the
-  version no longer resolves. Manual retries are uncapped; the §6 trigger auto-retry uses
+  terminal `failed` executions and answers 409 while the automation is live, when the
+  version no longer resolves, or — for a Draft execution — when the draft's steps changed
+  since the record (a re-saved draft would pair old step statuses with new scripts; execute
+  it fresh instead). Manual retries are uncapped; the §6 trigger auto-retry uses
   this same mechanism, capped once per failure streak.
 - **Header actions** on the execution page: while executing, **Skip step** (quiet bordered,
   tooltip "Skip this step — kills it and continues with the next one"; skips the currently
@@ -1385,11 +1404,10 @@ prototype's smaller detection set), with suggestion cards for providers not foun
 a note card renders instead of the found list: "No AI app was found on this Mac — here are two
 suggestions for moving forward." The two suggestion cards:
 - **Use Claude** — state machine: idle → installing (labelled progress bar with %) → macOS sudo
-  prompt (amber pulsing dot, "Auto Dave never sees your password") → possibly denied ("Install
-  paused — permission was declined", retry) → waiting for browser sign-in (reopen / cancel) →
-  connected.
+  prompt (amber pulsing dot, "Auto Dave never sees your password") → waiting for browser
+  sign-in (reopen / cancel) → connected.
 - **Use a free local AI** — Ollama + Qwen3 8B, "Download and install · 5.2 GB": install Ollama →
-  download model (two-step progress, continues in background), same sudo/denied handling, ends
+  download model (two-step progress, continues in background), same sudo handling, ends
   "Ready to go."
 
 If more than one AI ends up ready, radios pick which one Auto Dave uses ("N AIs are ready — pick
@@ -1403,9 +1421,10 @@ automations get the chosen default agent.
 Onboarding state persists across steps: Back from step 3 returns to step 2 with detection
 results, connect states, and the chosen provider intact (no re-search), and any in-flight
 install/download machine resumes where it left off — the model download "finishes in the
-background" as promised. The denied branch UI is specified by the prototype but is not currently
-reachable: the install machines are simulated and always grant sudo (there is no dev knob to
-force denial); it becomes a real state when the installs become real.
+background" as promised. The prototype's denied branch ("Install paused — permission was
+declined", retry) is deliberately not implemented: the install machines are simulated and
+always grant sudo, so the state was unreachable dead UI; it returns when the installs become
+real.
 
 ## 11. Create / edit flow
 
@@ -1574,9 +1593,8 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   the sync panel still showing it. Disabled Save shows an amber hint ("Sync and review the steps before saving." /
   "Finish editing the spec first…" / "Syncing steps…" / "Rewriting the spec…" /
   "Writing the spec…" / "Generating the steps…" / "Installing the packages…"); saving is also
-  blocked while any §8 job is in flight, and the sync panel's button disables while one is. Picking a different agent for a single
-  step does **not** dirty the workflow — it only marks the draft touched (toast "Step N now
-  calls `<agent>` · `<model>`."); disabling an enabled agent that steps still call locks saving
+  blocked while any §8 job is in flight, and the sync panel's button disables while one is.
+  Disabling an enabled agent that steps still call locks saving
   through the derived grant gap above (toast "Steps X, Y are out of sync — `<agent>` is no
   longer available here. Re-enable it or sync the steps before saving."). The out-of-sync
   reason line names the cause: an agent gap ("steps call an agent that isn't enabled"), a
@@ -1764,6 +1782,13 @@ pulsing while executing, name, mono sub-line colored by state: cyan "Executing n
 opaque on hover (accent hover border), relative time right-aligned in a 56 px column). Row click opens the app on that automation; execute
 button triggers a "Menu bar" execution. Footer: accent "Open Auto Dave" link + version. Click-outside
 closes.
+
+**Deep-link mechanism:** a row click sends the target `'/app?auto=<id>'` to the main process.
+With no main window, the window is created loading that hash and the renderer's boot reads
+`auto=<id>` to land on the automation's detail page. With an existing window, main pushes the
+target over IPC (`open-target`) and the renderer navigates in place — never a page reload,
+which would drop the WebSocket and all renderer state. The footer link sends plain `'/app'`
+(focus only). Deep links are ignored while onboarding hasn't completed.
 
 ## 14. Design tokens (digest — `design/README.md` is authoritative)
 
@@ -1985,7 +2010,7 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   values, agentId, stepAgents, allowedSecrets, snapshotSettings (the §6.3 automatic-snapshot
   toggles — partial object, sent keys merged over the stored ones)
 - `POST /automations/{id}/execute` `{ version?: "vN" | "draft" (case-insensitive), trigger? }` →
-  `{ execId }` (409 while live)
+  `{ execId }` (409 while live; a version label that doesn't resolve answers 404)
 - `POST /app-started` → `{ fired }` — the §6 app-start firing path, called by the Electron
   main process once per app launch: starts an execution for every automation holding an
   enabled `app_start` trigger (one mid-execution gets a skipped record instead, §6); `fired`
@@ -2025,11 +2050,6 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   backend makes the §8 issue-analysis call with `agentId` (default-agent fallback) and emits its
   blockers in `test.issue`. `DELETE /tests/{testId}` cancels (kills the live step subprocess or
   the analysis harness process)
-- `POST /automations/{id}/checks` `{ draft?, allowedSecrets?, enabledAgents? }` ·
-  `POST /checks` `{ draft, allowedSecrets?, enabledAgents? }` — the §11 review checks
-  (param sanity, URL reachability, secret allow/Keychain state, agent availability, memory
-  and notification plan), streamed as advisory lines over the `checks.*` WS events; the
-  in-editor grant arrays, when present, override the saved ones
 - `POST /packages/check` `{ packages: [{ pip, import }] }` → `{ packages: [{ pip, import,
   status: installed | missing }] }` — the fast §6.2 installed-check, never runs pip (backs the
   §11 Packages card's page-load check) · `POST /packages/install` (same body) →
@@ -2080,7 +2100,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `GET /secrets` (names + usedBy only) · `PUT /secrets/{name}` `{ value }` · `DELETE
   /secrets/{name}` — values go straight to the Keychain, never into responses or files
 - `GET /settings` · `PATCH /settings` · `POST /settings/data-path` `{ path }` (sets the
-  execution-data location; creates the dir, reloads from it, moves nothing)
+  execution-data location; creates the dir, reloads from it, moves nothing; answers 409 while
+  an execution is in progress — it still writes into the old location)
 - `WS /ws?token=` — events, each `{ ev, ... }`: `exec.started` (also re-published when a
   failed execution retries in place — same execution id, updated record), `exec.step`
   (status change; carries the full step incl. its attempts), `exec.log` (one NDJSON line with
@@ -2090,7 +2111,7 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   or discarded — clients re-`GET /state`), `draft.progress`, `test.step` (§11 test step
   status change), `test.log` (one redacted NDJSON line), `test.done` (`{ status, result? }` —
   result summary on success), `test.issue` (the §8 issue-analysis blockers, after a failed
-  test's analysis finishes), `checks.line` / `checks.done` (§11 review checks stream),
+  test's analysis finishes),
   `ollama.pull` (model-pull progress). Clients re-`GET /state` on
   reconnect.
 

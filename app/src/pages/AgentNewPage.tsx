@@ -45,7 +45,7 @@ const eyebrow: React.CSSProperties = {
   font: `600 10px var(--mono)`, letterSpacing: '.09em', color: 'var(--text-faint)', margin: '0 0 10px',
 }
 
-type InstState = 'idle' | 'installing' | 'sudo' | 'denied'
+type InstState = 'idle' | 'installing' | 'sudo'
 
 const HARNESS_ID: Record<string, HarnessId> = {
   'Claude Code': 'claude', 'Gemini CLI': 'gemini', 'Codex': 'codex', 'OpenCode': 'opencode', 'Ollama': 'ollama',
@@ -117,12 +117,7 @@ export default function AgentNewPage() {
     }, 80)
     instTimers.current.push(id)
   }
-  const installOllama = (afterRetry: boolean) => {
-    if (afterRetry) {
-      setInst('sudo')
-      instSudoWait(2000)
-      return
-    }
+  const installOllama = () => {
     setInst('installing')
     setInstPct(0)
     instRise()
@@ -132,8 +127,8 @@ export default function AgentNewPage() {
     api.ollamaStatus().then(setSt).catch(() => setSt({ ready: false, models: [] }))
   }, [])
 
-  // Pull progress arrives as WS 'ollama.pull' events the store doesn't capture —
-  // poll status every 2s while a pull is in progress instead.
+  // Success confirmation: poll status every 2s while a pull is in progress —
+  // the model appearing in the installed list is the source of truth.
   useEffect(() => {
     if (!pulling) return
     const id = setInterval(() => {
@@ -150,6 +145,16 @@ export default function AgentNewPage() {
     return () => clearInterval(id)
   }, [pulling, showToast])
 
+  // Failure: the backend's terminal `ollama.pull` event carries ok=false —
+  // without this the "Downloading…" card and the poll would spin forever.
+  useEffect(() => {
+    if (!pulling || !ollamaPull?.done || ollamaPull.model !== pulling) return
+    if (ollamaPull.ok === false) {
+      setPulling(null)
+      showToast(`Download failed — ${ollamaPull.line || `couldn't pull ${pulling}`}`)
+    }
+  }, [ollamaPull, pulling, showToast])
+
   const ready = st?.ready ?? false
   const models = st?.models ?? []
   // OpenCode serves its models through Ollama, so it's gated like the Ollama harness and local mode.
@@ -164,6 +169,9 @@ export default function AgentNewPage() {
     if (!nm) { showToast('Type a model name, like qwen3-coder:30b.'); return }
     if (pulling) { showToast(`One download at a time — ${pulling} is still downloading.`); return }
     if (models.includes(nm)) { showToast(`${nm} is already installed.`); return }
+    // A previous attempt's terminal ollama.pull event may still sit in the
+    // store — clear it or the failure effect would instantly kill this retry.
+    useStore.setState({ ollamaPull: null })
     setPulling(nm)
     setPullText('')
     api.ollamaPull(nm).catch((e: Error) => { setPulling(null); showToast(e.message) })
@@ -392,7 +400,7 @@ export default function AgentNewPage() {
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: P.amber, flex: 'none' }} />
                   <span style={{ flex: 1, fontSize: 12.5, lineHeight: 1.5, color: '#e6d9b8' }}>{olMissingMsg}</span>
                   <button
-                    onClick={() => installOllama(false)}
+                    onClick={() => installOllama()}
                     style={{
                       background: P.amber, color: '#1a1508', border: 'none', borderRadius: 7,
                       padding: '6px 13px', fontWeight: 600, fontSize: 12, cursor: 'pointer', flex: 'none',
@@ -425,24 +433,6 @@ export default function AgentNewPage() {
                       Your Mac shows its own password or Touch ID prompt to finish installing Ollama — Auto Dave never sees your password.
                     </div>
                   </div>
-                </div>
-              )}
-              {inst === 'denied' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13 }}>Install paused — permission was declined.</div>
-                  <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)' }}>
-                    Nothing was changed on your Mac. When you’re ready, try again and approve the macOS prompt.
-                  </div>
-                  <button
-                    onClick={() => installOllama(true)}
-                    style={{
-                      alignSelf: 'flex-start', background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
-                      border: '1px solid var(--border-btn)', borderRadius: 8, padding: '7px 13px',
-                      fontWeight: 500, fontSize: 12.5, cursor: 'pointer',
-                    }}
-                  >
-                    Try again
-                  </button>
                 </div>
               )}
             </div>

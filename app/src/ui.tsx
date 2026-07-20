@@ -43,6 +43,17 @@ export function Badge({ status, style }: { status: Status | string; style?: Reac
   )
 }
 
+export function Logo({ size = 26 }: { size?: number }) {
+  return (
+    <span style={{
+      width: size, height: size, borderRadius: size * 0.32, background: 'var(--accent)',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+    }}>
+      <i className="fa-solid fa-hammer" style={{ color: '#0b0d11', fontSize: size * 0.5 }} />
+    </span>
+  )
+}
+
 export function Chip({ children, c, bg, style }: {
   children: React.ReactNode; c?: string; bg?: string; style?: React.CSSProperties
 }) {
@@ -228,7 +239,6 @@ export function MenuRow({ children, onClick, danger, active }: {
  * Works on merged params (server `on`/`lines`/`value`) and on raw definitions
  * (draft payloads in the Review screen) by falling back to the default. */
 export function paramSummary(p: ParamDef): string {
-  const validUrl = (s: string) => /^https?:\/\/\S+\.\S+/.test(s.trim())
   if (p.kind === 'toggle') return (p.on ?? p.default === true) ? 'On' : 'Off'
   if (p.kind === 'list') {
     const lines = p.lines ?? (Array.isArray(p.default) ? (p.default as string[]) : [])
@@ -247,6 +257,29 @@ export function paramSummary(p: ParamDef): string {
 
 export function validUrl(s: string): boolean {
   return /^https?:\/\/\S+\.\S+/.test(s.trim())
+}
+
+// §7: the 409 one-execution-at-a-time toast — identical wherever an execute
+// action can hit a live automation.
+export const EXECUTING_TOAST = 'Already executing — one execution at a time. A trigger firing now would be skipped.'
+
+/** Display label for an agent's model — a null model means the harness's own
+ *  configured default (§4.7). */
+export function dispModel(ag: { model: string | null }): string {
+  return ag.model ?? 'Default configured model'
+}
+
+/** An agent's display name — the user's name, else its harness name (§4.7). */
+export function agName(ag: { name: string | null; harness: string }): string {
+  return ag.name || ag.harness
+}
+
+/** One color per log kind (§7 log views — execution page and §11 test log alike). */
+export function logColor(k: string): string {
+  if (k === 'sys') return 'var(--text-faint)'
+  if (k === 'wrn') return 'var(--amber)'
+  if (k === 'err') return 'var(--red)'
+  return 'var(--text-2em)'
 }
 
 /** §4.3 countdown "next in Xd Xh" / "Xh Xm" from the backend-derived `nextAt`. */
@@ -301,6 +334,13 @@ export function PageTitle({ children, right }: { children: React.ReactNode; righ
  * (.12s fade-down) animations. Children get `close`, which plays the exit before
  * firing `onClose` (the caller's unmount) — backdrop click and Escape close the
  * same way, so no dismissal path skips the animation. */
+// Stacked modals (e.g. a confirm over an editor modal): Escape must close only
+// the top-most one. "Top-most" is what the user sees — highest zIndex wins,
+// mount order breaks ties — so this can't drift from the visual stacking.
+const modalStack: { id: symbol; z: number }[] = []
+const topModal = () =>
+  modalStack.reduce((top, m) => (m.z >= top.z ? m : top), modalStack[0])
+
 export function Modal({ onClose, width, zIndex = 60, cardStyle, children }: {
   onClose: () => void; width: number; zIndex?: number; cardStyle?: React.CSSProperties
   children: (close: () => void) => React.ReactNode
@@ -309,9 +349,17 @@ export function Modal({ onClose, width, zIndex = 60, cardStyle, children }: {
   const closed = useRef(false)
   const finish = () => { if (!closed.current) { closed.current = true; onClose() } }
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setClosing(true) }
+    const entry = { id: Symbol('modal'), z: zIndex }
+    modalStack.push(entry)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && topModal()?.id === entry.id) setClosing(true)
+    }
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    return () => {
+      const i = modalStack.indexOf(entry)
+      if (i >= 0) modalStack.splice(i, 1)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [])
   useEffect(() => {
     if (!closing) return

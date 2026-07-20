@@ -16,9 +16,9 @@ from pathlib import Path
 
 from . import harness, notify, keychain, packages as pkglib, paths
 from .drafting import CONTRACT_PREAMBLE, parse_blockers, spec_as_md
-from .engine import run_step_process
+from .engine import agent_for_step, build_redactions, ensure_declared_packages, run_step_process
 from .events import hub
-from .storage import SECRET_REF_RE, _size_label, resolve_param_value, store
+from .storage import SECRET_REF_RE, resolve_param_value, size_label, store
 from .yamlio import save_yaml
 
 LOG_TAIL = 40  # lines per step handed to the issue-analysis call
@@ -36,9 +36,9 @@ blockers:
 ===END==="""
 
 
-class TestRuns:
+class TestExecutions:
     def __init__(self) -> None:
-        self._runs: dict[str, dict] = {}  # test_id → {proc, cancel, _hproc}
+        self._by_id: dict[str, dict] = {}  # test_id → {proc, cancel, _hproc}
         self._lock = threading.Lock()
 
     # ---------- public ----------
@@ -47,9 +47,9 @@ class TestRuns:
         test_id = str(uuid.uuid4())
         state = {"proc": None, "cancel": False, "_hproc": {}}
         with self._lock:
-            self._runs[test_id] = state
+            self._by_id[test_id] = state
         t = threading.Thread(
-            target=self._run,
+            target=self._execute,
             args=(test_id, state, draft, auto, agent, enabled_agents, allowed_secrets,
                   param_values),
             daemon=True)
@@ -58,7 +58,7 @@ class TestRuns:
 
     def cancel(self, test_id: str) -> bool:
         with self._lock:
-            state = self._runs.get(test_id)
+            state = self._by_id.get(test_id)
         if not state:
             return False
         state["cancel"] = True
@@ -69,7 +69,7 @@ class TestRuns:
         return True
 
     # ---------- internals ----------
-    def _run(self, test_id: str, state: dict, draft: dict, auto: dict | None,
+    def _execute(self, test_id: str, state: dict, draft: dict, auto: dict | None,
              agent: dict | None, enabled_agents: list, allowed_secrets: list,
              param_values: dict) -> None:
         root = Path(tempfile.mkdtemp(prefix="autodave-test-"))
@@ -142,28 +142,15 @@ class TestRuns:
                     self._prestep_fail(test_id, state, log, msg, fix)
                     return
                 secret_values[name] = v
-            redactions = {v: k for k, v in secret_values.items()}
-            for name, v in secret_values.items():
-                if "\n" in v:
-                    for part in v.splitlines():
-                        if part.strip():
-                            redactions.setdefault(part, name)
+            redactions = build_redactions(secret_values)
 
             # §6.2/§7: a test executes the same engine path — ensure the draft's
             # declared packages before step 1, exactly like a real execution.
-            declared = draft.get("packages") or []
-            if declared:
-                missing = [p for p in pkglib.check(declared) if p["status"] != "installed"]
-                if missing:
-                    log("sys", "installing packages: " + ", ".join(p["pip"] for p in missing))
-                    bad = [p for p in pkglib.ensure(declared) if p["status"] != "installed"]
-                    if bad:
-                        msg = ("package install failed — "
-                               + "; ".join(f"{p['pip']}: {p.get('error') or 'install failed'}"
-                                           for p in bad))
-                        fix = "Check your connection, then retry from the Packages card or test again."
-                        self._prestep_fail(test_id, state, log, msg, fix)
-                        return
+            msg = ensure_declared_packages(draft.get("packages") or [], log)
+            if msg:
+                fix = "Check your connection, then retry from the Packages card or test again."
+                self._prestep_fail(test_id, state, log, f"package install failed — {msg}", fix)
+                return
 
             # §19: stored values (edit) under the test-only paramValues overrides.
             values = {**(auto["param_values"] if auto else {}), **(param_values or {})}
@@ -187,11 +174,7 @@ class TestRuns:
                 log("sys", f"▸ Step {i + 1} — {s.get('name', '')}")
                 agent_cfg = None
                 if s.get("agent"):
-                    cand = s.get("agentId") or s.get("agent_id")
-                    if cand and cand in agents and cand in enabled_agents:
-                        agent_cfg = agents[cand]
-                    else:
-                        agent_cfg = next((agents[a] for a in enabled_agents if a in agents), None)
+                    agent_cfg = agent_for_step(agents, enabled_agents, s)
                     if agent_cfg is None:
                         msg = f"Step {i + 1} needs an agent, but none is enabled — the test fails here."
                         log("err", msg)
@@ -251,7 +234,7 @@ class TestRuns:
                     body = {k: v for k, v in result.items() if k in ("chips", "values") and v}
                     if body:
                         save_yaml(res_dir / "result.yaml", body)
-                files = [{"name": f.name, "size": _size_label(f.stat().st_size)}
+                files = [{"name": f.name, "size": size_label(f.stat().st_size)}
                          for f in sorted(res_dir.iterdir(), key=lambda p: p.name.lower())
                          if f.is_file()]
                 res = None
@@ -285,7 +268,7 @@ class TestRuns:
                             blockers=[{"reason": f"test error: {e}", "fix": "", "details": ""}])
         finally:
             with self._lock:
-                self._runs.pop(test_id, None)
+                self._by_id.pop(test_id, None)
             shutil.rmtree(root, ignore_errors=True)
 
     def _prestep_fail(self, test_id: str, state: dict, log, msg: str, fix: str) -> None:
@@ -354,4 +337,4 @@ class TestRuns:
         notify.post(str(title), body)
 
 
-test_runs = TestRuns()
+test_execs = TestExecutions()

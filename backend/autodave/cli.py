@@ -50,8 +50,8 @@ def find_auto(c: Client, ref: str) -> dict:
 
 def cmd_list(c: Client, _args) -> None:
     for a in c.req("GET", "/automations"):
-        status = a["lastStatus"]
-        print(f"{a['name']:<32} {a['scheduleShort']:<12} {status:<11} "
+        chip = a["triggerChip"] + (" (off)" if a.get("triggersOff") else "")
+        print(f"{a['name']:<32} {chip:<16} {a['lastStatus']:<11} "
               f"{a.get('resultChip') or ''}  [{a['id'][:8]}]")
 
 
@@ -64,12 +64,33 @@ def cmd_execute(c: Client, args) -> None:
 
 
 def follow_exec(c: Client, exec_id: str) -> None:
-    seen = 0
+    # Logs are lazy (§19): poll the record for step/attempt structure, then
+    # fetch each attempt's log file and print lines past the last seen seq.
+    # An attempt fetched once after it reached a terminal status can't grow —
+    # skip it on later polls instead of re-downloading its whole file forever.
+    seen: dict[tuple, int] = {}   # (step index | None, attempt | None) → last printed seq
+    settled: set[tuple] = set()
     while True:
         e = c.req("GET", f"/executions/{exec_id}")
-        for line in e.get("logs", [])[seen:]:
-            print(f"  {line['t']} [{line['k']}] {line['text']}")
-        seen = len(e.get("logs", []))
+        targets: list[tuple[int | None, int | None, bool]] = [(None, None, False)]  # the execution log
+        for i, s in enumerate(e.get("steps", [])):
+            for a in s.get("attempts") or []:
+                terminal = a.get("status") not in ("executing", "queued")
+                targets.append((i, a["n"], terminal))
+        for step, attempt, terminal in targets:
+            key = (step, attempt)
+            if key in settled:
+                continue
+            q = "" if step is None else f"?step={step}&attempt={attempt}"
+            lines = c.req("GET", f"/executions/{exec_id}/logs{q}").get("lines", [])
+            last = seen.get(key, 0)
+            for ln in lines:
+                if ln["seq"] > last:
+                    print(f"  {ln['t']} [{ln['k']}] {ln['text']}")
+                    last = ln["seq"]
+            seen[key] = last
+            if terminal:
+                settled.add(key)
         if e["status"] != "executing":
             print(f"→ {e['status']} in {e['dur']}")
             break
@@ -111,7 +132,8 @@ def cmd_secrets(c: Client, args) -> None:
 def cmd_agents(c: Client, _args) -> None:
     for a in c.req("GET", "/agents"):
         star = "*" if a.get("default") else " "
-        print(f"{star} {(a.get('name') or a['harness']):<24} {a['harness']:<12} {a['model']}")
+        print(f"{star} {(a.get('name') or a['harness']):<24} {a['harness']:<12} "
+              f"{a['model'] or 'default configured model'}")
 
 
 def cmd_service(_c, args) -> None:

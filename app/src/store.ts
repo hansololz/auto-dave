@@ -8,7 +8,14 @@ export type Page =
   | 'automations' | 'automation' | 'executions' | 'execution'
   | 'agents' | 'agentNew' | 'secrets' | 'settings'
 
-interface NavSnap { surface: Surface; page: Page; autoId: string | null; execId: string | null }
+export type CreateFrom = 'app' | 'onboard' | 'edit' | null
+
+interface NavSnap {
+  surface: Surface; page: Page; autoId: string | null; execId: string | null
+  // §4.4/§11: without this, browser-back into the editor would restore
+  // surface 'create' with createFrom null — the wrong editor mode.
+  createFrom: CreateFrom
+}
 
 export interface Model {
   connected: boolean | null
@@ -25,7 +32,7 @@ export interface Model {
   page: Page
   autoId: string | null
   execId: string | null
-  createFrom: 'app' | 'onboard' | 'edit' | null
+  createFrom: CreateFrom
 
   toast: string | null
   execFull: Record<string, Exec>
@@ -51,7 +58,7 @@ export interface Model {
   refresh(): Promise<void>
   applyEvent(msg: Record<string, unknown>): void
   go(page: Page, ids?: { autoId?: string | null; execId?: string | null }): void
-  setSurface(s: Surface, from?: 'app' | 'onboard' | 'edit' | null): void
+  setSurface(s: Surface, from?: CreateFrom): void
   showToast(msg: string, ms?: number): void
   loadExec(execId: string): Promise<void>
   loadExecLogs(execId: string, step?: number, attempt?: number): Promise<void>
@@ -62,9 +69,16 @@ export interface Model {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
+let bootTimer: ReturnType<typeof setTimeout> | undefined
 let closeWs: (() => void) | null = null
 let passedOnboard = false
 let restoring = false
+
+// '/app?auto=<uuid>' — the §13 menu-bar row deep link.
+function autoIdFromHash(hash: string): string | null {
+  const m = hash.match(/auto=([0-9a-f-]{36})/)
+  return m ? m[1] : null
+}
 
 export const useStore = create<Model>((set, get) => ({
   connected: null,
@@ -87,19 +101,24 @@ export const useStore = create<Model>((set, get) => ({
   ollamaPull: null,
 
   async boot() {
+    // One retry chain only: a re-entrant boot (StrictMode re-mount) must not
+    // leave a second timer chain hammering discovery in parallel.
+    clearTimeout(bootTimer)
     const ok = await connectInfo()
-    if (!ok) { set({ connected: false }); setTimeout(() => get().boot(), 1200); return }
+    if (!ok) { set({ connected: false }); bootTimer = setTimeout(() => get().boot(), 1200); return }
     try {
       const s: StateSnapshot = await api.state()
       // Existing autos do NOT bypass onboarding: step 1 always shows; with
       // prior data its Continue goes straight to the app (§10).
       const onboarded = localStorage.getItem('ad-onboarded') === '1'
       const hash = location.hash
+      const deepAuto = onboarded ? autoIdFromHash(hash) : null
       set({
         connected: true, version: s.version, autos: s.autos, execs: s.execs,
         agents: s.agents, secrets: s.secrets, settings: s.settings,
         pendingDraft: s.pendingDraft,
         surface: hash.includes('menubar') ? 'menubar' : onboarded ? 'app' : 'onboard',
+        ...(deepAuto ? { page: 'automation' as const, autoId: deepAuto } : {}),
       })
       if (onboarded) passedOnboard = true
       // Exactly one live socket: a re-entrant boot (StrictMode re-mount,
@@ -110,11 +129,12 @@ export const useStore = create<Model>((set, get) => ({
       updateTrayAlert(s.autos)
     } catch {
       set({ connected: false })
-      setTimeout(() => get().boot(), 1200)
+      bootTimer = setTimeout(() => get().boot(), 1200)
     }
   },
 
   disconnect() {
+    clearTimeout(bootTimer)
     closeWs?.()
     closeWs = null
   },
@@ -142,7 +162,9 @@ export const useStore = create<Model>((set, get) => ({
         if (ev === 'exec.started' && full) void m.loadExec(ej.id) // §7 retry re-publish: re-fetch steps/attempts
         if (ev === 'exec.finished') {
           void m.refresh()
-          void m.loadExec(ej.id)
+          // Refresh the body only when someone has opened this execution —
+          // unviewed executions would otherwise accumulate a full record each.
+          if (full) void m.loadExec(ej.id)
           // §7: the finished execution gets a summary toast (prototype pattern:
           // "<name> finished — <chip>."). Cancelled executions are user-initiated — no toast.
           if (ej.status === 'succeeded' || ej.status === 'failed') {
@@ -314,12 +336,15 @@ let lastNav: NavSnap | null = null
 
 function navSame(a: NavSnap | null, b: NavSnap | null) {
   return !!a && !!b && a.surface === b.surface && a.page === b.page
-    && a.autoId === b.autoId && a.execId === b.execId
+    && a.autoId === b.autoId && a.execId === b.execId && a.createFrom === b.createFrom
 }
 
 function syncHistory(m: Model) {
   if (restoring) return
-  const s: NavSnap = { surface: m.surface, page: m.page, autoId: m.autoId, execId: m.execId }
+  const s: NavSnap = {
+    surface: m.surface, page: m.page, autoId: m.autoId, execId: m.execId,
+    createFrom: m.createFrom,
+  }
   if (navSame(s, lastNav)) return
   lastNav = s
   try { history.pushState({ adNav: s }, '') } catch { /* file:// quirks */ }
@@ -333,7 +358,19 @@ window.addEventListener('popstate', (e) => {
     return
   }
   restoring = true
-  useStore.setState({ surface: s.surface, page: s.page, autoId: s.autoId, execId: s.execId })
+  useStore.setState({
+    surface: s.surface, page: s.page, autoId: s.autoId, execId: s.execId,
+    createFrom: s.createFrom ?? null,
+  })
   lastNav = s
   restoring = false
+})
+
+// §13: main pushes the menu-bar row's target here when the window already
+// exists (a reload would drop the WS); fresh windows carry it in the hash.
+window.autodave?.onOpenTarget?.((hash) => {
+  const m = useStore.getState()
+  if (m.surface === 'onboard' || m.surface === 'menubar') return
+  const autoId = autoIdFromHash(hash)
+  if (autoId) m.go('automation', { autoId })
 })

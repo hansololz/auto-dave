@@ -159,7 +159,7 @@ export interface Exec {
   autoDeleted: boolean
   ver: string
   status: Status
-  trigger: 'Manual' | 'Schedule' | 'Menu bar'
+  trigger: 'Manual' | 'Menu bar' | 'Cron' | 'Once' | 'App start'  // §4.5 labels
   dur: string
   started: string
   startedMs: number

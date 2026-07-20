@@ -12,6 +12,7 @@ in the terminal `blocked` state with the agent's blocker list (§8).
 from __future__ import annotations
 
 import ast
+import logging
 import re
 import threading
 import time
@@ -25,6 +26,8 @@ from .events import hub
 from .imports_check import ALLOWED_IMPORTS, disallowed_imports
 from .specmd import blocks_to_md, md_to_blocks
 from .storage import SECRET_REF_RE
+
+log = logging.getLogger("autodave.drafting")
 
 PARAM_KINDS = {"toggle", "list", "kv", "number", "text"}
 STEP_FILE_RE = re.compile(r"^(\d{2})-[a-z0-9][a-z0-9-]*\.py$")
@@ -375,6 +378,11 @@ class DraftJobs:
         job = {"id": job_id, "status": "building", "stage": stage, "detail": None,
                "error": None, "draft": None, "mode": mode, "_cancel": False, "_proc": {}}
         with self._lock:
+            # Terminal jobs hold full draft payloads (all step code) — keep only
+            # a recent tail so the process doesn't grow for its whole lifetime.
+            terminal = [k for k, v in self.jobs.items() if v["status"] != "building"]
+            for k in terminal[:-20]:
+                del self.jobs[k]
             self.jobs[job_id] = job
         t = threading.Thread(target=self._run, args=(job, mode, agent, user_text, current, grants),
                              daemon=True)
@@ -391,15 +399,28 @@ class DraftJobs:
     def cancel(self, job_id: str) -> bool:
         with self._lock:
             j = self.jobs.get(job_id)
-        if not j:
-            return False
-        j["_cancel"] = True
+            # A cancel racing completion must not clobber a terminal
+            # done/blocked/failed job — the Review page would lose the result.
+            if not j or j["status"] != "building":
+                return False
+            j["_cancel"] = True
+            j["status"] = "cancelled"
         proc = j["_proc"].get("proc")
         if proc and proc.poll() is None:
             proc.terminate()
-        j["status"] = "cancelled"
         hub.publish("draft.progress", jobId=job_id, status="cancelled", stage=None)
         return True
+
+    def _settle(self, job: dict, status: str, **fields) -> bool:
+        """The only terminal transition — building → done/blocked/failed under
+        the lock, so a cancel that already won can never be overwritten (and
+        vice versa)."""
+        with self._lock:
+            if job["status"] != "building":
+                return False
+            job["status"] = status
+            job.update(fields)
+            return True
 
     def _run(self, job: dict, mode: str, agent: dict, user_text: str | None,
              current: dict | None, grants: dict) -> None:
@@ -408,10 +429,14 @@ class DraftJobs:
             if cancelled:
                 return
         except harness.HarnessError as e:
-            if job["_cancel"]:
-                return
-            job["status"] = "failed"
-            job["error"] = str(e)
+            self._settle(job, "failed", error=str(e))
+        except Exception as e:  # noqa: BLE001
+            # Anything else must still end the job — a thread dying here would
+            # leave it "building" forever and the UI spinning.
+            log.exception("drafting job %s crashed", job["id"])
+            self._settle(job, "failed", error=f"drafting failed unexpectedly: {e}")
+        if job["status"] == "cancelled":
+            return  # cancel() already published its own terminal event
         hub.publish("draft.progress", jobId=job["id"], status=job["status"],
                     stage=None, error=job.get("error"))
 
@@ -439,8 +464,7 @@ class DraftJobs:
                 # §8: edit stops after the spec — the Review page shows the
                 # rewritten spec out of sync and a later `sync` job rebuilds
                 # the steps.
-                job["status"] = "done"
-                job["draft"] = {"spec": spec_blocks}
+                self._settle(job, "done", draft={"spec": spec_blocks})
                 return False
         else:
             # sync: the provided spec IS the input — no spec call
@@ -460,7 +484,7 @@ class DraftJobs:
         if errors:
             return self._fail(job, "The steps didn't validate — try again or rephrase.", errors)
 
-        if draft.get("packages"):
+        if draft.get("packages") and not job["_cancel"]:
             # §8: ensure the declared packages right after the steps land — the
             # user learns about an install failure on the edit page, not when a
             # trigger fires. A failure never fails the job (§6.2): the statuses
@@ -477,20 +501,23 @@ class DraftJobs:
             # Hand the (seeded or user-given) instructions back so the
             # Review card arrives pre-filled — agents never return them.
             draft["instr"] = (current or {}).get("instr") or ""
-        job["status"] = "done"
-        job["draft"] = draft
+        self._settle(job, "done", draft=draft)
         return False
 
     def _call_with_repair(self, job: dict, agent: dict, prompt: str,
                           validator) -> tuple[dict, list[str], list[dict] | None]:
         """One harness call + one automatic repair round against `validator`.
-        A valid §8 blocker envelope is terminal — returned as-is, no repair."""
+        A valid §8 blocker envelope is terminal — returned as-is, no repair.
+        `_cancel` is checked before every invoke: a cancel between calls must
+        never let a fresh 5-minute harness call start (nothing would kill it)."""
+        if job["_cancel"]:
+            return {}, [], None
         raw = harness.invoke(agent, prompt, timeout=300, proc_holder=job["_proc"],
                              on_chunk=self._progress_cb(job))
         if job["_cancel"]:
             return {}, [], None
         result, errors, blockers = self._parse_validate(raw, validator)
-        if errors:
+        if errors and not job["_cancel"]:
             repair = (prompt + "\n\n=== YOUR PREVIOUS RESPONSE ===\n" + raw
                       + "\n\n=== VALIDATION ERRORS — fix these and resend the full envelope ===\n- "
                       + "\n- ".join(errors))
@@ -572,20 +599,13 @@ class DraftJobs:
         hub.publish("draft.progress", jobId=job["id"], status="building",
                     stage=job["stage"], detail=text)
 
-    @staticmethod
-    def _fail(job: dict, msg: str, errors: list[str]) -> bool:
-        job["status"] = "failed"
-        job["error"] = msg
-        job["errorDetail"] = errors[:8]
+    def _fail(self, job: dict, msg: str, errors: list[str]) -> bool:
+        self._settle(job, "failed", error=msg, errorDetail=errors[:8])
         return False
 
-    @staticmethod
-    def _block(job: dict, at: str, blockers: list[dict], draft: dict | None) -> bool:
+    def _block(self, job: dict, at: str, blockers: list[dict], draft: dict | None) -> bool:
         # §8: a valid blocker envelope is its own terminal outcome, not a failure.
-        job["status"] = "blocked"
-        job["blockedAt"] = at
-        job["blockers"] = blockers
-        job["draft"] = draft
+        self._settle(job, "blocked", blockedAt=at, blockers=blockers, draft=draft)
         return False
 
     @staticmethod
