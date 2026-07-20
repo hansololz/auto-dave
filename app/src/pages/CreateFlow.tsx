@@ -216,7 +216,7 @@ interface Rev {
   steps: Step[]
   params: NonNullable<DraftPayload['params']>
   packages: PackageDep[]    // §6.2 declared packages — display-only, the pipeline owns the list
-  triggers: DraftTrigger[]  // §11 TRIGGERS card is display-only — user-owned after save (§5)
+  triggers: DraftTrigger[]  // §11 TRIGGERS card preview — what saving stores (§4.3 cron-subset replace)
   instr: string
   enabledAgents: string[]
   allowedSecrets: string[]
@@ -330,7 +330,7 @@ function seedFromAuto(a: Auto, agents: Agent[], secretNames: string[]): Rev {
     steps: (src.steps ?? []).map((s) => ({ ...s })),
     params: (src.params ?? a.params ?? []).map((p) => ({ ...p })),
     packages: (src.packages ?? []).map((p) => ({ ...p })),
-    triggers: a.triggers.map(({ kind, off, expr, at }) => ({ kind, off, expr, at })),
+    triggers: (a.draft?.triggers ?? a.triggers).map(({ id, kind, off, expr, at, tz }) => ({ id, kind, off, expr, at, tz })),
     instr: src.instr || '',
     // §4.4: a draft carries its own grant selections — resume restores them
     enabledAgents: (() => {
@@ -367,6 +367,21 @@ function finalizeSteps(steps: Step[], enabled: string[]): Step[] {
     ...s,
     agentId: s.agent ? (s.agentId && enabled.includes(s.agentId) ? s.agentId : enabled[0] ?? null) : null,
   }))
+}
+
+// §4.3 cron-subset replace: a sync's drafted crons take over the schedule — an
+// entry matching an existing cron on (expr, tz) keeps its id and off state,
+// and one-shot `time` triggers survive untouched.
+function mergeDraftTriggers(cur: DraftTrigger[], drafted: DraftTrigger[]): DraftTrigger[] {
+  const crons = cur.filter((t) => t.kind === 'cron')
+  const used = new Set<number>()
+  const next = drafted.map((d) => {
+    const i = crons.findIndex((c, j) => !used.has(j) && c.expr === d.expr && (c.tz ?? '') === (d.tz ?? ''))
+    if (i < 0) return { ...d, off: false }
+    used.add(i)
+    return crons[i]
+  })
+  return [...next, ...cur.filter((t) => t.kind === 'time')]
 }
 
 function serializeDraft(r: Rev): DraftPayload {
@@ -1069,6 +1084,7 @@ export default function CreateFlow() {
             return {
               ...r, syncBusy: false, genStage: null, dirty: false, specUndo: null,
               steps, params: d.params ?? r.params, packages: d.packages ?? [], stepOpen: null,
+              triggers: d.triggers ? mergeDraftTriggers(r.triggers, d.triggers) : r.triggers,
             }
           })
           showToast('Steps synced with the spec — review them, then save.', 3600)
@@ -2224,7 +2240,9 @@ export default function CreateFlow() {
                   </div>
                 </div>
 
-                {/* TRIGGERS — display-only (§11): user-owned, edited on the automation page */}
+                {/* TRIGGERS — display-only (§11): what saving stores — drafted crons
+                    merged over the saved list (§4.3); one-shots/on-off edited on the
+                    automation page */}
                 <div style={cardStyle}>
                   <div style={{ display: 'flex', alignItems: 'center', padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
                     <span style={eyebrowStyle}>TRIGGERS</span>
@@ -2243,7 +2261,7 @@ export default function CreateFlow() {
                       ))}
                       <span style={{ font: "400 11.5px var(--sans)", color: 'var(--text-faint)' }}>
                         {rev.triggers.length > 0
-                          ? 'Executes even when the app is closed. Add or change triggers anytime on the automation page.'
+                          ? 'Executes even when the app is closed. The schedule follows the spec — one-shots and on/off live on the automation page.'
                           : 'No triggers — executes only via Execute now and the menu bar.'}
                       </span>
                     </div>

@@ -67,9 +67,10 @@ export interface VersionInfo {
   steps: Step[]
   params: ParamDef[]
   packages: PackageDep[]
-  // §4.4 draft-only: the editor's grant selections; absent on real versions
+  // §4.4 draft-only: the editor's grant selections + trigger list; absent on real versions
   stepAgents?: string[]
   allowedSecrets?: string[]
+  triggers?: DraftTrigger[]
 }
 
 // §4.3 trigger — cron or one-shot time; discord/imessage/pubsub are reserved
@@ -85,8 +86,10 @@ export interface Trigger {
   short: string
 }
 
-// The shape drafts carry (§8) and PATCH sends — no id/labels yet.
+// The shape drafts carry (§8) and PATCH sends — no labels; `id` only on
+// entries that already exist on the automation (kept through an edit save).
 export interface DraftTrigger {
+  id?: string
   kind: 'cron' | 'time'
   off: boolean
   expr?: string

@@ -132,7 +132,8 @@ The on-disk representation of these entities is §5.
 id: uuid
 name, desc: strings
 version: int (current)
-triggers: ordered trigger list (§4.3) — user-owned, never versioned
+triggers: ordered trigger list (§4.3) — user-owned, never versioned; the cron subset is
+  re-derived from the spec when an edit is saved (§4.3)
 triggerChip: derived chip string (§4.3): one trigger → its short label, several → "N triggers",
   empty → "No triggers"
 triggersOff: bool — derived: the list is nonempty and every trigger is off (drives the OFF tag)
@@ -194,9 +195,14 @@ empty. Definitions are versioned with the automation; values live in the top-lev
 ### 4.3 Triggers
 
 An automation carries an ordered list of **triggers** — independent conditions that each start
-an execution. Triggers are user-owned operational state (§5): editing them never mints a version
-and never involves the AI. Manual starts (Execute now, the menu bar, CLI) are not triggers in
-this list — they always work, whatever the list holds.
+an execution. Triggers are user-owned operational state (§5): editing them on the detail page
+never mints a version and never involves the AI. The cron schedule additionally follows the
+spec: **saving an edit (§4.4) replaces the list's cron subset with the draft's spec-derived
+cron triggers** — a drafted entry that matches a stored cron on (`expr`, `tz`) keeps that
+trigger's `id` and `off` state; other drafted entries arrive enabled with fresh ids; stored
+cron triggers the draft no longer derives are dropped. `time` one-shots always survive a save
+untouched. Manual starts (Execute now, the menu bar, CLI) are not triggers in this list — they
+always work, whatever the list holds.
 
 Trigger shape: `{ id: uuid, kind, off: bool, …kind fields }` plus the backend-derived display
 strings `label` and `short`. The backend assigns `id` to entries that arrive without one. Kinds:
@@ -260,14 +266,18 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
 
 - Saving an edit creates version N+1 (on disk: a fresh `versions/vN+1/` folder, then the
   `current_version` pointer flip, per §5), applies spec/steps/instr/stepAgents/allowedSecrets/
-  agentId, sets `specMeta` to "vN · updated Today". Prior versions are untouched.
+  agentId, replaces the automation's cron triggers with the draft's list (§4.3 cron-subset
+  replace — triggers themselves stay unversioned), sets `specMeta` to "vN · updated Today".
+  Prior versions are untouched.
 - Leaving the editor with unsaved touched changes snapshots a **draft** onto the automation
   (toast: "Draft kept — resume or execute it from this automation anytime."). Every exit path
   persists it — the header back button, system back/forward navigation, anything that closes
   the editor — never just the header button. Discard draft and Save as vN+1 settle the draft:
   leaving after either writes nothing (a discarded or saved draft is never resurrected).
 - The draft snapshot carries the **full working state**: spec, steps, instructions, params,
-  packages, and the editor's step-agents + allowed-secrets grant selections (stored as
+  packages, the editor's trigger list (stored as a draft-only `triggers` key — the §4.3
+  merged preview, so a resumed draft keeps a synced schedule change), and the editor's
+  step-agents + allowed-secrets grant selections (stored as
   draft-only `step_agents` / `allowed_secrets` keys in `draft/automation/automation.yaml`, §5).
   Resuming restores the grant checkboxes from the draft; the automation's live
   stepAgents/allowedSecrets stay untouched until the draft is saved as vN+1. A Draft
@@ -469,8 +479,9 @@ automations/<uuid>/
   draft/                       # unsaved edit state — a container, not a version folder:
     automation/                # the working copy, same shape as a version folder; rewritten
                                # whole on every draft save; its automation.yaml also holds
-                               # draft-only step_agents / allowed_secrets keys (§4.4 — the
-                               # editor's grant selections; never written for real versions)
+                               # draft-only step_agents / allowed_secrets / triggers keys
+                               # (§4.4 — the editor's grant selections and trigger list;
+                               # never written for real versions)
     memory/                    # the draft's own working memory: created on the first Draft
                                # execution as a copy of memory/, reused by every later Draft
                                # execution and draft re-save, deleted with the draft — Draft
@@ -1058,8 +1069,11 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    `{ cron: expr, tz: zone }` entries — expression valid per the §4.3 dialect, `tz` a known
    IANA zone included only when the spec names one. The agent derives them from the spec's
    words and omits the key when the spec names no time (no triggers — the automation executes
-   only via Execute now / menu bar). Applied only when creating (v1's triggers, each `off: false`, shown on Review); on
-   sync the saved triggers are user-owned (§5) and never changed by a draft. One-shot and
+   only via Execute now / menu bar). Applied when creating (v1's triggers, each `off: false`,
+   shown on Review) and, via the §4.3 cron-subset replace, when a synced edit is saved as
+   vN+1: the editor merges each sync's drafted crons into its trigger list (matched entries
+   keep `id`/`off`, §4.3) and the save applies that list. Between saves the stored triggers
+   stay user-owned (§5). One-shot and
    message triggers are never drafted — the user adds those on the automation page (§9.2).
 
 **Blocker response (either call).** When the task cannot be built as asked — a needed
@@ -1473,11 +1487,12 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   reason line names the cause: an agent gap ("steps call an agent that isn't enabled"), a
   secret gap ("steps use a secret that isn't allowed"), or a spec change ("these steps still
   match the old spec").
-- **TRIGGERS** card — the draft's cron triggers as §4.3 short-label chips + "Executes even when
-  the app is closed. Add or change triggers anytime on the automation page." Display-only: in
-  create mode it shows call 2's drafted triggers (the ones v1 gets); in edit mode the saved
-  triggers (user-owned, §5 — a draft never changes them). Empty: "No triggers — executes only
-  via Execute now and the menu bar."
+- **TRIGGERS** card — the editor's trigger list as §4.3 short-label chips + "Executes even when
+  the app is closed. The schedule follows the spec — one-shots and on/off live on the
+  automation page." Display-only: in create mode it shows call 2's drafted triggers (the ones
+  v1 gets); in edit mode the saved triggers until a sync lands, then the §4.3 merged preview
+  (drafted crons + surviving one-shots — what saving will store). Empty: "No triggers —
+  executes only via Execute now and the menu bar."
 - **PARAMETERS · YOUR AI ASKED FOR THESE** card — display-only in **both** create and edit
   mode, with a "READ-ONLY HERE" tag whenever the draft has params: it lists each draft
   parameter's name and description — never values, never inline editors. Footer: "Values
@@ -1876,10 +1891,12 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `{ execId }` (409 while live)
 - `POST /automations` `{ draft }` — create v1 from a validated draft; consumes the §4.4
   pending create-mode slot (`<root>/draft/` is deleted on success)
-- `POST /automations/{id}/versions` `{ draft }` — save edit as vN+1
+- `POST /automations/{id}/versions` `{ draft }` — save edit as vN+1; the draft's `triggers`
+  list (when the key is sent) replaces the automation's trigger list whole, validated and
+  normalized like the PATCH (422 aborts the save; entries keep their `id`, new ones get one)
 - `PUT /automations/{id}/draft` · `DELETE /automations/{id}/draft` — the §4.4 draft snapshot;
-  the payload's stepAgents/allowedSecrets are stored as draft-only keys and echoed back on
-  the automation's `draft` object
+  the payload's stepAgents/allowedSecrets/triggers are stored as draft-only keys and echoed
+  back on the automation's `draft` object
 - `GET /draft` → `{ draft: payload | null, agentId }` · `PUT /draft` `{ draft, agentId? }` ·
   `DELETE /draft` — the §4.4 pending create-mode slot (`<root>/draft/`): the same draft
   payload shape as `PUT /automations/{id}/draft` plus the identity fields (name, triggers

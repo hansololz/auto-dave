@@ -382,6 +382,53 @@ def test_save_version_and_restore(client):
     assert [v["v"] for v in j["versions"]] == [2, 1]
 
 
+def test_save_version_applies_draft_triggers(client):
+    from autodave.storage import store
+
+    a = store.create_automation(make_version(), "Scheduled", "mock",
+                                triggers=[{"id": "t1", "kind": "cron", "expr": "0 8 * * *", "off": True},
+                                          {"id": "t2", "kind": "time", "at": "2999-01-01T00:00", "off": False}])
+    # §4.3 cron-subset replace: sent list (the editor's merge) replaces whole;
+    # sent ids survive, new entries get one assigned
+    r = client.post(f"/automations/{a['id']}/versions", json={"draft": {
+        **make_version(desc="second"),
+        "triggers": [{"id": "t1", "kind": "cron", "expr": "0 8 * * *", "off": True},
+                     {"kind": "cron", "expr": "30 9 * * 1", "off": False},
+                     {"id": "t2", "kind": "time", "at": "2999-01-01T00:00", "off": False}],
+    }})
+    assert r.status_code == 200
+    trigs = r.json()["auto"]["triggers"]
+    assert [t.get("id") for t in trigs][0] == "t1" and trigs[0]["off"] is True
+    assert trigs[1]["expr"] == "30 9 * * 1" and trigs[1]["id"]
+    assert trigs[2]["id"] == "t2"
+
+    # invalid trigger → 422 and no version minted
+    r = client.post(f"/automations/{a['id']}/versions", json={"draft": {
+        **make_version(), "triggers": [{"kind": "cron", "expr": "junk"}],
+    }})
+    assert r.status_code == 422
+    assert store.autos[a["id"]]["current_version"] == 2
+
+    # no triggers key → the stored list is untouched
+    r = client.post(f"/automations/{a['id']}/versions", json={"draft": make_version()})
+    assert r.status_code == 200
+    assert [t["id"] for t in r.json()["auto"]["triggers"]] == ["t1", trigs[1]["id"], "t2"]
+
+
+def test_edit_draft_snapshot_carries_triggers(client):
+    from autodave.storage import store
+
+    a = store.create_automation(make_version(), "Drafted", "mock")
+    r = client.put(f"/automations/{a['id']}/draft", json={"draft": {
+        **make_version(), "triggers": [{"kind": "cron", "expr": "15 7 * * *", "off": False}],
+    }})
+    assert r.status_code == 200
+    d = client.get(f"/automations/{a['id']}").json()["draft"]
+    assert d["triggers"] == [{"kind": "cron", "expr": "15 7 * * *", "off": False}]
+    # the automation's live triggers stay untouched until the draft is saved
+    assert store.autos[a["id"]]["triggers"] == []
+
+
 def test_delete_agent_reassigns_default(client):
     from autodave.storage import store
 

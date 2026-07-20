@@ -208,8 +208,17 @@ def save_version(auto_id: str, body: dict) -> dict:
     d = body.get("draft") or {}
     if not d.get("steps"):
         raise HTTPException(422, "draft has no steps")
+    # §4.3/§4.4: the draft's trigger list (merged in the editor) replaces the
+    # automation's — validated like the PATCH, and before the version lands.
+    triggers = None
+    if "triggers" in d:
+        triggers, err = schedule.normalize_triggers(d["triggers"])
+        if err:
+            raise HTTPException(422, err)
     n = store.save_new_version(a, _draft_to_version(d))
     patch = {k: body[k] for k in ("agentId", "stepAgents", "allowedSecrets", "name") if k in body}
+    if triggers is not None:
+        patch["triggers"] = triggers
     if patch:
         store.patch_automation(a, patch)
     store.delete_draft(a)
@@ -221,11 +230,12 @@ def save_version(auto_id: str, body: dict) -> dict:
 def put_draft(auto_id: str, body: dict) -> dict:
     a = _auto_or_404(auto_id)
     d = body.get("draft") or {}
-    # §4.4: the draft snapshot carries the editor's grant selections as
-    # draft-only keys — never applied to the automation's live grants.
+    # §4.4: the draft snapshot carries the editor's grant selections and trigger
+    # list as draft-only keys — never applied to the automation until saved.
     ver = _draft_to_version(d)
     ver["step_agents"] = d.get("stepAgents")
     ver["allowed_secrets"] = d.get("allowedSecrets")
+    ver["triggers"] = d.get("triggers")
     store.save_draft(a, ver)
     hub.publish("auto.changed", autoId=auto_id)
     return {"ok": True}
