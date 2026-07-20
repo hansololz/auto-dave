@@ -1607,8 +1607,12 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   (drafted crons + surviving one-shots — what saving will store). Empty: "No triggers —
   executes only via Execute now and the menu bar."
 - **PARAMETERS · YOUR AI ASKED FOR THESE** card — display-only in **both** create and edit
-  mode, with a "READ-ONLY HERE" tag whenever the draft has params: it lists each draft
-  parameter's name and description — never values, never inline editors. Footer: "Values
+  mode, with a "READ-ONLY HERE" tag whenever the draft has params: each row shows the draft
+  parameter's name, description, and a read-only **value summary** (the §4.2 one-line summary,
+  right-aligned, ellipsized) — never inline editors. The summary's source: in create mode the
+  drafted definition's default (the initial values v1 seeds — e.g. a URL the AI captured from
+  the prompt); in edit mode the automation's live value, matched by name and kind (§5), so a
+  drafted param without a stored match falls back to its default. Footer: "Values
   aren't part of a version — set them on the automation page after saving; for a test, set
   test-only values in the Test card." Value input lives on the §9.2 detail page (§4.2 edit
   behaviors) and, test-only, in the Test card panel below. Empty state:

@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, PackageDep, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
-import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, agName, dispModel, logColor, resultChipColors, usePopover, validUrl } from '../ui'
+import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Modal, PyCode, Toggle, agName, dispModel, logColor, paramSummary, resultChipColors, usePopover, validUrl } from '../ui'
 import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown, SpecMarkdown } from '../result'
 
@@ -2290,12 +2290,22 @@ export default function CreateFlow() {
                     </div>
                   ) : (
                     <>
-                      {rev.params.map((p) => (
-                        <div key={p.name} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                          <div style={{ font: "600 12.5px var(--sans)" }}>{p.label}</div>
-                          <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>{p.help}</div>
-                        </div>
-                      ))}
+                      {rev.params.map((p) => {
+                        // §16: value summary — edit mode shows the live value (§5 name+kind
+                        // match), create mode the drafted default
+                        const live = auto?.params?.find((q) => q.name === p.name && q.kind === p.kind)
+                        return (
+                          <div key={p.name} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+                              <div style={{ font: "600 12.5px var(--sans)" }}>{p.label}</div>
+                              <div style={{ font: "500 12px var(--mono)", color: 'var(--text-2em)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '55%' }}>
+                                {paramSummary(live ?? p)}
+                              </div>
+                            </div>
+                            <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', marginTop: 2 }}>{p.help}</div>
+                          </div>
+                        )
+                      })}
                       <div style={{ padding: '11px 20px', font: "400 11.5px/1.55 var(--sans)", color: 'var(--text-faintest)' }}>
                         Values aren’t part of a version — set them on the automation page after saving; for a test, set test-only values in the Test card.
                       </div>
