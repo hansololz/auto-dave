@@ -67,13 +67,12 @@ function ExecLogRow({ selected, onSelect }: { selected: boolean; onSelect: () =>
   )
 }
 
-/** Selectable step row (§7): status dot + name + attempt chip + duration; the
- * executing step carries the Skip button. */
-function StepRow({ step, selected, onSelect, onSkip }: {
-  step: ExecStep; selected: boolean; onSelect: () => void; onSkip?: () => void
+/** Selectable step row (§7): status dot + name + attempt chip + duration —
+ * no row actions; skipping lives in the header's Skip-step button. */
+function StepRow({ step, selected, onSelect }: {
+  step: ExecStep; selected: boolean; onSelect: () => void
 }) {
   const [hov, setHov] = useState(false)
-  const [hovSkip, setHovSkip] = useState(false)
   const executing = step.status === 'executing'
   const dot = step.status === 'queued' ? '#3a414c' : badgeOf(step.status).c
   return (
@@ -96,22 +95,6 @@ function StepRow({ step, selected, onSelect, onSkip }: {
       {step.attempts.length > 1 && (
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-faint)', flex: 'none' }}>
           ×{step.attempts.length}
-        </span>
-      )}
-      {executing && onSkip && (
-        <span
-          role="button"
-          title="Skip this step — kills it and continues with the next one"
-          onClick={(ev) => { ev.stopPropagation(); onSkip() }}
-          onMouseEnter={() => setHovSkip(true)} onMouseLeave={() => setHovSkip(false)}
-          style={{
-            flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 20, height: 20, borderRadius: 5, cursor: 'pointer',
-            color: hovSkip ? 'var(--text)' : 'var(--text-faint)',
-            background: hovSkip ? 'rgba(255,255,255,.08)' : 'none',
-          }}
-        >
-          <i className="fa-solid fa-forward-step" style={{ fontSize: 10 }} />
         </span>
       )}
       <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--text-faint)', flex: 'none' }}>{step.dur}</span>
@@ -293,6 +276,20 @@ export default function ExecutionPage() {
           style={executing ? { animation: 'adPulse 1.4s ease-in-out infinite' } : undefined}
         />
         <div style={{ flex: 1 }} />
+        {executing && liveIdx >= 0 && (
+          <button
+            onClick={() => skipStep(liveIdx)}
+            title="Skip this step — kills it and continues with the next one"
+            style={{
+              background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
+              border: '1px solid var(--border-btn)',
+              borderRadius: 8, padding: '8px 14px', fontWeight: 500, fontSize: 12.5, cursor: 'pointer',
+            }}
+          >
+            <i className="fa-solid fa-forward-step" style={{ fontSize: 10, marginRight: 6 }} />
+            Skip step
+          </button>
+        )}
         {executing && (
           <button
             onClick={cancelExecution}
@@ -361,7 +358,6 @@ export default function ExecutionPage() {
                     step={s}
                     selected={tab === 'logs' && sel?.step === i}
                     onSelect={() => selectRow(i)}
-                    onSkip={executing && i === liveIdx ? () => skipStep(i) : undefined}
                   />
                 ))}
               </>

@@ -954,7 +954,8 @@ destructive moments recoverable.
   version no longer resolves. Manual retries are uncapped; the §6 trigger auto-retry uses
   this same mechanism, capped once per failure streak.
 - **Header actions** on the execution page: while executing, **Skip step** (quiet bordered,
-  same tooltip as the row icon — skips the currently executing step) beside **Cancel**. A failed execution
+  tooltip "Skip this step — kills it and continues with the next one"; skips the currently
+  executing step) beside **Cancel**. A failed execution
   gets a primary accent **Retry** (tooltip "Retries this execution from the failed step.
   Steps that already succeeded keep their results.") plus a quiet bordered "Execute again"
   (tooltip "Executes the automation again from the start" — a plain fresh execution).
@@ -971,10 +972,8 @@ per param: label, its help description, and the §4.2 one-line summary value ("V
 by this execution."), and a main pane with **Results / Logs tabs** (auto-select Logs when no
 result). The STEPS sidebar's rows are **selectable**: each row shows the status dot (pulsing
 while executing), name, a right-aligned attempt-count chip ("×2", mono, faint — only when the
-step has more than one attempt) and the latest attempt's duration; the currently executing
-step's row also carries a small **Skip** icon button (forward-step icon, tooltip "Skip this
-step — kills it and continues with the next one") — the same action as the header's
-Skip-step button, which is the discoverable entry point. Above step 1 sits an **"Execution log"**
+step has more than one attempt) and the latest attempt's duration — rows carry no actions;
+skipping lives in the header's Skip-step button. Above step 1 sits an **"Execution log"**
 pseudo-row (terminal icon in place of a status dot) selecting the execution-scoped log.
 Selecting any row switches the main pane to the Logs tab for that selection. While the
 execution is live the selection auto-follows the executing step until the user selects a row
