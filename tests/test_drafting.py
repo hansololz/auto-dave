@@ -330,7 +330,7 @@ def test_create_job_payload_carries_spec_mid_job(monkeypatch):
     jobs = DraftJobs()
     seen = {}
 
-    def fake_invoke(agent, prompt, timeout=300, proc_holder=None):
+    def fake_invoke(agent, prompt, timeout=300, proc_holder=None, on_chunk=None):
         if "Update the SPEC based on the USER REQUEST" in prompt:
             return GOOD_SPEC
         seen["mid"] = next(iter(jobs.jobs.values())).get("draft")
@@ -345,3 +345,35 @@ def test_create_job_payload_carries_spec_mid_job(monkeypatch):
         time.sleep(0.05)
     assert j["status"] == "done", j
     assert seen["mid"] and seen["mid"]["spec"][0] == {"k": "h1", "text": "Hello"}
+
+
+def test_progress_detail_from_streamed_markers():
+    # §8 live progress: the job's `detail` line tracks the streamed response's
+    # ===FILE: markers — Thinking… → manifest → "step i of n" with line counts.
+    from autodave.drafting import DraftJobs
+
+    jobs = DraftJobs()
+    job = {"id": "j1", "status": "building", "stage": "Generating the steps",
+           "detail": None, "_cancel": False}
+    cb = jobs._progress_cb(job)
+    cb("let me plan this")
+    assert job["detail"] == "Thinking…"
+    cb("\n===FILE: manifest.yaml===\nname: T\ndesc: d\nsteps:\n"
+       "  - { file: 01-a.py, name: A, desc: a }\n"
+       "  - { file: 02-b.py, name: B, desc: b }\n")
+    assert job["detail"] == "Writing the manifest — name, triggers, parameters, step list"
+    cb("===FILE: 01-a.py===\nx = 1\ny = 2\n")
+    assert job["detail"] == "Writing step 1 of 2 — 01-a.py · 2 lines"
+    cb("===FILE: 02-b.py===\nz = 3\n")
+    assert job["detail"] == "Writing step 2 of 2 — 02-b.py · 1 line"
+
+
+def test_progress_detail_spec_call_and_repair_prefix():
+    from autodave.drafting import DraftJobs
+
+    jobs = DraftJobs()
+    job = {"id": "j2", "status": "building", "stage": "Writing the spec",
+           "detail": None, "_cancel": False}
+    cb = jobs._progress_cb(job, prefix="Second try — ")
+    cb("===FILE: spec.md===\n# Title\n\n- a bullet\n")
+    assert job["detail"] == "Second try — writing the spec · 3 lines"

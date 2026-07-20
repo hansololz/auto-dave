@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 import re
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -371,7 +372,7 @@ class DraftJobs:
               current: dict | None, grants: dict) -> str:
         job_id = str(uuid.uuid4())
         stage = "Writing the spec" if mode in ("create", "edit") else "Generating the steps"
-        job = {"id": job_id, "status": "building", "stage": stage,
+        job = {"id": job_id, "status": "building", "stage": stage, "detail": None,
                "error": None, "draft": None, "mode": mode, "_cancel": False, "_proc": {}}
         with self._lock:
             self.jobs[job_id] = job
@@ -465,7 +466,9 @@ class DraftJobs:
             # trigger fires. A failure never fails the job (§6.2): the statuses
             # ride the draft payload and render in the §11 Packages card.
             self._stage(job, "Installing the packages")
-            draft["packages"] = pkglib.ensure(draft["packages"])
+            draft["packages"] = pkglib.ensure(
+                draft["packages"],
+                on_progress=lambda spec: self._detail(job, f"Installing {spec}…"))
             if job["_cancel"]:
                 return True
 
@@ -482,7 +485,8 @@ class DraftJobs:
                           validator) -> tuple[dict, list[str], list[dict] | None]:
         """One harness call + one automatic repair round against `validator`.
         A valid §8 blocker envelope is terminal — returned as-is, no repair."""
-        raw = harness.invoke(agent, prompt, timeout=300, proc_holder=job["_proc"])
+        raw = harness.invoke(agent, prompt, timeout=300, proc_holder=job["_proc"],
+                             on_chunk=self._progress_cb(job))
         if job["_cancel"]:
             return {}, [], None
         result, errors, blockers = self._parse_validate(raw, validator)
@@ -490,15 +494,83 @@ class DraftJobs:
             repair = (prompt + "\n\n=== YOUR PREVIOUS RESPONSE ===\n" + raw
                       + "\n\n=== VALIDATION ERRORS — fix these and resend the full envelope ===\n- "
                       + "\n- ".join(errors))
-            raw2 = harness.invoke(agent, repair, timeout=300, proc_holder=job["_proc"])
+            self._detail(job, "The response didn't validate — asking for a corrected one…")
+            raw2 = harness.invoke(agent, repair, timeout=300, proc_holder=job["_proc"],
+                                  on_chunk=self._progress_cb(job, prefix="Second try — "))
             if job["_cancel"]:
                 return {}, [], None
             result, errors, blockers = self._parse_validate(raw2, validator)
         return result, errors, blockers
 
+    def _progress_cb(self, job: dict, prefix: str = ""):
+        """§8 live progress: accumulate the streamed response and derive the
+        job's `detail` line from its ===FILE: markers. Marker changes publish
+        immediately; line-count growth throttles to one publish per second."""
+        state = {"text": "", "shape": None, "last": 0.0, "total": None}
+
+        def cb(chunk: str) -> None:
+            if job["_cancel"] or job["status"] != "building":
+                return
+            state["text"] += chunk
+            text = state["text"]
+            marks = list(FILE_MARK_RE.finditer(text))
+            if not marks:
+                shape = detail = "Thinking…"
+            else:
+                m = marks[-1]
+                fname = m.group(1).strip()
+                shape = fname
+                if fname == "manifest.yaml":
+                    detail = "Writing the manifest — name, triggers, parameters, step list"
+                else:
+                    lines = len(text[m.end():].strip("\n").splitlines())
+                    if fname == "spec.md":
+                        label = "the spec"
+                    else:
+                        total = self._steps_total(state, text, marks)
+                        sm = STEP_FILE_RE.match(fname)
+                        label = (f"step {int(sm.group(1))} of {total} — {fname}"
+                                 if sm and total else fname)
+                    count = f" · {lines} line{'s' if lines != 1 else ''}" if lines else ""
+                    detail = f"Writing {label}{count}"
+            now = time.monotonic()
+            if shape != state["shape"] or now - state["last"] >= 1.0:
+                state["shape"] = shape
+                state["last"] = now
+                if prefix:
+                    detail = prefix + detail[0].lower() + detail[1:]
+                self._detail(job, detail)
+
+        return cb
+
+    @staticmethod
+    def _steps_total(state: dict, text: str, marks: list) -> int | None:
+        """Step count from the streamed manifest block, once a later marker
+        proves the block is complete. Parsed once, cached; None until then."""
+        if state["total"] is None:
+            for i, m in enumerate(marks[:-1]):  # only closed blocks
+                if m.group(1).strip() == "manifest.yaml":
+                    try:
+                        manifest = yaml.safe_load(text[m.end():marks[i + 1].start()])
+                        steps = manifest.get("steps") if isinstance(manifest, dict) else None
+                        state["total"] = len(steps) if isinstance(steps, list) and steps else None
+                    except yaml.YAMLError:
+                        pass
+                    break
+        return state["total"]
+
     def _stage(self, job: dict, label: str) -> None:
         job["stage"] = label
-        hub.publish("draft.progress", jobId=job["id"], status="building", stage=label)
+        job["detail"] = None
+        hub.publish("draft.progress", jobId=job["id"], status="building", stage=label,
+                    detail=None)
+
+    def _detail(self, job: dict, text: str) -> None:
+        if job.get("detail") == text:
+            return
+        job["detail"] = text
+        hub.publish("draft.progress", jobId=job["id"], status="building",
+                    stage=job["stage"], detail=text)
 
     @staticmethod
     def _fail(job: dict, msg: str, errors: list[str]) -> bool:

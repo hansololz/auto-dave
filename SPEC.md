@@ -1099,6 +1099,24 @@ a create job, call 1's validated spec rides the job payload as soon as the spec 
 invocation's full prompt and raw response are logged to the app log as a §5 BEGIN/END-framed
 block (never to execution logs) for debugging.
 
+**Live progress.** A drafting call can run for minutes, so the job also carries a `detail`
+line — a finer live-progress message under the coarse `stage` — derived from the harness's
+**streamed** partial response. Every adapter streams: Claude Code runs with `--output-format
+stream-json --include-partial-messages --verbose` (text deltas as they generate; the returned
+text still comes from the terminal `result` event, falling back to the joined deltas), the
+other CLIs are read line-by-line from stdout as they print, and Ollama uses `stream: true`.
+The drafting job scans the accumulated partial text for the envelope's `===FILE:` markers and
+sets `detail` accordingly: `Thinking…` before the first marker; `Writing the spec · N lines`
+during call 1; `Writing the manifest — name, triggers, parameters, step list` and then
+`Writing step i of n — NN-name.py · N lines` during call 2 (`i of n` comes from the
+already-streamed manifest block once it parses as yaml; without it, just the file name); on a
+repair round, `The response didn't validate — asking for a corrected one…` and then the same
+messages prefixed `Second try — `; during the install stage, `Installing <pip spec>…` per
+package (the §6.2 ensure's progress hook). Line-count updates throttle to one publish per
+second; marker changes publish immediately. `detail` rides the job (§19 `GET /drafts`, beside
+`stage`) and every `draft.progress` WS event, and resets at each stage boundary. A harness
+that buffers its whole output simply yields no `detail` — the coarse stage labels remain.
+
 **Issue-analysis call (§11 Test).** When a test's step fails, the backend makes one
 more call with the same drafting agent: `framework-instructions.md` + the spec + the failing
 step's code + its error and log tail + earlier steps' log tails (the cause is often upstream)
@@ -1308,6 +1326,10 @@ as the pipeline delivers, driven by the job's `stage` over `draft.progress`:
   during call 1, "Generating the steps…" during call 2. During call 1 the label is plain
   text with no spinner anywhere in the right column; the steps card shows its spinner only
   once call 2 is actually running.
+- **Live progress** — the busy card shows the §8 `detail` line under its stage label (spec
+  card during call 1, steps skeleton during call 2), so a minutes-long call never looks
+  stuck. The sync panel's in-flight line and the ask box show the same detail line while a
+  sync / edit job runs. No detail (a non-streaming harness) leaves just the stage label.
 - **Editing while the steps generate** — any spec / build-instruction / agent-ask / grant change
   cancels the in-flight steps call (`DELETE /drafts/{jobId}`), keeps the landed spec, and marks
   the workflow out of sync; the standard sync panel rebuilds the steps. Catching a bad spec
@@ -1907,7 +1929,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
   the stored automation's for the §8 grants context; progress via
-  WS; `GET /drafts/{jobId}` → state + validated §8 draft payload — on a create job the payload
+  WS; `GET /drafts/{jobId}` → state (`status`, `stage`, live §8 `detail` line) + validated §8
+  draft payload — on a create job the payload
   carries call 1's validated spec as soon as the spec call completes (the §11 spec card renders
   it while the steps call is still working); a `blocked` job's state is
   `blocked` and it carries the §8 `blockers` list plus `blockedAt: spec | steps` (a create job

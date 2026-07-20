@@ -1,11 +1,24 @@
 """Harness adapters (§6/§8): query-only invocation flags + CLI detection."""
+import io
 
 
 class _FakeProc:
+    """Streamed-read stand-in (§8): invoke() iterates stdout, drains stderr on
+    a thread, then wait()s — no communicate()."""
     returncode = 0
 
-    def communicate(self, timeout=None):
-        return "ok", ""
+    def __init__(self):
+        self.stdout = io.StringIO("ok")
+        self.stderr = io.StringIO("")
+
+    def wait(self, timeout=None):
+        return 0
+
+    def poll(self):
+        return 0
+
+    def kill(self):
+        pass
 
 
 def _captured_invoke(monkeypatch, agent):
@@ -31,7 +44,24 @@ def test_claude_invoked_with_no_tools_flags(monkeypatch):
     assert cmd[i + 1] == ""  # all built-in tools disabled
     assert "--strict-mcp-config" in cmd
     assert "--no-session-persistence" in cmd
+    # §8 live progress: partial text streams as stream-json deltas
+    j = cmd.index("--output-format")
+    assert cmd[j + 1] == "stream-json"
+    assert "--include-partial-messages" in cmd
+    assert "--verbose" in cmd  # stream-json in print mode requires it
     assert cmd[-1] == "question: hi?"
+
+
+def test_fake_cli_streams_chunks_and_result():
+    # §8 live progress: the fake CLI answers stream-json — on_chunk sees each
+    # text delta and the returned text comes from the terminal result event.
+    from autodave import harness
+
+    chunks = []
+    out = harness.invoke({"harness": "Claude Code"}, "question: hi?",
+                         on_chunk=chunks.append)
+    assert out == "Mock answer: nothing new."
+    assert chunks and "".join(chunks) == out
 
 
 def test_codex_invoked_with_read_only_sandbox(monkeypatch):

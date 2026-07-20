@@ -239,6 +239,8 @@ interface Rev {
   // (drives the "Installing the packages…" skeleton + save-hint labels)
   pkgBusy: boolean
   genStage: string | null
+  // §8 live progress: the job's finer in-flight line under the stage
+  genDetail: string | null
   // §11 drafting-on-Review (create): call-1/call-2 in-flight flags drive the
   // spec-card spinner and the right-column skeletons; a spec-call blocker is
   // the clarification case (editable cards inside the spec card); spec/steps
@@ -272,7 +274,7 @@ const revDefaults = {
   specUndo: null as Rev['specUndo'],
   instrEdit: false, instrDraft: null as string | null,
   ask: '', syncBusy: false, askBusy: false,
-  pkgBusy: false, genStage: null as string | null,
+  pkgBusy: false, genStage: null as string | null, genDetail: null as string | null,
   specBusy: false, stepsBusy: false,
   specBlockers: null as Rev['specBlockers'], specErr: null as Rev['specErr'], stepsErr: null as Rev['stepsErr'],
   repair: null as Rev['repair'], resolved: [] as string[], askBlockers: null as Rev['askBlockers'],
@@ -769,15 +771,18 @@ export default function CreateFlow() {
     jobIdRef.current = jobId
     let specDelivered = false
     let lastStage: string | null = null
+    let lastDetail: string | null = null
     pollRef.current = setInterval(() => {
       void (async () => {
         try {
           const j = await api.getDraftJob(jobId)
           // §8/§11: the job's live stage drives the skeleton + save-hint labels
-          // ("Installing the packages…" after the steps land).
-          if (j.status === 'building' && j.stage !== lastStage) {
+          // ("Installing the packages…" after the steps land); `detail` is the
+          // finer live-progress line under it.
+          if (j.status === 'building' && (j.stage !== lastStage || (j.detail ?? null) !== lastDetail)) {
             lastStage = j.stage
-            setRev((r) => (r ? { ...r, genStage: j.stage } : r))
+            lastDetail = j.detail ?? null
+            setRev((r) => (r ? { ...r, genStage: j.stage, genDetail: lastDetail } : r))
           }
           if (onSpec && !specDelivered && j.status === 'building' && j.draft?.spec) {
             specDelivered = true
@@ -989,7 +994,7 @@ export default function CreateFlow() {
     const genCancelled = cancelStepsGen()
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // one edit at a time
-      ask: '', askBusy: true, askBlockers: null, touched: true,
+      ask: '', askBusy: true, askBlockers: null, genStage: null, genDetail: null, touched: true,
       ...(genCancelled ? { stepsBusy: false, dirty: true } : {}),
     })
     try {
@@ -1042,7 +1047,7 @@ export default function CreateFlow() {
     if (!rev || rev.syncBusy || rev.askBusy) return
     up({
       specEdit: false, specText: '', specTextOrig: '', instrDraft: null, instrEdit: false, // discard unsaved edits
-      syncBusy: true, genStage: null, touched: true, stepsErr: null,
+      syncBusy: true, genStage: null, genDetail: null, touched: true, stepsErr: null,
       // §11 spec undo: a repair amend replaces the spec outside the undo flow
       ...(specOverride ? { spec: specOverride, specUndo: null } : {}),
     })
@@ -1691,6 +1696,10 @@ export default function CreateFlow() {
                         borderRadius: '50%', animation: 'adSpin .9s linear infinite',
                       }} />
                       <span style={{ font: "500 13px var(--sans)", color: 'var(--text-2)' }}>Writing the spec…</span>
+                      {/* §8/§11 live progress: streamed detail line */}
+                      {rev.genDetail && (
+                        <span style={{ font: "400 12px var(--sans)", color: 'var(--text-muted)' }}>{rev.genDetail}</span>
+                      )}
                       <span style={{ font: "500 11px var(--mono)", color: 'var(--text-faintest)' }}>
                         {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'No agent'}
                       </span>
@@ -1791,6 +1800,12 @@ export default function CreateFlow() {
                       </button>
                     )}
                   </div>
+                  {/* §8/§11 live progress: streamed detail line while the edit job runs */}
+                  {rev.askBusy && rev.genDetail && (
+                    <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', padding: '0 14px 10px' }}>
+                      {rev.genDetail}
+                    </div>
+                  )}
                   {/* §11: blocked edit call — persistent amber notice, draft untouched */}
                   {rev.askBlockers && (
                     <div style={{
@@ -2114,6 +2129,12 @@ export default function CreateFlow() {
                             : 'Steps are generated from the spec.'}
                       </span>
                     </div>
+                    {/* §8/§11 live progress: streamed detail line while syncing */}
+                    {rev.syncBusy && rev.genDetail && (
+                      <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '2px 0 0 16px' }}>
+                        {rev.genDetail}
+                      </div>
+                    )}
                     {!rev.syncBusy && outOfSync && (
                       <div style={{ font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-muted)', margin: '2px 0 0 16px' }}>
                         {rev.dirty ? 'Sync the steps to the new spec, then review them. Saving is locked until you do — nothing ships unreviewed.'
@@ -2144,18 +2165,26 @@ export default function CreateFlow() {
                   {/* §11 drafting-on-Review: skeleton until call 2 delivers — plain text
                       while waiting on the spec, spinner only once call 2 runs */}
                   {drafting && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '18px 20px 20px' }}>
-                      {rev.stepsBusy && (
-                        <span style={{
-                          width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
-                          borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none',
-                        }} />
-                      )}
-                      <span style={{ font: "500 12.5px var(--sans)", color: 'var(--text-2)' }}>{stageLabel}</span>
-                      {rev.stepsBusy && (
-                        <span style={{ font: "500 10.5px var(--mono)", color: 'var(--text-faintest)' }}>
-                          {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : ''}
-                        </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '18px 20px 20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {rev.stepsBusy && (
+                          <span style={{
+                            width: 13, height: 13, border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
+                            borderRadius: '50%', animation: 'adSpin .8s linear infinite', flex: 'none',
+                          }} />
+                        )}
+                        <span style={{ font: "500 12.5px var(--sans)", color: 'var(--text-2)' }}>{stageLabel}</span>
+                        {rev.stepsBusy && (
+                          <span style={{ font: "500 10.5px var(--mono)", color: 'var(--text-faintest)' }}>
+                            {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : ''}
+                          </span>
+                        )}
+                      </div>
+                      {/* §8/§11 live progress: streamed detail under the stage label */}
+                      {rev.stepsBusy && rev.genDetail && (
+                        <div style={{ font: "400 11.5px var(--sans)", color: 'var(--text-muted)', margin: '0 0 0 23px' }}>
+                          {rev.genDetail}
+                        </div>
                       )}
                     </div>
                   )}

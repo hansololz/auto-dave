@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import time
 import urllib.request
 import uuid
@@ -72,10 +73,12 @@ def resolve_bin(binname: str) -> str | None:
 
 
 def invoke(agent: dict, prompt: str, timeout: int = 300,
-           proc_holder: dict | None = None) -> str:
+           proc_holder: dict | None = None, on_chunk=None) -> str:
     """Invoke the harness once with `prompt`, return its text reply.
 
     proc_holder, when given, receives {'proc': Popen} so a caller can cancel.
+    on_chunk, when given, receives each partial-text chunk as the harness
+    streams its response (§8 live progress); chunks joined ≙ the reply.
     Every request is framed in app.log (§5): BEGIN header + prompt on send,
     response (or error) + END footer when the request ends.
     """
@@ -88,7 +91,7 @@ def invoke(agent: dict, prompt: str, timeout: int = 300,
              f"agent request · harness={harness or '?'} · model={model}"
              f" · prompt ({len(prompt)} chars):\n{prompt}")
     try:
-        out = _invoke(harness, agent, prompt, timeout, proc_holder)
+        out = _invoke(harness, agent, prompt, timeout, proc_holder, on_chunk)
     except Exception as e:  # noqa: BLE001 — log, close the frame, re-raise
         _app_log(f"request failed: {e}\n>>>>> END {_stamp()} {req_id} <<<<<\n")
         raise
@@ -96,18 +99,45 @@ def invoke(agent: dict, prompt: str, timeout: int = 300,
     return out
 
 
+def _claude_stream_line(line: str) -> tuple[str | None, str | None]:
+    """One `--output-format stream-json` stdout line → (text_chunk, final_result).
+
+    Partial text arrives as stream_event/content_block_delta/text_delta chunks
+    (`--include-partial-messages`); the terminal `result` event carries the
+    complete reply. Anything else — init events, tool noise, non-JSON — is None.
+    """
+    try:
+        obj = json.loads(line)
+    except ValueError:
+        return None, None
+    if not isinstance(obj, dict):
+        return None, None
+    if obj.get("type") == "stream_event":
+        ev = obj.get("event") or {}
+        delta = ev.get("delta") or {}
+        if ev.get("type") == "content_block_delta" and delta.get("type") == "text_delta":
+            return delta.get("text") or "", None
+        return None, None
+    if obj.get("type") == "result" and isinstance(obj.get("result"), str):
+        return None, obj["result"]
+    return None, None
+
+
 def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
-            proc_holder: dict | None) -> str:
+            proc_holder: dict | None, on_chunk=None) -> str:
     if harness == "Ollama":
-        return _ollama(agent.get("model") or "qwen3:8b", prompt, timeout)
+        return _ollama(agent.get("model") or "qwen3:8b", prompt, timeout, on_chunk)
     # §6: query-only runtime calls — invoke each harness with the strongest
     # flags it offers to disable tools/shell/file access beyond the model API.
     cmd_map = {
         # --tools "" disables every built-in tool; --strict-mcp-config with no
         # --mcp-config loads zero MCP servers; --no-session-persistence keeps
-        # the one-shot call off disk. (Flags verified against claude --help.)
+        # the one-shot call off disk. stream-json + --include-partial-messages
+        # streams text deltas for §8 live progress (stream-json in print mode
+        # requires --verbose). (Flags verified against claude --help.)
         "Claude Code": ["claude", "-p", "--tools", "", "--strict-mcp-config",
-                        "--no-session-persistence", prompt],
+                        "--no-session-persistence", "--output-format", "stream-json",
+                        "--include-partial-messages", "--verbose", prompt],
         # Gemini CLI has no documented flag that disables its built-in tools
         # for a one-shot -p call (only sandbox/approval modes) — left bare.
         "Gemini CLI": ["gemini", "-p", prompt],
@@ -130,25 +160,74 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
                             stdin=subprocess.DEVNULL, text=True, cwd=_neutral_cwd())
     if proc_holder is not None:
         proc_holder["proc"] = proc
-    try:
-        out, err = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    # §8 live progress: read stdout as it streams instead of communicate();
+    # the timeout is enforced by a timer that kills the child (readline then
+    # sees EOF), and stderr drains on its own thread so a chatty child can't
+    # deadlock on a full pipe.
+    timed_out = threading.Event()
+
+    def _kill() -> None:
+        timed_out.set()
         proc.kill()
+
+    timer = threading.Timer(timeout, _kill)
+    timer.start()
+    err_parts: list[str] = []
+    drain = threading.Thread(target=lambda: err_parts.append(proc.stderr.read() or ""),
+                             daemon=True)
+    drain.start()
+    raw_parts: list[str] = []
+    deltas: list[str] = []
+    final: str | None = None
+    try:
+        for line in proc.stdout:
+            raw_parts.append(line)
+            if harness == "Claude Code":
+                chunk, result = _claude_stream_line(line)
+                if result is not None:
+                    final = result
+                if chunk:
+                    deltas.append(chunk)
+                    if on_chunk:
+                        on_chunk(chunk)
+            elif on_chunk:
+                on_chunk(line)
+        proc.wait()
+    finally:
+        timer.cancel()
+    drain.join(timeout=5)
+    if timed_out.is_set():
         raise HarnessError(f"{harness} timed out after {timeout}s")
+    raw = "".join(raw_parts)
     if proc.returncode != 0:
-        raise HarnessError(f"{harness} failed: {(err or out or '').strip()[:400]}")
-    return out
+        err = (err_parts[0] if err_parts else "") or raw
+        raise HarnessError(f"{harness} failed: {err.strip()[:400]}")
+    if harness == "Claude Code":
+        # The result event is authoritative; joined deltas cover a CLI that
+        # streamed but never sent one; raw stdout covers non-stream output.
+        return final if final is not None else ("".join(deltas) or raw)
+    return raw
 
 
-def _ollama(model: str, prompt: str, timeout: int) -> str:
+def _ollama(model: str, prompt: str, timeout: int, on_chunk=None) -> str:
     req = urllib.request.Request(
         f"{OLLAMA_URL}/api/generate",
-        data=json.dumps({"model": model, "prompt": prompt, "stream": False}).encode(),
+        data=json.dumps({"model": model, "prompt": prompt, "stream": True}).encode(),
         headers={"Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode()).get("response", "")
+            parts: list[str] = []
+            for line in r:  # §8 live progress: one JSON object per line
+                obj = json.loads(line.decode())
+                piece = obj.get("response", "")
+                if piece:
+                    parts.append(piece)
+                    if on_chunk:
+                        on_chunk(piece)
+                if obj.get("done"):
+                    break
+            return "".join(parts)
     except Exception as e:  # noqa: BLE001
         raise HarnessError(f"Ollama request failed: {e}") from e
 

@@ -220,6 +220,9 @@ export interface DraftJob {
   id: string
   status: 'building' | 'done' | 'failed' | 'cancelled' | 'blocked'
   stage: string | null
+  // §8 live progress: finer in-flight line under the stage ("Writing step 2 of
+  // 5 — 02-classify.py · 38 lines"); null when the harness yields no stream
+  detail: string | null
   error: string | null
   errorDetail?: string[]
   // On a create job, `draft.spec` carries call 1's validated spec as soon as

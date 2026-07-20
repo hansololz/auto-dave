@@ -6,6 +6,7 @@ deterministic stand-in binary instead of a mock code path inside the app. It
 answers `--version` and one-shot `claude -p ... <prompt>` calls with canned
 envelopes matching the §8 drafting contract.
 """
+import json
 import re
 import sys
 
@@ -87,7 +88,21 @@ def main() -> None:
         print("0.0.0 (auto-dave test fake)")
         return
     prompt = args[-1] if args else ""
-    sys.stdout.write(respond(prompt))
+    text = respond(prompt)
+    if "stream-json" in args:
+        # §8 live progress: the backend reads stream-json — emit the reply as
+        # per-line text deltas, then the terminal result event with the full text.
+        for ln in text.splitlines(keepends=True):
+            sys.stdout.write(json.dumps({
+                "type": "stream_event",
+                "event": {"type": "content_block_delta",
+                          "delta": {"type": "text_delta", "text": ln}},
+            }) + "\n")
+            sys.stdout.flush()
+        sys.stdout.write(json.dumps({"type": "result", "subtype": "success",
+                                     "result": text}) + "\n")
+        return
+    sys.stdout.write(text)
 
 
 if __name__ == "__main__":
