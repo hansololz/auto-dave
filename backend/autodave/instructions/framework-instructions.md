@@ -57,7 +57,9 @@ Step scripts execute one per subprocess with these globals (the autodave SDK):
 ```python
 params                    # dict, by param name
 secrets.NAME              # Keychain values — never log them
-memory                    # persistent dir: .load(name, default) / .save(name, obj)
+memory                    # persistent dir — a real path (memory / "cache.bin" works
+                          #   for any file format), plus YAML helpers
+                          #   .load(name, default) / .save(name, obj)
 execution                 # read-only metadata: .automation_id / .automation_name /
                           #   .id / .step_index / .step_name / .trigger
 log(text)                 # also log.warn(text) / log.error(text)
@@ -66,7 +68,8 @@ result.chip(text)         # short summary chip; also result.chips
 result.value(name, text_or_list)
 result.path               # dir for output files; a result.md there renders as
                           #   markdown, result.html as a styled page, images inline
-notify(text)
+notify(text)              # title = the automation name; a param literally named
+                          #   notification_title overrides it
 fetch_page(url)
 agent.ask(prompt, data)   # only in steps marked agent: true
 ```
@@ -195,9 +198,12 @@ tool — never write steps that assume a binary is on the machine.
 Derive cron triggers from the user's words ("every morning at 8" →
 `- cron: "0 8 * * *"`; "Mondays at 9" → `- cron: "0 9 * * 1"`). Cron fields:
 minute hour day-of-month month day-of-week (0–6, Sun = 0); numbers, `*`,
-lists, ranges, and steps only — no names, no `@daily`. When the spec names no
-time, omit the `triggers` key entirely. Never emit one-shot, app-start, or
-message triggers — the user adds those on the automation page.
+lists, ranges, and steps only — no names, no `@daily`. When the spec names a
+timezone, add `tz` with the IANA zone name — `- { cron: "0 9 * * 1",
+tz: Asia/Tokyo }`; otherwise omit `tz` and times read as the Mac's local time.
+When the spec names no time, omit the `triggers` key entirely. Never emit
+one-shot, app-start, or message triggers — the user adds those on the
+automation page.
 
 ## Parameters
 
@@ -210,7 +216,7 @@ script. Kinds:
 | `toggle` | default bool                                   |
 | `list`   | lines of text; `validate: true` for URL lists  |
 | `kv`     | rows of `{k, v}`                               |
-| `number` | `min`, `integer`                               |
+| `number` | integer value; `min` (defaults clamp to it)    |
 | `text`   | `placeholder` optional                         |
 
 ## Steps
@@ -244,7 +250,9 @@ Design for them, never re-implement them:
 ## Agent steps
 
 Agent steps are query-only: scripts make every change — an agent call only
-answers a question about data you hand it.
+answers a question about data you hand it. Each call times out at 120 s —
+one more reason to hand it pre-extracted data and one narrow question, never
+a big open-ended job.
 
 ## Build instructions
 
