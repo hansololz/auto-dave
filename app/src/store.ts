@@ -10,6 +10,10 @@ export type Page =
 
 export type CreateFrom = 'app' | 'onboard' | 'edit' | null
 
+// §12 agent status badge — cached for the app session so the Agents page
+// doesn't re-check on every visit.
+export type AgentCheck = 'checking' | 'connecting' | 'ready' | 'needs'
+
 interface NavSnap {
   surface: Surface; page: Page; autoId: string | null; execId: string | null
   // §4.4/§11: without this, browser-back into the editor would restore
@@ -52,8 +56,11 @@ export interface Model {
     issue: Blocker[] | null
   } | null
   ollamaPull: { model: string; line: string; done: boolean; ok?: boolean } | null
+  // §12 session cache of agent status checks, keyed by agent id
+  agentChecks: Record<string, AgentCheck>
 
   boot(): Promise<void>
+  runAgentCheck(id: string, pending?: AgentCheck): Promise<'ready' | 'needs'>
   disconnect(): void
   refresh(): Promise<void>
   applyEvent(msg: Record<string, unknown>): void
@@ -99,6 +106,20 @@ export const useStore = create<Model>((set, get) => ({
   execLogs: {},
   test: null,
   ollamaPull: null,
+  agentChecks: {},
+
+  // §12: the one place a status check runs — badge goes to `pending` while the
+  // real §19 /agents/{id}/check call is in flight, result lands in the cache.
+  async runAgentCheck(id, pending = 'checking') {
+    set({ agentChecks: { ...get().agentChecks, [id]: pending } })
+    let st: 'ready' | 'needs'
+    try {
+      const r = await api.checkAgent(id)
+      st = r.status === 'ready' ? 'ready' : 'needs'
+    } catch { st = 'needs' }
+    set({ agentChecks: { ...get().agentChecks, [id]: st } })
+    return st
+  },
 
   async boot() {
     // One retry chain only: a re-entrant boot (StrictMode re-mount) must not

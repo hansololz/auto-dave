@@ -15,6 +15,9 @@ export function openAgentEdit(agent: Agent, needsFix: boolean): void {
   pendingEdit = { agent, needsFix }
 }
 
+// §4.7: only these are selectable for now — the rest render disabled.
+const SUPPORTED = new Set<HarnessId>(['claude', 'ollama'])
+
 const HARNESSES: { id: HarnessId; name: string; desc: string }[] = [
   { id: 'claude', name: 'Claude Code', desc: 'Uses your Claude account. The most capable option — nothing extra to pay.' },
   { id: 'gemini', name: 'Gemini CLI', desc: 'Uses your Google account. Generous free tier.' },
@@ -52,7 +55,7 @@ const HARNESS_ID: Record<string, HarnessId> = {
 }
 
 export default function AgentNewPage() {
-  const { go, showToast, ollamaPull } = useStore()
+  const { go, showToast, ollamaPull, runAgentCheck } = useStore()
   // Consume the edit hand-off on mount. The initializer must stay pure
   // (StrictMode double-invokes it), so the stash is cleared in an effect.
   const [editing] = useState(() => pendingEdit)
@@ -157,8 +160,7 @@ export default function AgentNewPage() {
 
   const ready = st?.ready ?? false
   const models = st?.models ?? []
-  // OpenCode serves its models through Ollama, so it's gated like the Ollama harness and local mode.
-  const needsOllama = harness === 'ollama' || harness === 'opencode' || mode === 'ollama'
+  const needsOllama = harness === 'ollama' || mode === 'ollama'
   const canAdd = !!harness && !!mode
     && (!needsOllama || ready)
     && (mode !== 'ollama' || !!model)
@@ -177,22 +179,21 @@ export default function AgentNewPage() {
     api.ollamaPull(nm).catch((e: Error) => { setPulling(null); showToast(e.message) })
   }
 
-  // §12 reconnect flow, started from the form banner when editing a signed-out agent.
+  // §12 reconnect flow, started from the form banner when editing a signed-out
+  // agent. Runs through the store check so the cached Agents-page badge updates too.
   const reconnect = () => {
     if (!editAgent) return
     setFix('busy')
     const t0 = Date.now()
-    const settle = (ok: boolean) => {
+    void runAgentCheck(editAgent.id, 'connecting').then((st) => {
+      const ok = st === 'ready'
       window.setTimeout(() => {
         setFix(ok ? 'done' : 'needs')
         showToast(ok
           ? 'Connected — signed in as you.'
           : 'Still signed out — finish signing in, then try again.', 2600)
       }, Math.max(0, 1700 - (Date.now() - t0)))
-    }
-    api.checkAgent(editAgent.id)
-      .then((r) => settle(r.status === 'ready'))
-      .catch(() => settle(false))
+    })
   }
 
   const addAgent = async () => {
@@ -215,6 +216,8 @@ export default function AgentNewPage() {
     try {
       if (editAgent) {
         await api.patchAgent(editAgent.id, payload)
+        // Saved config may change readiness — refresh the cached badge (§12).
+        void runAgentCheck(editAgent.id, 'connecting')
         go('agents')
         showToast(`Changes saved — ${payload.name} is ready.`)
       } else {
@@ -227,9 +230,7 @@ export default function AgentNewPage() {
 
   const olMissingMsg = harness === 'ollama'
     ? 'This agent works through Ollama, which isn’t installed on this Mac yet.'
-    : harness === 'opencode'
-      ? 'OpenCode serves its models through Ollama, which isn’t installed on this Mac yet.'
-      : 'Local models need Ollama, which isn’t installed on this Mac yet.'
+    : 'Local models need Ollama, which isn’t installed on this Mac yet.'
 
   const sugRows = SUGGESTED.filter((sg) => !models.includes(sg.id) && pulling !== sg.id)
 
@@ -327,22 +328,35 @@ export default function AgentNewPage() {
       <div style={eyebrow}>HARNESS</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
         {HARNESSES.map((h) => {
+          const off = !SUPPORTED.has(h.id)
           const on = harness === h.id
-          const hasReq = (h.id === 'ollama' || h.id === 'opencode') && !ready
+          const hasReq = !off && h.id === 'ollama' && !ready
           return (
             <div
               key={h.id}
-              onClick={() => { setHarness(h.id); setMode('default'); setModel(null) }}
+              onClick={() => {
+                if (off) { showToast(`${h.name} isn't supported yet.`); return }
+                setHarness(h.id); setMode('default'); setModel(null)
+              }}
               style={{
                 background: on ? '#151920' : 'var(--bg-card)',
                 border: `1px solid ${on ? 'oklch(0.74 0.155 52 / .7)' : 'var(--border-card)'}`,
-                borderRadius: 12, padding: '16px 18px', cursor: 'pointer',
-                display: 'flex', flexDirection: 'column', gap: 7,
+                borderRadius: 12, padding: '16px 18px', cursor: off ? 'default' : 'pointer',
+                display: 'flex', flexDirection: 'column', gap: 7, opacity: off ? 0.55 : 1,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
                 <RadioRing selected={on} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{h.name}</span>
+                {off && (
+                  <span style={{
+                    display: 'inline-flex', padding: '2px 7px', borderRadius: 6,
+                    font: `600 10px var(--mono)`, letterSpacing: '.05em', textTransform: 'uppercase',
+                    background: 'rgba(255,255,255,.07)', color: 'var(--text-muted)',
+                  }}>
+                    Not supported yet
+                  </span>
+                )}
                 {hasReq && (
                   <span style={{
                     display: 'inline-flex', padding: '2px 7px', borderRadius: 6,

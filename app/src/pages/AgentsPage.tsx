@@ -1,8 +1,8 @@
-// Agents page (§4.7, §12): agent cards with staggered connection checks,
+// Agents page (§4.7, §12): agent cards with session-cached connection checks,
 // inline check/make-default actions, remove via row menu.
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { api } from '../api'
-import { useStore } from '../store'
+import { useStore, type AgentCheck } from '../store'
 import type { Agent } from '../types'
 import { ConfirmModal, MenuRow, menuStyle, P, Spinner, usePopover, dispModel } from '../ui'
 import { openAgentEdit } from './AgentNewPage'
@@ -20,8 +20,6 @@ function detailOf(ag: Agent, ready: boolean): string {
   return 'Signed in with your Claude account. Uses your existing subscription — nothing extra to pay here.'
 }
 
-type CheckState = 'checking' | 'connecting' | 'ready' | 'needs'
-
 const ghostBtn: React.CSSProperties = {
   background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
   border: '1px solid var(--border-btn)', borderRadius: 8, padding: '8px 13px',
@@ -29,9 +27,9 @@ const ghostBtn: React.CSSProperties = {
 }
 
 function AgentCard({ ag, check, onDelete }: {
-  ag: Agent; check: CheckState | undefined; onDelete: (ag: Agent) => void
+  ag: Agent; check: AgentCheck | undefined; onDelete: (ag: Agent) => void
 }) {
-  const { autos, go, showToast } = useStore()
+  const { autos, go, showToast, runAgentCheck } = useStore()
   const [menuOpen, setMenuOpen, menuRef] = usePopover()
   const checking = check === 'checking' || check === undefined
   const connecting = check === 'connecting'
@@ -50,6 +48,16 @@ function AgentCard({ ag, check, onDelete }: {
       await api.patchAgent(ag.id, { default: true })
       showToast(`${ag.name || ag.harness} is now the default — new automations use it.`)
     } catch (e) { showToast((e as Error).message) }
+  }
+
+  // §12 "Check connection" — a real, timed check that refreshes the cached badge.
+  const recheck = async () => {
+    const t0 = performance.now()
+    const st = await runAgentCheck(ag.id)
+    const secs = ((performance.now() - t0) / 1000).toFixed(1)
+    showToast(st === 'ready'
+      ? `${ag.name || ag.harness} answered in ${secs} s — ready.`
+      : `${ag.name || ag.harness} didn't answer — needs setup.`)
   }
 
   return (
@@ -119,7 +127,7 @@ function AgentCard({ ag, check, onDelete }: {
           )}
           {ready && (
             <button
-              onClick={() => showToast(`${ag.name || ag.harness} answered in 0.4 s — ready.`)}
+              onClick={() => { void recheck() }}
               style={ghostBtn}
             >
               Check connection
@@ -165,28 +173,24 @@ function AgentCard({ ag, check, onDelete }: {
 }
 
 export default function AgentsPage() {
-  const { agents, go, showToast } = useStore()
-  const [checks, setChecks] = useState<Record<string, CheckState>>({})
+  const { agents, agentChecks, go, showToast } = useStore()
   const [delAgent, setDelAgent] = useState<Agent | null>(null)
-  const started = useRef(new Set<string>())
-  const timers = useRef<number[]>([])
 
-  // On page visit, check every agent's connection with a small stagger — the
-  // delay comes from the batch index, and pending timers die with the page.
+  // §12 session cache: only agents with no cached status get checked, with a
+  // small stagger. The cache entry is claimed synchronously (StrictMode
+  // re-mount must not double-check), and in-flight checks outlive the page —
+  // results land in the store either way.
   useEffect(() => {
-    let i = 0
-    for (const ag of agents) {
-      if (started.current.has(ag.id)) continue
-      started.current.add(ag.id)
-      setChecks((c) => ({ ...c, [ag.id]: 'checking' }))
-      timers.current.push(window.setTimeout(() => {
-        api.checkAgent(ag.id)
-          .then((r) => setChecks((c) => ({ ...c, [ag.id]: r.status === 'ready' ? 'ready' : 'needs' })))
-          .catch(() => setChecks((c) => ({ ...c, [ag.id]: 'needs' })))
-      }, i++ * 100))
-    }
+    const cur = useStore.getState().agentChecks
+    const fresh = agents.filter((ag) => !cur[ag.id])
+    if (!fresh.length) return
+    useStore.setState({
+      agentChecks: { ...cur, ...Object.fromEntries(fresh.map((ag) => [ag.id, 'checking' as const])) },
+    })
+    fresh.forEach((ag, i) => {
+      window.setTimeout(() => { void useStore.getState().runAgentCheck(ag.id) }, i * 100)
+    })
   }, [agents])
-  useEffect(() => () => { timers.current.forEach((id) => clearTimeout(id)) }, [])
 
   const confirmDelete = async () => {
     if (!delAgent) return
@@ -194,6 +198,8 @@ export default function AgentsPage() {
     setDelAgent(null)
     try {
       await api.deleteAgent(ag.id)
+      const { [ag.id]: _gone, ...rest } = useStore.getState().agentChecks
+      useStore.setState({ agentChecks: rest })
       showToast('Agent removed — automations it wrote still execute on schedule.')
     } catch (e) { showToast((e as Error).message) }
   }
@@ -212,7 +218,7 @@ export default function AgentsPage() {
       {agents.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {agents.map((ag) => (
-            <AgentCard key={ag.id} ag={ag} check={checks[ag.id]} onDelete={setDelAgent} />
+            <AgentCard key={ag.id} ag={ag} check={agentChecks[ag.id]} onDelete={setDelAgent} />
           ))}
         </div>
       ) : (

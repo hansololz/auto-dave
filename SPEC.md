@@ -418,6 +418,8 @@ carried into the §8 grants yaml so the drafting agent knows what each enabled a
 means the app never picks or passes a model — the harness uses whatever model it is already
 configured with. Display shows "Default configured model" when the model is null. One agent is
 the app default; deleting an agent reassigns the default and warns which automations use it.
+Only Claude Code and Ollama are selectable harnesses for now — Gemini CLI, Codex, and OpenCode
+stay in the schema and the picker but are disabled (§12) until they're supported.
 
 ### 4.8 Secret
 
@@ -1722,11 +1724,19 @@ executed yet. Press Execute now when you're ready." Save (edit) → §4.4.
 
 ## 12. Agents & Secrets pages
 
-**Agents.** List of agent cards with badge states Checking (cyan, staggered on page visit) /
-Connecting / Ready (green) / Needs setup (amber). Each card shows the agent's `desc` detail line
+**Agents.** List of agent cards with badge states Checking (cyan) / Connecting / Ready (green) /
+Needs setup (amber). Statuses are cached in the renderer for the app session: each agent is
+checked once, staggered, on the first Agents page visit that sees it (new agents get checked on
+the next visit); later visits render the cached badge with no re-check. The cache entry for an
+agent updates when its edit form saves ("Connecting" until the fresh result lands, §4.7 check
+re-run right after the save) and when the reconnect flow's check answers (§12 form banner).
+Each card shows the agent's `desc` detail line
 and a **USED BY** row of clickable automation chips (fallback "Not used by any automation yet.").
-Ready agents get inline "Check connection" (toasts "`<name>` answered in 0.4 s — ready."), an
-inline "Edit" button, and, when not default, an inline borderless "Make default" text button;
+Ready agents get inline "Check connection" — a real §19 `/agents/{id}/check` call timed by the
+renderer: the badge returns to Checking while it runs, success toasts "`<name>` answered in
+X.X s — ready.", failure flips the badge to Needs setup and toasts "`<name>` didn't answer —
+needs setup." Ready agents also get an
+inline "Edit" button and, when not default, an inline borderless "Make default" text button;
 Needs-setup rows use an accent-primary "Edit" button instead. The row overflow menu holds only
 "Remove agent…" (red, confirm modal). Default status is indicated by the absent "Make default"
 button — no chip. Empty state (dashed card): "No agents yet. Existing automations still execute on
@@ -1734,7 +1744,10 @@ schedule — but you need an agent to create or edit them." + CTA "Add your firs
 
 **New / Edit agent** form (720 px, one form — title and submit label switch to "Edit agent" /
 "Save changes" when editing): pick harness (Claude Code / Gemini CLI / Codex / OpenCode /
-Ollama), mode (default model vs. local Ollama model), model (required for Ollama mode), name
+Ollama — but Gemini CLI, Codex, and OpenCode are disabled for now: their cards render dimmed
+with a gray "Not supported yet" badge, and clicking one toasts "`<name>` isn't supported yet.";
+only Claude Code and Ollama are selectable, §4.7), mode (default model vs. local Ollama model),
+model (required for Ollama mode), name
 (required), optional description ("What this agent is for — shown on the Agents page and given
 to the drafting agent"). The
 submit button renders disabled-styled until valid but stays clickable: submitting with a missing
@@ -1743,9 +1756,8 @@ input border, clears on typing); missing Ollama toasts "Install Ollama first."; 
 a harness and a model first." Success toasts: "`<name>` added — ready to write automations." /
 "Changes saved — `<name>` is ready." When editing a signed-out agent, the form shows a reconnect
 banner: "This agent is signed out — reconnect it to create or edit automations." + Reconnect
-button. Ollama-dependent options gated on Ollama being installed and ready — this includes
-the OpenCode harness ("OpenCode serves its models through Ollama, which isn't installed on this Mac
-yet."). Inline install flow: button "Install Ollama · 1.1 GB", installing label "Installing
+button. Ollama-dependent options (the Ollama harness, local-model mode) gated on Ollama being
+installed and ready. Inline install flow: button "Install Ollama · 1.1 GB", installing label "Installing
 Ollama… X.X GB of 1.1 GB". **LOCAL MODEL** picker: radio list of installed Ollama models with
 size metadata, empty state "No local models installed yet — download one below and it will show
 up here." Model pulls: one at a time — the backend streams raw `ollama pull` output over the
