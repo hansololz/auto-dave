@@ -94,7 +94,7 @@ Back link ("‹ Automations"), title row: name, version chip dropdown (old versi
 Back link, title row with status badge and metadata chips; per-step timeline with statuses, expandable logs/output, result body like Latest Result.
 
 ### 8. Agents
-List of connected agents (harness, model — shows "Default configured model" when using the harness default) + "New agent" form (720px): pick harness (Claude Code / Gemini CLI / Codex / Ollama / OpenCode), mode, model (required for Ollama), name. Add is disabled until valid; Ollama options are gated on Ollama being ready.
+List of connected agents (harness, model — shows "Default model" when using the harness default) + "New agent" form (720px): pick harness (Claude Code / Gemini CLI / Codex / Ollama / OpenCode), mode, model (required for Ollama), name. Add is disabled until valid; Ollama options are gated on Ollama being ready.
 
 ### 9. Secrets
 1200px page; list of named secrets with add/edit modal (name + value with show/hide). Values masked at rest.

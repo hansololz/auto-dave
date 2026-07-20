@@ -416,7 +416,7 @@ page and given to the drafting agent"), rendered as the detail line on the agent
 carried into the §8 grants yaml so the drafting agent knows what each enabled agent is for.
 `model` is null unless `mode` is `ollama`, where it names the local Ollama model. A null model
 means the app never picks or passes a model — the harness uses whatever model it is already
-configured with. Display shows "Default configured model" when the model is null. One agent is
+configured with. Display shows "Default model" when the model is null. One agent is
 the app default; deleting an agent reassigns the default and warns which automations use it.
 Only Claude Code and Ollama are selectable harnesses for now — Gemini CLI, Codex, and OpenCode
 stay in the schema and the picker but are disabled (§12) until they're supported.

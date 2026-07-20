@@ -133,7 +133,7 @@ def cmd_agents(c: Client, _args) -> None:
     for a in c.req("GET", "/agents"):
         star = "*" if a.get("default") else " "
         print(f"{star} {(a.get('name') or a['harness']):<24} {a['harness']:<12} "
-              f"{a['model'] or 'default configured model'}")
+              f"{a['model'] or 'default model'}")
 
 
 def cmd_service(_c, args) -> None:

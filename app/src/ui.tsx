@@ -266,7 +266,7 @@ export const EXECUTING_TOAST = 'Already executing — one execution at a time. A
 /** Display label for an agent's model — a null model means the harness's own
  *  configured default (§4.7). */
 export function dispModel(ag: { model: string | null }): string {
-  return ag.model ?? 'Default configured model'
+  return ag.model ?? 'Default model'
 }
 
 /** An agent's display name — the user's name, else its harness name (§4.7). */

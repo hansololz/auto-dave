@@ -1699,7 +1699,7 @@ class Component extends DCLogic {
   // agent just uses the harness's default configured model.
   dispModel(ag){
     const def = ({'Claude Code':'Claude Sonnet 4.5', 'Gemini CLI':'Gemini 2.5 Pro', 'Codex':'GPT-5 Codex'})[ag.harness] || 'Configured default';
-    return ag.model===def ? 'Default configured model' : ag.model;
+    return ag.model===def ? 'Default model' : ag.model;
   }
 
   // ---------- infrastructure ----------
@@ -3268,7 +3268,7 @@ class Component extends DCLogic {
       }),
       naShowModels: !!m.na.harness,
       naModeRows: [
-        {id:'default', name:'Default configured model', note: ({claude:'Whatever Claude Code is already configured with', gemini:'Whatever Gemini CLI is already configured with', codex:'Whatever Codex is already configured with', opencode:'Whatever OpenCode is already configured with', ollama:'The local model Ollama is already configured with'})[m.na.harness] || ''},
+        {id:'default', name:'Default model', note: ({claude:'Whatever Claude Code is already configured with', gemini:'Whatever Gemini CLI is already configured with', codex:'Whatever Codex is already configured with', opencode:'Whatever OpenCode is already configured with', ollama:'The local model Ollama is already configured with'})[m.na.harness] || ''},
         {id:'ollama', name:'A local model', note:'Pick a model that runs on this Mac through Ollama'}
       ].map(md=>{
         const on = m.na.mode===md.id;

@@ -381,7 +381,7 @@ export default function AgentNewPage() {
             borderRadius: 12, overflow: 'hidden', marginBottom: 16,
           }}>
             {([
-              { id: 'default' as const, name: 'Default configured model', note: DEFAULT_NOTE[harness] },
+              { id: 'default' as const, name: 'Default model', note: DEFAULT_NOTE[harness] },
               { id: 'ollama' as const, name: 'A local model', note: 'Pick a model served on this Mac through Ollama' },
             ]).map((md) => {
               const on = mode === md.id
