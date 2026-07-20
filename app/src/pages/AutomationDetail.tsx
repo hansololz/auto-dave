@@ -279,27 +279,35 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
     bad = lines.filter((l) => l.trim() && !validUrl(l)).length
   }
 
+  // §9.2 hybrid layout: compact controls (toggle/number) sit on the label's line,
+  // wide editors (text/list/kv) stack below the full-width label + help.
+  const compact = p.kind === 'toggle' || p.kind === 'number'
+  const labelBlock = (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
+        {p.kind === 'text' && !p.value && (
+          <span style={{
+            display: 'inline-flex', padding: '2px 7px', borderRadius: 5,
+            fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 9.5, letterSpacing: '.06em',
+            background: 'oklch(0.8 0.13 85 / .14)', color: 'var(--amber)',
+          }}>
+            NOT SET
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 3 }}>{p.help}</div>
+    </div>
+  )
+
   return (
     <div style={{
       padding: '14px 18px', borderBottom: last ? 'none' : '1px solid rgba(255,255,255,.05)',
-      display: 'flex', gap: 18, alignItems: 'flex-start',
+      display: 'flex', gap: compact ? 18 : 8, flexDirection: compact ? 'row' : 'column',
+      alignItems: compact ? 'center' : 'stretch',
     }}>
-      <div style={{ width: 215, flex: 'none' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
-          {p.kind === 'text' && !p.value && (
-            <span style={{
-              display: 'inline-flex', padding: '2px 7px', borderRadius: 5,
-              fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 9.5, letterSpacing: '.06em',
-              background: 'oklch(0.8 0.13 85 / .14)', color: 'var(--amber)',
-            }}>
-              NOT SET
-            </span>
-          )}
-        </div>
-        <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 3 }}>{p.help}</div>
-      </div>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
+      {labelBlock}
+      <div style={{ minWidth: 0, display: 'flex', flex: 'none' }}>
         {p.kind === 'toggle' && (
           <Toggle
             on={tog ?? !!p.on}
@@ -354,7 +362,7 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
               setText(null)
             }}
             style={{
-              ...inputBase, width: '100%', maxWidth: 340,
+              ...inputBase, width: '100%', maxWidth: 520,
               border: `1px solid ${foc ? 'oklch(0.74 0.155 52 / .6)' : 'rgba(255,255,255,.09)'}`,
               fontSize: 12.5, padding: '8px 12px',
             }}

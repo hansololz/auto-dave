@@ -1336,7 +1336,12 @@ Sections top to bottom:
   dashed "No triggers" row. Trigger edits apply immediately (§19 PATCH) — no version, no AI.
   No Execute-now button here — manual execution lives in the title row and the menu bar.
 - **PARAMETERS** — directly editable here per the §4.2 edit behaviors; caption "Changes apply on
-  the next execution — no new version, no AI involved."
+  the next execution — no new version, no AI involved." Row layout splits by control size:
+  `toggle` and `number` rows keep label + control on one line — the label side flexes to the
+  available width, the control sits vertically centered at the row's right edge, and the help
+  text runs below the label at full width. `text`, `list`, and `kv` rows stack — label (with
+  the amber NOT SET tag when a text param has no value) and full-width help on top, the editor
+  underneath spanning the full card width (text inputs capped at 520px).
 - **RECENT EXECUTIONS** — execution history rows (status, trigger·version, time, duration, note text when
   present), linking to execution pages.
 - **MEMORY** card — mono size/updated info line; "Show in Finder", "Snapshot" and "Clear
