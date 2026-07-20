@@ -490,14 +490,15 @@ def post_draft(body: dict) -> dict:
     # §8/§19: in-editor grant arrays in the body win over the stored automation's —
     # the editor's live toggles are the truth while a draft is being worked on.
     enabled_ids = body.get("enabledAgents")
-    if enabled_ids is None and auto:
-        enabled_ids = auto["enabled_agents"]
+    if enabled_ids is None:
+        # §19: edit/sync fall back to the stored grants; create defaults to every
+        # configured agent — the same all-enabled seed the Review page starts from.
+        enabled_ids = auto["enabled_agents"] if auto else [a["id"] for a in store.agents]
     allowed = body.get("allowedSecrets")
     if allowed is None:
         allowed = auto["allowed_secrets"] if auto else []
     grants = {
-        "agents": [_agent_grant(g) for g in store.agents if g["id"] in enabled_ids]
-                  if enabled_ids is not None else [_agent_grant(agent)],
+        "agents": [_agent_grant(g) for g in store.agents if g["id"] in enabled_ids],
         "secrets": [_secret_grant(n) for n in allowed],
     }
     job_id = draft_jobs.start(mode, agent, body.get("text"), current, grants)

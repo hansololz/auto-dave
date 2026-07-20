@@ -81,6 +81,25 @@ def _wait_job(client, job_id):
     return j
 
 
+def test_create_draft_grants_all_agents_by_default(client, monkeypatch):
+    # §19: no enabledAgents + no stored automation → every configured agent is granted
+    from autodave import api
+    from autodave.storage import store
+
+    store.agents.append({"id": "second", "harness": "Claude Code", "mode": "default",
+                         "model": None, "default": False})
+    captured = {}
+
+    def fake_start(mode, agent, user_text, current, grants):
+        captured["grants"] = grants
+        return "job-x"
+
+    monkeypatch.setattr(api.draft_jobs, "start", fake_start)
+    r = client.post("/drafts", json={"mode": "create", "text": "x", "agentId": "mock"})
+    assert r.status_code == 200
+    assert len(captured["grants"]["agents"]) == 2
+
+
 def test_draft_job_blocked_at_steps_carries_spec(client):
     # §8: a valid blocker envelope ends the job `blocked` (not failed), with the
     # blocker list; in create mode call 1's spec rides along so the §11 Blocker

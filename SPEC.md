@@ -2082,7 +2082,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   manifest was rewritten; a malformed pin → 422
 - `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
-  the stored automation's for the §8 grants context; progress via
+  the stored automation's for the §8 grants context; when `enabledAgents` is absent and no
+  stored automation exists (create mode), the agents grant defaults to **all** configured
+  agents — matching the all-enabled seed the Review page starts from; progress via
   WS; `GET /drafts/{jobId}` → state (`status`, `stage`, live §8 `detail` line) + validated §8
   draft payload — on a create job the payload
   carries call 1's validated spec as soon as the spec call completes (the §11 spec card renders
