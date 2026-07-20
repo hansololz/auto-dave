@@ -30,17 +30,26 @@ export function badgeOf(status: Status | string): { label: string; c: string; bg
   return { label: b[0], c: b[1], bg: b[2] }
 }
 
-export function Badge({ status, style }: { status: Status | string; style?: React.CSSProperties }) {
-  const b = badgeOf(status)
+/** Uppercase mono chip — the one badge geometry. Status `Badge` maps onto it;
+ * use directly for ad-hoc labels (Draft, OFF, Ready, NOT SET…). */
+export function MiniBadge({ children, c, bg, style }: {
+  children: React.ReactNode; c?: string; bg?: string; style?: React.CSSProperties
+}) {
   return (
     <span style={{
       fontFamily: 'var(--mono)', fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase',
-      letterSpacing: '.06em', color: b.c, background: b.bg, padding: '3px 9px',
+      letterSpacing: '.06em', color: c ?? 'var(--text-muted)',
+      background: bg ?? 'rgba(255,255,255,.06)', padding: '3px 9px',
       borderRadius: 6, whiteSpace: 'nowrap', ...style,
     }}>
-      {b.label}
+      {children}
     </span>
   )
+}
+
+export function Badge({ status, style }: { status: Status | string; style?: React.CSSProperties }) {
+  const b = badgeOf(status)
+  return <MiniBadge c={b.c} bg={b.bg} style={style}>{b.label}</MiniBadge>
 }
 
 export function Logo({ size = 26 }: { size?: number }) {
@@ -83,7 +92,6 @@ export function FailureNotice({ error, onView, style }: {
   onView?: () => void
   style?: React.CSSProperties
 }) {
-  const [hov, setHov] = useState(false)
   return (
     <div style={{
       background: 'oklch(0.7 0.19 25 / .07)', border: '1px solid oklch(0.7 0.19 25 / .3)',
@@ -96,14 +104,7 @@ export function FailureNotice({ error, onView, style }: {
         </span>
         <div style={{ flex: 1 }} />
         {onView && (
-          <button
-            onClick={onView}
-            onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-            style={{
-              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-              fontSize: 12, fontWeight: 500, color: hov ? 'var(--text)' : 'var(--text-muted)',
-            }}
-          >
+          <button className="ad-btn-text" onClick={onView} style={{ fontSize: 12, fontWeight: 500 }}>
             View execution <i className="fa-solid fa-chevron-right" style={{ fontSize: 9 }} />
           </button>
         )}
@@ -134,13 +135,48 @@ export function Eyebrow({ children, style }: { children: React.ReactNode; style?
   )
 }
 
-export function Spinner({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+export function Spinner({ size = 16, color, style }: {
+  size?: number; color?: string; style?: React.CSSProperties
+}) {
   return (
     <span style={{
       display: 'inline-block', width: size, height: size, borderRadius: '50%',
-      border: '2px solid rgba(255,255,255,.15)', borderTopColor: 'var(--accent)',
+      border: '2px solid rgba(255,255,255,.15)', borderTopColor: color ?? 'var(--accent)',
       animation: 'adSpin .85s linear infinite', ...style,
     }} />
+  )
+}
+
+export function ProgressBar({ pct }: { pct: number }) {
+  return (
+    <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,.08)', overflow: 'hidden' }}>
+      <div style={{ height: '100%', background: 'var(--accent)', width: `${Math.round(pct)}%`, transition: 'width .12s linear' }} />
+    </div>
+  )
+}
+
+/** Amber pulsing-dot notice ("macOS is asking for your permission…"). */
+export function SudoNotice({ body }: { body: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+      <span style={{
+        width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)',
+        animation: 'adPulse 1.2s ease-in-out infinite', flex: 'none', marginTop: 5,
+      }} />
+      <div>
+        <div style={{ fontWeight: 500, fontSize: 13 }}>macOS is asking for your permission…</div>
+        <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 2 }}>{body}</div>
+      </div>
+    </div>
+  )
+}
+
+export function GreenCheck({ label }: { label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'adFadeUp .3s ease both' }}>
+      <i className="fa-solid fa-check" style={{ color: 'var(--green)', fontSize: 13 }} />
+      <span style={{ fontWeight: 500, fontSize: 13, color: 'var(--green)' }}>{label}</span>
+    </div>
   )
 }
 
@@ -183,21 +219,23 @@ export function RadioRing({ selected, size = 16 }: { selected: boolean; size?: n
   )
 }
 
-export function BtnPrimary({ children, onClick, disabled, style }: {
-  children: React.ReactNode; onClick?: () => void; disabled?: boolean; style?: React.CSSProperties
+export function BtnPrimary({ children, onClick, disabled, title, style }: {
+  children: React.ReactNode; onClick?: () => void; disabled?: boolean; title?: string
+  style?: React.CSSProperties
 }) {
   return (
-    <button className="ad-btn-primary" onClick={onClick} disabled={disabled} style={style}>
+    <button className="ad-btn-primary" onClick={onClick} disabled={disabled} title={title} style={style}>
       {children}
     </button>
   )
 }
 
-export function BtnGhost({ children, onClick, danger, style }: {
-  children: React.ReactNode; onClick?: () => void; danger?: boolean; style?: React.CSSProperties
+export function BtnGhost({ children, onClick, danger, disabled, title, style }: {
+  children: React.ReactNode; onClick?: () => void; danger?: boolean; disabled?: boolean
+  title?: string; style?: React.CSSProperties
 }) {
   return (
-    <button className={`ad-btn-ghost${danger ? ' danger' : ''}`} onClick={onClick} style={style}>
+    <button className={`ad-btn-ghost${danger ? ' danger' : ''}`} onClick={onClick} disabled={disabled} title={title} style={style}>
       {children}
     </button>
   )
@@ -301,7 +339,7 @@ export function Toast({ msg }: { msg: string | null }) {
       position: 'fixed', bottom: 26, left: 0, right: 0, margin: '0 auto', width: 'fit-content', zIndex: 100,
       background: 'var(--bg-toast)', border: '1px solid rgba(255,255,255,.12)',
       boxShadow: '0 10px 30px rgba(0,0,0,.4)', borderRadius: 9, padding: '10px 18px',
-      fontSize: 12.5, fontWeight: 500, color: '#e9ecf1', animation: 'adFadeUp .25s ease', maxWidth: 520,
+      fontSize: 12.5, fontWeight: 500, color: 'var(--text)', animation: 'adFadeUp .25s ease', maxWidth: 520,
     }}>
       {msg}
     </div>
@@ -321,9 +359,11 @@ export function CountPill({ n, active }: { n: number; active?: boolean }) {
   )
 }
 
-export function PageTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+export function PageTitle({ children, right, style }: {
+  children: React.ReactNode; right?: React.ReactNode; style?: React.CSSProperties
+}) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, ...style }}>
       <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em' }}>{children}</h1>
       {right}
     </div>
@@ -405,15 +445,12 @@ export function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onC
           <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', marginBottom: 18 }}>{body}</div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <BtnGhost onClick={close}>Cancel</BtnGhost>
-            <BtnPrimary
+            <button
+              className={danger ? 'ad-btn-danger-ghost' : 'ad-btn-primary'}
               onClick={() => { confirmed.current = true; close() }}
-              style={danger ? {
-                background: 'oklch(0.7 0.19 25 / .16)', border: '1px solid oklch(0.7 0.19 25 / .4)',
-                color: 'oklch(0.78 0.15 25)', fontWeight: 600, fontSize: 12.5,
-              } : undefined}
             >
               {confirmLabel}
-            </BtnPrimary>
+            </button>
           </div>
         </>
       )}

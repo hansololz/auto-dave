@@ -3,14 +3,12 @@ import React, { useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto } from '../types'
-import { Badge, BtnGhost, BtnPrimary, ConfirmModal, resultChipColors, EXECUTING_TOAST } from '../ui'
+import { Badge, BtnGhost, BtnPrimary, ConfirmModal, MiniBadge, PageTitle, resultChipColors, EXECUTING_TOAST } from '../ui'
 
 
 function AutoCard({ a }: { a: Auto }) {
   const go = useStore((s) => s.go)
   const showToast = useStore((s) => s.showToast)
-  const [hov, setHov] = useState(false)
-  const [runHov, setRunHov] = useState(false)
   const executing = !!a.live
 
   const execute = (e: React.MouseEvent) => {
@@ -28,31 +26,25 @@ function AutoCard({ a }: { a: Auto }) {
 
   return (
     <div
+      className="ad-card-click"
       onClick={() => go('automation', { autoId: a.id })}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
       style={{
-        background: hov ? '#141823' : 'var(--bg-card)',
-        border: `1px solid ${hov ? 'rgba(255,255,255,.16)' : 'var(--border-card)'}`,
-        borderRadius: 12, padding: 16, cursor: 'pointer',
+        borderRadius: 12, padding: 16,
         display: 'flex', flexDirection: 'column', gap: 10,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
         <div style={{ flex: 1, fontSize: 14, fontWeight: 600, minWidth: 0 }}>{a.name}</div>
         <button
+          className="ad-btn-link"
           onClick={execute}
           disabled={executing}
           title={executing ? 'Executing…' : 'Execute now'}
-          onMouseEnter={() => setRunHov(true)}
-          onMouseLeave={() => setRunHov(false)}
           style={{
-            width: 28, height: 28, borderRadius: 7, border: 'none',
-            background: executing
-              ? 'oklch(0.74 0.155 52 / .16)'
-              : runHov ? 'var(--accent-hover)' : 'var(--accent)',
-            color: executing ? 'oklch(0.74 0.155 52 / .55)' : 'var(--on-accent)',
-            cursor: executing ? 'default' : 'pointer', fontSize: 10, fontWeight: 500, flex: 'none',
+            width: 28, height: 28, borderRadius: 7, fontSize: 10, fontWeight: 500, flex: 'none',
+            ...(executing ? {
+              background: 'oklch(0.74 0.155 52 / .16)', color: 'oklch(0.74 0.155 52 / .55)', cursor: 'default',
+            } : null),
           }}
         >
           <i className={executing ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play'} style={{ fontSize: 9 }} />
@@ -68,18 +60,12 @@ function AutoCard({ a }: { a: Auto }) {
           {a.triggerChip}
         </span>
         {a.triggersOff && (
-          <span style={{
-            display: 'inline-flex', padding: '3px 7px', borderRadius: 6,
-            fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 9.5, letterSpacing: '.06em',
-            background: 'rgba(152,161,173,.16)', color: 'var(--gray)',
-          }}>
-            OFF
-          </span>
+          <MiniBadge c="var(--gray)" bg="var(--gray-bg)">OFF</MiniBadge>
         )}
         <Badge
           status={a.lastStatus}
           style={{
-            padding: '3px 8px', letterSpacing: '.05em',
+            padding: '3px 8px',
             animation: a.lastStatus === 'executing' ? 'adPulse 1.4s ease-in-out infinite' : 'none',
           }}
         />
@@ -114,22 +100,25 @@ export default function AutomationsList() {
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0 }}>Automations</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {pendingDraft && (
-            <BtnGhost onClick={() => setSurface('create', 'app')} style={{ padding: '8px 14px' }}>
-              Resume draft
-            </BtnGhost>
-          )}
-          <BtnPrimary
-            onClick={() => (pendingDraft ? setConfirmFresh(true) : setSurface('create', 'app'))}
-            style={{ padding: '8px 14px' }}
-          >
-            New automation
-          </BtnPrimary>
-        </div>
-      </div>
+      <PageTitle
+        right={(
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {pendingDraft && (
+              <BtnGhost onClick={() => setSurface('create', 'app')} style={{ padding: '8px 14px' }}>
+                Resume draft
+              </BtnGhost>
+            )}
+            <BtnPrimary
+              onClick={() => (pendingDraft ? setConfirmFresh(true) : setSurface('create', 'app'))}
+              style={{ padding: '8px 14px' }}
+            >
+              New automation
+            </BtnPrimary>
+          </div>
+        )}
+      >
+        Automations
+      </PageTitle>
       {confirmFresh && (
         <ConfirmModal
           title="Start a new automation?"

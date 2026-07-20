@@ -55,6 +55,13 @@
   --gray: #98a1ad;
   --gray-bg: rgba(152, 161, 173, 0.13);
 
+  --red-hover: oklch(0.74 0.17 25);
+  --red-text: oklch(0.78 0.15 25);
+  --accent-sel: oklch(0.74 0.155 52 / 0.7);
+  --hairline-dim: rgba(255, 255, 255, 0.05);
+  --bg-code: #07090d;
+  --code-text: #9fb3c8;
+
   --sans: 'IBM Plex Sans', -apple-system, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
@@ -121,6 +128,12 @@ textarea:disabled, input:disabled { opacity: .45; }
 .ad-btn-text:hover:not(:disabled) { color: var(--text); }
 .ad-btn-text.dim { color: var(--text-faint); }
 .ad-btn-text.dim:hover:not(:disabled) { color: var(--text-2); }
+.ad-btn-text.danger { color: var(--red); }
+.ad-btn-text.danger:hover:not(:disabled) { color: var(--red-hover); }
+
+/* accent link-styled button (matches the global <a> treatment) */
+.ad-btn-link { color: var(--accent); font-weight: 500; transition: color .15s ease; }
+.ad-btn-link:hover:not(:disabled) { color: var(--link-hover); }
 
 /* mono pill trigger (agent picker, version menu) */
 .ad-btn-pill {
@@ -141,8 +154,52 @@ textarea:disabled, input:disabled { opacity: .45; }
 .ad-btn-dashed:hover:not(:disabled) { color: var(--text); border-color: rgba(255, 255, 255, 0.25); }
 
 /* row-remove ✕ */
-.ad-btn-x { color: #4a515c; width: 24px; flex: none; font: 500 14px var(--sans); transition: color .15s ease; }
-.ad-btn-x:hover:not(:disabled) { color: oklch(0.74 0.17 25); }
+.ad-btn-x { color: var(--text-faintest); width: 24px; flex: none; font: 500 14px var(--sans); transition: color .15s ease; }
+.ad-btn-x:hover:not(:disabled) { color: var(--red-hover); }
+
+/* accent-tinted ghost (Execute once / Execute draft / Add trigger / agent chips) */
+.ad-btn-accent-ghost {
+  background: oklch(0.74 0.155 52 / 0.1); border: 1px solid oklch(0.74 0.155 52 / 0.3);
+  color: var(--accent); font-weight: 600; font-size: 12.5px; padding: 8px 14px; border-radius: 8px;
+  transition: background .15s ease, border-color .15s ease;
+}
+.ad-btn-accent-ghost:hover:not(:disabled) { background: oklch(0.74 0.155 52 / 0.18); border-color: oklch(0.74 0.155 52 / 0.45); }
+
+/* red-tinted confirm (destructive confirms, cancel-execution) */
+.ad-btn-danger-ghost {
+  background: oklch(0.7 0.19 25 / 0.16); border: 1px solid oklch(0.7 0.19 25 / 0.4);
+  color: var(--red-text); font-weight: 600; font-size: 12.5px; padding: 8px 14px; border-radius: 8px;
+  transition: background .15s ease, border-color .15s ease;
+}
+.ad-btn-danger-ghost:hover:not(:disabled) { background: oklch(0.7 0.19 25 / 0.22); border-color: oklch(0.7 0.19 25 / 0.55); }
+
+/* clickable list/table row */
+.ad-hover-row { transition: background .12s ease; }
+.ad-hover-row:hover { background: rgba(255, 255, 255, 0.03); }
+
+/* clickable card (automations list) — class owns bg/border so :hover can restyle
+   them (inline base styles would beat the hover rule) */
+.ad-card-click {
+  background: var(--bg-card); border: 1px solid var(--border-card); cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.ad-card-click:hover { background: var(--bg-card-sel); border-color: var(--border-hover); }
+
+/* clickable page title linking elsewhere */
+.ad-link-title { transition: color .15s ease; cursor: pointer; }
+.ad-link-title:hover { color: var(--accent); }
+
+/* sidebar nav row (App.tsx); active state keeps its inline accent-tint bg */
+.ad-nav-row { transition: background .15s ease, color .15s ease; }
+.ad-nav-row:hover:not(.active) { background: rgba(255, 255, 255, 0.04); }
+
+/* text inputs/textareas: border + focus ring here, dimensions inline at call site */
+.ad-input {
+  border: 1px solid var(--border-input); border-radius: 8px; background: var(--bg-inset);
+  outline: none; transition: border-color .15s ease;
+}
+.ad-input:focus { border-color: oklch(0.74 0.155 52 / 0.6); }
+.ad-input.amber:focus { border-color: oklch(0.8 0.13 85 / 0.55); }
 
 /* example-prompt chip (create-flow Ask phase) */
 .ad-chip-btn {
@@ -174,6 +231,8 @@ textarea:disabled, input:disabled { opacity: .45; }
 @keyframes adFadeOut { from { opacity: 1; } to { opacity: 0; } }
 @keyframes adSpin { to { transform: rotate(360deg); } }
 @keyframes adPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes adBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes adBarSlide { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }

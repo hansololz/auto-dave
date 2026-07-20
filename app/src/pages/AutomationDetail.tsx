@@ -4,62 +4,17 @@ import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto, ParamDef, SnapshotSettings, Step, Trigger } from '../types'
 import {
-  Badge, BtnPrimary, ConfirmModal, EXECUTING_TOAST, Eyebrow, FailureNotice, PyCode, Toggle,
-  nextIn, usePopover, validUrl,
+  Badge, BtnPrimary, ConfirmModal, EXECUTING_TOAST, Eyebrow, FailureNotice, MenuRow, MiniBadge,
+  PyCode, Toggle, menuStyle, nextIn, usePopover, validUrl,
 } from '../ui'
 import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, timeAt, triggerShort, tzSuffix } from '../cron'
 import { ResultSection, SpecMarkdown } from '../result'
 
 const badgeAnim = (s: string) => (s === 'executing' ? 'adPulse 1.4s ease-in-out infinite' : 'none')
 
-// ---------- small hover helpers (local — pages may not edit ui.tsx) ----------
+// ---------- §9.2 MEMORY snapshot-row text buttons: shared sizing (colors + hover live in ad-btn-text) ----------
 
-function HoverBtn({ children, onClick, title, style, hoverStyle, disabled }: {
-  children: React.ReactNode; onClick?: (e: React.MouseEvent) => void; title?: string
-  style: React.CSSProperties; hoverStyle?: React.CSSProperties; disabled?: boolean
-}) {
-  const [hov, setHov] = useState(false)
-  return (
-    <button
-      onClick={onClick} title={title} disabled={disabled}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ ...style, ...(hov && !disabled ? hoverStyle : undefined) }}
-    >
-      {children}
-    </button>
-  )
-}
-
-function HoverRow({ children, onClick, style }: {
-  children: React.ReactNode; onClick?: () => void; style: React.CSSProperties
-}) {
-  const [hov, setHov] = useState(false)
-  return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ ...style, background: hov ? 'rgba(255,255,255,.02)' : (style.background as string) ?? 'transparent' }}
-    >
-      {children}
-    </div>
-  )
-}
-
-// ---------- parameters (§4.2 inline editing) ----------
-
-const inputBase: React.CSSProperties = {
-  background: 'var(--bg-inset)', borderRadius: 8, color: 'var(--text)', outline: 'none',
-}
-
-// ---------- §9.2 MEMORY card button styles ----------
-
-const memBtn: React.CSSProperties = {
-  background: 'none', border: '1px solid rgba(255,255,255,.1)', borderRadius: 7,
-  color: 'var(--text-2)', fontWeight: 500, fontSize: 12, padding: '6px 12px',
-}
-const memRowBtn: React.CSSProperties = {
-  ...memBtn, border: 'none', color: 'var(--text-muted)', fontSize: 11.5, padding: '3px 7px',
-}
+const memRowSize: React.CSSProperties = { fontWeight: 500, fontSize: 11.5, padding: '3px 7px' }
 
 // §6.3 automatic-snapshot toggles — label + plain-language explanation per reason
 const SNAP_SETTINGS: Array<{ key: keyof SnapshotSettings; label: string; help: string }> = [
@@ -81,7 +36,7 @@ const SNAP_SETTINGS: Array<{ key: keyof SnapshotSettings; label: string; help: s
 
 const pickChipStyle = (active: boolean): React.CSSProperties => ({
   fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11,
-  background: active ? 'oklch(0.74 0.155 52 / .13)' : 'rgba(255,255,255,.04)',
+  background: active ? 'var(--accent-chip-bg)' : 'rgba(255,255,255,.04)',
   border: `1px solid ${active ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.1)'}`,
   color: active ? 'var(--accent)' : 'var(--text-2em)', borderRadius: 6, padding: '4px 10px', flex: 'none',
 })
@@ -111,16 +66,9 @@ function AddTrigger({ hasAppStart, onAdd }: {
 
   if (!open) {
     return (
-      <HoverBtn
-        onClick={() => setOpen(true)}
-        style={{
-          marginTop: 9, background: 'none', border: '1px dashed rgba(255,255,255,.14)', borderRadius: 7,
-          color: 'var(--text-muted)', fontWeight: 500, fontSize: 12, padding: '5px 11px',
-        }}
-        hoverStyle={{ color: 'var(--text)', border: '1px dashed var(--border-hover)' }}
-      >
+      <button className="ad-btn-dashed" onClick={() => setOpen(true)} style={{ marginTop: 9 }}>
         <i className="fa-solid fa-plus" style={{ fontSize: 9 }} /> Add trigger
-      </HoverBtn>
+      </button>
     )
   }
   return (
@@ -132,7 +80,7 @@ function AddTrigger({ hasAppStart, onAdd }: {
           onClick={() => { if (!hasAppStart) setKind('app_start') }}
           disabled={hasAppStart}
           title={hasAppStart ? 'Already added' : undefined}
-          style={{ ...pickChipStyle(kind === 'app_start'), ...(hasAppStart ? { color: '#4a515c', cursor: 'default' } : {}) }}
+          style={{ ...pickChipStyle(kind === 'app_start'), ...(hasAppStart ? { color: 'var(--text-faintest)', cursor: 'default' } : {}) }}
         >
           App start
         </button>
@@ -140,7 +88,7 @@ function AddTrigger({ hasAppStart, onAdd }: {
           <span
             key={n} title="Coming soon"
             style={{
-              fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11, color: '#4a515c',
+              fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11, color: 'var(--text-faintest)',
               border: '1px dashed rgba(255,255,255,.1)', borderRadius: 6, padding: '4px 10px', flex: 'none',
             }}
           >
@@ -150,35 +98,37 @@ function AddTrigger({ hasAppStart, onAdd }: {
       </div>
       {kind === 'cron' ? (
         <input
+          className="ad-input"
           value={expr}
           onChange={(e) => setExpr(e.target.value)}
           placeholder="0 8 * * *   (minute hour day month weekday, Sun = 0)"
           spellCheck={false}
           style={{
-            ...inputBase, width: '100%', fontFamily: 'var(--mono)', fontSize: 12, padding: '7px 10px',
-            border: `1px solid ${expr && !exprOk ? 'oklch(0.7 0.19 25 / .55)' : 'rgba(255,255,255,.1)'}`,
+            width: '100%', fontFamily: 'var(--mono)', fontSize: 12, padding: '7px 10px',
+            ...(expr && !exprOk ? { border: '1px solid oklch(0.7 0.19 25 / .55)' } : {}),
           }}
         />
       ) : kind === 'time' ? (
         <input
+          className="ad-input"
           type="datetime-local"
           value={at}
           onChange={(e) => setAt(e.target.value)}
           style={{
-            ...inputBase, fontFamily: 'var(--mono)', fontSize: 12, padding: '6px 10px',
-            border: `1px solid ${at && !atOk ? 'oklch(0.7 0.19 25 / .55)' : 'rgba(255,255,255,.1)'}`,
-            colorScheme: 'dark',
+            fontFamily: 'var(--mono)', fontSize: 12, padding: '6px 10px', colorScheme: 'dark',
+            ...(at && !atOk ? { border: '1px solid oklch(0.7 0.19 25 / .55)' } : {}),
           }}
         />
       ) : null}
       {kind !== 'app_start' && (
         <select
+          className="ad-input"
           value={tz}
           onChange={(e) => setTz(e.target.value)}
           title="Timezone the trigger's times read in"
           style={{
-            ...inputBase, display: 'block', marginTop: 8, fontFamily: 'var(--mono)', fontSize: 12,
-            padding: '6px 10px', border: '1px solid rgba(255,255,255,.1)', colorScheme: 'dark',
+            display: 'block', marginTop: 8, fontFamily: 'var(--mono)', fontSize: 12,
+            padding: '6px 10px', colorScheme: 'dark',
             color: tz ? 'var(--text)' : 'var(--text-muted)',
           }}
         >
@@ -189,11 +139,12 @@ function AddTrigger({ hasAppStart, onAdd }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
         <span style={{
           flex: 1, minWidth: 0, fontFamily: 'var(--mono)', fontSize: 11,
-          color: canAdd ? 'var(--accent)' : 'oklch(0.78 0.15 25)',
+          color: canAdd ? 'var(--accent)' : 'var(--red-text)',
         }}>
           {preview}
         </span>
-        <HoverBtn
+        <button
+          className="ad-btn-accent-ghost"
           onClick={() => {
             onAdd(kind === 'app_start' ? { kind }
               : { ...(kind === 'cron' ? { kind, expr: expr.trim() } : { kind, at }), ...(tz ? { tz } : {}) })
@@ -201,22 +152,15 @@ function AddTrigger({ hasAppStart, onAdd }: {
           }}
           disabled={!canAdd}
           style={{
-            background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
-            borderRadius: 7, color: 'var(--accent)', fontFamily: 'var(--mono)', fontWeight: 500,
-            fontSize: 11.5, padding: '5px 11px', flex: 'none', opacity: canAdd ? 1 : 0.45,
-            cursor: canAdd ? 'pointer' : 'default',
+            fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11.5, padding: '5px 11px',
+            flex: 'none', opacity: canAdd ? 1 : 0.45, cursor: canAdd ? 'pointer' : 'default',
           }}
-          hoverStyle={{ background: 'oklch(0.74 0.155 52 / .2)' }}
         >
           Add
-        </HoverBtn>
-        <HoverBtn
-          onClick={reset}
-          style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontWeight: 500, fontSize: 12, flex: 'none' }}
-          hoverStyle={{ color: 'var(--text-2)' }}
-        >
+        </button>
+        <button className="ad-btn-text dim" onClick={reset} style={{ fontWeight: 500, fontSize: 12, flex: 'none' }}>
           Cancel
-        </HoverBtn>
+        </button>
       </div>
     </div>
   )
@@ -287,13 +231,7 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
         {p.kind === 'text' && !p.value && (
-          <span style={{
-            display: 'inline-flex', padding: '2px 7px', borderRadius: 5,
-            fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 9.5, letterSpacing: '.06em',
-            background: 'oklch(0.8 0.13 85 / .14)', color: 'var(--amber)',
-          }}>
-            NOT SET
-          </span>
+          <MiniBadge c="var(--amber)" bg="var(--amber-bg)">NOT SET</MiniBadge>
         )}
       </div>
       <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 3 }}>{p.help}</div>
@@ -302,7 +240,7 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
 
   return (
     <div style={{
-      padding: '14px 18px', borderBottom: last ? 'none' : '1px solid rgba(255,255,255,.05)',
+      padding: '14px 18px', borderBottom: last ? 'none' : '1px solid var(--hairline-dim)',
       display: 'flex', gap: compact ? 18 : 8, flexDirection: compact ? 'row' : 'column',
       alignItems: compact ? 'center' : 'stretch',
     }}>
@@ -343,10 +281,10 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
               flush()
               setNum(null)
             }}
+            className="ad-input"
             style={{
-              ...inputBase, width: 70,
-              border: `1px solid ${foc ? 'oklch(0.74 0.155 52 / .6)' : 'rgba(255,255,255,.1)'}`,
-              fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 13, textAlign: 'center', padding: '6px 10px',
+              width: 70, fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 13,
+              textAlign: 'center', padding: '6px 10px',
             }}
           />
         )}
@@ -361,11 +299,8 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
               flush()
               setText(null)
             }}
-            style={{
-              ...inputBase, width: '100%', maxWidth: 520,
-              border: `1px solid ${foc ? 'oklch(0.74 0.155 52 / .6)' : 'rgba(255,255,255,.09)'}`,
-              fontSize: 12.5, padding: '8px 12px',
-            }}
+            className="ad-input"
+            style={{ width: '100%', maxWidth: 520, fontSize: 12.5, padding: '8px 12px' }}
           />
         )}
         {p.kind === 'list' && (
@@ -375,46 +310,30 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
               return (
                 <div key={j} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input
+                    className="ad-input"
                     value={l}
                     onChange={(e) => setLinesSaved(lines.map((x, i) => (i === j ? e.target.value : x)))}
                     onBlur={flush}
                     style={{
-                      ...inputBase, flex: 1, minWidth: 0, borderRadius: 7,
-                      border: `1px solid ${inv ? 'oklch(0.7 0.19 25 / .45)' : 'rgba(255,255,255,.09)'}`,
-                      color: inv ? 'oklch(0.74 0.17 25)' : 'var(--text)',
-                      fontFamily: 'var(--mono)', fontSize: 12, padding: '7px 10px',
+                      flex: 1, minWidth: 0, fontFamily: 'var(--mono)', fontSize: 12, padding: '7px 10px',
+                      ...(inv ? { border: '1px solid oklch(0.7 0.19 25 / .45)', color: 'var(--red-hover)' } : {}),
                     }}
                   />
                   {inv && (
-                    <span style={{
-                      display: 'inline-flex', padding: '2px 7px', borderRadius: 5,
-                      fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 9.5, letterSpacing: '.06em',
-                      background: 'oklch(0.7 0.19 25 / .14)', color: 'oklch(0.74 0.17 25)', flex: 'none',
-                    }}>
+                    <MiniBadge c="var(--red-hover)" bg="oklch(0.7 0.19 25 / .14)" style={{ flex: 'none' }}>
                       NOT A VALID LINK
-                    </span>
+                    </MiniBadge>
                   )}
-                  <HoverBtn
-                    onClick={() => setLinesSaved(lines.filter((_, i) => i !== j), true)}
-                    style={{ background: 'none', border: 'none', color: '#4a515c', width: 24, flex: 'none' }}
-                    hoverStyle={{ color: 'oklch(0.74 0.17 25)' }}
-                  >
+                  <button className="ad-btn-x" onClick={() => setLinesSaved(lines.filter((_, i) => i !== j), true)}>
                     <i className="fa-solid fa-xmark" style={{ fontSize: 12 }} />
-                  </HoverBtn>
+                  </button>
                 </div>
               )
             })}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <HoverBtn
-                onClick={() => setLinesSaved([...lines, ''])}
-                style={{
-                  background: 'none', border: '1px dashed rgba(255,255,255,.14)', borderRadius: 7,
-                  color: 'var(--text-muted)', fontWeight: 500, fontSize: 11.5, padding: '5px 11px',
-                }}
-                hoverStyle={{ color: 'var(--text)' }}
-              >
+              <button className="ad-btn-dashed" onClick={() => setLinesSaved([...lines, ''])}>
                 + Add line
-              </HoverBtn>
+              </button>
               <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11, color: 'var(--text-faint)' }}>
                 {lines.length}{p.validate ? ` lines · ${good} valid links${bad ? ` · ${bad} needs attention` : ''}` : ' entries'}
               </span>
@@ -426,43 +345,30 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
             {rows.map((r, j) => (
               <div key={j} style={{ display: 'flex', gap: 6 }}>
                 <input
+                  className="ad-input"
                   value={r.k}
                   onChange={(e) => setRowsSaved(rows.map((x, i) => (i === j ? { ...x, k: e.target.value } : x)))}
                   onBlur={flush}
                   style={{
-                    ...inputBase, flex: 1.3, minWidth: 0, borderRadius: 7,
-                    border: '1px solid rgba(255,255,255,.09)', color: 'var(--text-2)',
+                    flex: 1.3, minWidth: 0, color: 'var(--text-2)',
                     fontFamily: 'var(--mono)', fontSize: 11.5, padding: '7px 10px',
                   }}
                 />
                 <input
+                  className="ad-input"
                   value={r.v}
                   onChange={(e) => setRowsSaved(rows.map((x, i) => (i === j ? { ...x, v: e.target.value } : x)))}
                   onBlur={flush}
-                  style={{
-                    ...inputBase, flex: 1, minWidth: 0, borderRadius: 7,
-                    border: '1px solid rgba(255,255,255,.09)', fontSize: 12, padding: '7px 10px',
-                  }}
+                  style={{ flex: 1, minWidth: 0, fontSize: 12, padding: '7px 10px' }}
                 />
-                <HoverBtn
-                  onClick={() => setRowsSaved(rows.filter((_, i) => i !== j), true)}
-                  style={{ background: 'none', border: 'none', color: '#4a515c', width: 24 }}
-                  hoverStyle={{ color: 'oklch(0.74 0.17 25)' }}
-                >
+                <button className="ad-btn-x" onClick={() => setRowsSaved(rows.filter((_, i) => i !== j), true)}>
                   <i className="fa-solid fa-xmark" style={{ fontSize: 12 }} />
-                </HoverBtn>
+                </button>
               </div>
             ))}
-            <HoverBtn
-              onClick={() => setRowsSaved([...rows, { k: '', v: '' }])}
-              style={{
-                alignSelf: 'flex-start', background: 'none', border: '1px dashed rgba(255,255,255,.14)',
-                borderRadius: 7, color: 'var(--text-muted)', fontWeight: 500, fontSize: 11.5, padding: '5px 11px',
-              }}
-              hoverStyle={{ color: 'var(--text)' }}
-            >
+            <button className="ad-btn-dashed" onClick={() => setRowsSaved([...rows, { k: '', v: '' }])}>
               + Add row
-            </HoverBtn>
+            </button>
           </div>
         )}
       </div>
@@ -477,20 +383,19 @@ function StepRow({ s, n, open, onToggle, last, agentName }: {
 }) {
   const stepSecrets = [...new Set([...(s.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]))]
   return (
-    <div style={{ borderBottom: last ? 'none' : '1px solid rgba(255,255,255,.05)' }}>
-      <HoverRow onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '12px 18px', cursor: 'pointer' }}>
+    <div style={{ borderBottom: last ? 'none' : '1px solid var(--hairline-dim)' }}>
+      <div className="ad-hover-row" onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '12px 18px', cursor: 'pointer' }}>
         <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11, color: 'var(--text-faint)', width: 14, flex: 'none' }}>{n}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</span>
             {s.agent && (
               <span
+                className="ad-btn-accent-ghost"
                 title={s.why ?? undefined}
                 style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
-                  borderRadius: 6, padding: '2px 8px', fontFamily: 'var(--mono)', fontWeight: 600,
-                  fontSize: 10, color: 'var(--accent)', whiteSpace: 'nowrap',
+                  display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 6,
+                  padding: '2px 8px', fontFamily: 'var(--mono)', fontSize: 10, whiteSpace: 'nowrap',
                 }}
               >
                 <i className="fa-solid fa-robot" style={{ fontSize: 8.5 }} /> {agentName}
@@ -513,15 +418,15 @@ function StepRow({ s, n, open, onToggle, last, agentName }: {
           </div>
           <div style={{ fontSize: 11.5, lineHeight: 1.45, color: 'var(--text-muted)', marginTop: 1 }}>{s.desc}</div>
         </div>
-        <span style={{ color: '#4a515c', fontSize: 11, whiteSpace: 'nowrap' }}>
+        <span style={{ color: 'var(--text-faintest)', fontSize: 11, whiteSpace: 'nowrap' }}>
           <i className={open ? 'fa-solid fa-caret-up' : 'fa-solid fa-caret-down'} style={{ fontSize: 9 }} /> {open ? 'hide script' : 'view script'}
         </span>
-      </HoverRow>
+      </div>
       {open && (
         <>
           {s.agent && s.why && (
             <div style={{
-              display: 'flex', gap: 9, alignItems: 'flex-start', borderTop: '1px solid rgba(255,255,255,.05)',
+              display: 'flex', gap: 9, alignItems: 'flex-start', borderTop: '1px solid var(--hairline-dim)',
               background: 'oklch(0.74 0.155 52 / .05)', padding: '10px 18px 10px 45px', animation: 'adFadeUp .22s ease both',
             }}>
               <i className="fa-solid fa-robot" style={{ color: 'oklch(0.78 0.13 52)', fontSize: 10, marginTop: 3 }} />
@@ -531,9 +436,9 @@ function StepRow({ s, n, open, onToggle, last, agentName }: {
             </div>
           )}
           <PyCode className="ad-copy" code={s.code} style={{
-            margin: 0, background: '#07090d', borderTop: '1px solid rgba(255,255,255,.05)',
+            margin: 0, background: 'var(--bg-code)', borderTop: '1px solid var(--hairline-dim)',
             padding: '14px 18px 14px 45px', fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.75,
-            color: '#9fb3c8', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', minWidth: 0,
+            color: 'var(--code-text)', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', minWidth: 0,
             animation: 'adFadeUp .22s ease both',
           }} />
         </>
@@ -759,40 +664,26 @@ export default function AutomationDetail() {
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 30px 70px', animation: 'adFadeUp .4s ease' }}>
-      <HoverBtn
-        onClick={() => go('automations')}
-        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontWeight: 500, fontSize: 12.5, padding: '4px 0' }}
-        hoverStyle={{ color: 'var(--text)' }}
-      >
+      <button className="ad-btn-text" onClick={() => go('automations')} style={{ fontWeight: 500, fontSize: 12.5, padding: '4px 0' }}>
         <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Automations
-      </HoverBtn>
+      </button>
 
       {/* title row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 13, margin: '14px 0 6px' }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0 }}>{auto.name}</h1>
         <div ref={verRef} style={{ position: 'relative' }}>
-          <HoverBtn
-            onClick={() => setVerOpen(!verOpen)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--mono)', fontWeight: 600,
-              fontSize: 10.5, color: 'var(--text-muted)', background: 'rgba(255,255,255,.06)',
-              border: 'none', borderRadius: 6, padding: '3px 7px',
-            }}
-            hoverStyle={{ color: 'var(--text-2em)' }}
-          >
+          <button className="ad-btn-pill" onClick={() => setVerOpen(!verOpen)}>
             <span>v{auto.version}</span>
             <i className="fa-solid fa-caret-down" style={{ color: 'var(--text-faint)', fontSize: 9 }} />
-          </HoverBtn>
+          </button>
           {verOpen && (
             <div style={{
-              position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: 360,
-              background: 'var(--bg-menu)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10,
-              boxShadow: '0 18px 44px rgba(0,0,0,.5)', zIndex: 50, overflow: 'hidden',
-              animation: 'adFadeUp .18s ease both',
+              ...menuStyle, top: 'calc(100% + 6px)', left: 0, minWidth: 360,
+              padding: 0, overflow: 'hidden',
             }}>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                borderBottom: '1px solid rgba(255,255,255,.04)', background: 'rgba(255,255,255,.03)',
+                borderBottom: '1px solid var(--hairline-dim)', background: 'rgba(255,255,255,.03)',
               }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 12.5, color: 'var(--text)' }}>
@@ -806,7 +697,7 @@ export default function AutomationDetail() {
               {olderVersions.map((v) => (
                 <div key={v.v} style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                  borderBottom: '1px solid rgba(255,255,255,.04)',
+                  borderBottom: '1px solid var(--hairline-dim)',
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 12.5, color: 'var(--text-2em)' }}>v{v.v}</div>
@@ -814,20 +705,16 @@ export default function AutomationDetail() {
                       {(v.note ? `${v.note} — ` : '') + v.when}
                     </div>
                   </div>
-                  <HoverBtn
+                  <button
+                    className="ad-btn-accent-ghost"
                     onClick={() => {
                       setVerOpen(false)
                       doExecute(`v${v.v}`, `Executing v${v.v} once — triggers and Execute now stay on v${auto.version}.`)
                     }}
-                    style={{
-                      background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
-                      borderRadius: 7, color: 'var(--accent)', fontFamily: 'var(--mono)', fontWeight: 500,
-                      fontSize: 11.5, padding: '5px 10px', flex: 'none',
-                    }}
-                    hoverStyle={{ background: 'oklch(0.74 0.155 52 / .2)' }}
+                    style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 11.5, padding: '5px 10px', flex: 'none' }}
                   >
                     <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Execute once
-                  </HoverBtn>
+                  </button>
                 </div>
               ))}
               <div style={{
@@ -841,54 +728,29 @@ export default function AutomationDetail() {
             </div>
           )}
         </div>
-        <Badge status={auto.lastStatus} style={{ padding: '3px 8px', letterSpacing: '.05em', animation: badgeAnim(auto.lastStatus) }} />
+        <Badge status={auto.lastStatus} style={{ animation: badgeAnim(auto.lastStatus) }} />
         <div style={{ flex: 1 }} />
         <BtnPrimary onClick={() => doExecute()} style={{ flex: 'none' }}>
           <i className={execIconCls} style={{ fontSize: 10 }} /> {execLabel}
         </BtnPrimary>
-        <HoverBtn
-          onClick={() => setSurface('create', 'edit')}
-          style={{
-            background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
-            border: '1px solid var(--border-btn)', borderRadius: 8, padding: '9px 14px',
-            fontWeight: 500, fontSize: 13, flex: 'none',
-          }}
-          hoverStyle={{ border: '1px solid var(--border-hover)' }}
-        >
+        <button className="ad-btn-ghost" onClick={() => setSurface('create', 'edit')} style={{ flex: 'none' }}>
           Edit
-        </HoverBtn>
+        </button>
         <div ref={actRef} style={{ position: 'relative', flex: 'none' }}>
-          <HoverBtn
+          <button
+            className="ad-btn-ghost"
             onClick={() => setActOpen(!actOpen)}
             title="More actions"
-            style={{
-              background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
-              border: '1px solid var(--border-btn)', borderRadius: 8, padding: '9px 11px',
-              fontWeight: 500, fontSize: 13,
-            }}
-            hoverStyle={{ border: '1px solid var(--border-hover)' }}
+            style={{ padding: '8px 11px' }}
           >
             <i className="fa-solid fa-ellipsis" style={{ fontSize: 12 }} />
-          </HoverBtn>
+          </button>
           {actOpen && (
-            <div style={{
-              position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 210,
-              background: 'var(--bg-menu)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10,
-              boxShadow: '0 18px 44px rgba(0,0,0,.5)', zIndex: 50, padding: 5,
-              animation: 'adFadeUp .18s ease both',
-            }}>
-              <HoverBtn
-                onClick={() => { setActOpen(false); setDelAsk(true) }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 9, width: '100%', background: 'none',
-                  border: 'none', borderRadius: 7, padding: '8px 10px', fontWeight: 500, fontSize: 12.5,
-                  color: 'oklch(0.78 0.15 25)', textAlign: 'left',
-                }}
-                hoverStyle={{ background: 'oklch(0.7 0.19 25 / .1)' }}
-              >
-                <i className="fa-solid fa-trash-can" style={{ fontSize: 11, width: 14, textAlign: 'center' }} />
+            <div style={{ ...menuStyle, top: 'calc(100% + 6px)', right: 0, minWidth: 210 }}>
+              <MenuRow danger onClick={() => { setActOpen(false); setDelAsk(true) }}>
+                <i className="fa-solid fa-trash-can" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
                 Delete automation…
-              </HoverBtn>
+              </MenuRow>
             </div>
           )}
         </div>
@@ -899,7 +761,7 @@ export default function AutomationDetail() {
         <span style={{
           display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--mono)', fontWeight: 500,
           fontSize: 11.5, color: trigChipOn ? 'var(--accent)' : 'var(--gray)',
-          background: trigChipOn ? 'oklch(0.74 0.155 52 / .1)' : 'rgba(152,161,173,.12)',
+          background: trigChipOn ? 'oklch(0.74 0.155 52 / .1)' : 'var(--gray-bg)',
           borderRadius: 6, padding: '3px 9px', transition: 'color .18s ease,background .18s ease',
         }}>
           <i
@@ -917,44 +779,27 @@ export default function AutomationDetail() {
           borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12,
           animation: 'adFadeUp .3s ease both',
         }}>
-          <span style={{
-            display: 'inline-flex', padding: '3px 8px', borderRadius: 6, fontFamily: 'var(--mono)',
-            fontWeight: 600, fontSize: 10.5, letterSpacing: '.05em', textTransform: 'uppercase',
-            background: 'oklch(0.74 0.155 52 / .13)', color: 'var(--accent)', flex: 'none',
-          }}>
-            Draft
-          </span>
+          <MiniBadge c="var(--accent)" bg="var(--accent-chip-bg)" style={{ flex: 'none' }}>Draft</MiniBadge>
           <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-2em)' }}>
             Unsaved edit based on v{auto.version} — kept from your last edit session. Execute it like any other version, or resume editing.
           </span>
-          <HoverBtn
+          <button
+            className="ad-btn-accent-ghost"
             onClick={() => doExecute('Draft')}
-            style={{
-              background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
-              borderRadius: 7, color: 'var(--accent)', fontFamily: 'var(--mono)', fontWeight: 500,
-              fontSize: 12, padding: '6px 11px', flex: 'none',
-            }}
-            hoverStyle={{ background: 'oklch(0.74 0.155 52 / .2)' }}
+            style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, padding: '6px 11px', flex: 'none' }}
           >
             <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Execute draft
-          </HoverBtn>
-          <HoverBtn
+          </button>
+          <button
+            className="ad-btn-soft"
             onClick={() => setSurface('create', 'edit')}
-            style={{
-              background: 'rgba(255,255,255,.05)', border: '1px solid var(--border-btn)', borderRadius: 7,
-              color: 'var(--text-2em)', fontWeight: 500, fontSize: 12, padding: '6px 12px', flex: 'none',
-            }}
-            hoverStyle={{ border: '1px solid var(--border-hover)' }}
+            style={{ fontSize: 12, padding: '6px 12px', flex: 'none' }}
           >
             Resume editing
-          </HoverBtn>
-          <HoverBtn
-            onClick={discardDraft}
-            style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontWeight: 500, fontSize: 12, flex: 'none' }}
-            hoverStyle={{ color: 'var(--text-2)' }}
-          >
+          </button>
+          <button className="ad-btn-text dim" onClick={discardDraft} style={{ fontWeight: 500, fontSize: 12, flex: 'none' }}>
             Discard
-          </HoverBtn>
+          </button>
         </div>
       )}
 
@@ -984,12 +829,12 @@ export default function AutomationDetail() {
       <div style={{ marginBottom: 26 }}>
         <Eyebrow style={{ color: 'var(--text-faint)', marginBottom: 10 }}>TRIGGERS</Eyebrow>
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '13px 18px 14px' }}>
+          <div style={{ padding: '13px 18px' }}>
             {trigs.map((t) => (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '5px 0' }}>
                 <span style={{
                   width: 28, height: 28, borderRadius: 7,
-                  background: t.off ? 'rgba(255,255,255,.05)' : 'oklch(0.74 0.155 52 / .13)',
+                  background: t.off ? 'rgba(255,255,255,.05)' : 'var(--accent-chip-bg)',
                   color: t.off ? 'var(--text-faint)' : 'var(--accent)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
                   transition: 'background .18s ease,color .18s ease',
@@ -1007,13 +852,9 @@ export default function AutomationDetail() {
                   {t.label}
                 </span>
                 <Toggle on={!t.off} onChange={() => toggleTrigger(t)} title={t.off ? 'Turn this trigger on' : 'Turn this trigger off'} />
-                <HoverBtn
-                  onClick={() => removeTrigger(t)} title="Remove trigger"
-                  style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: 13, padding: '2px 5px', flex: 'none' }}
-                  hoverStyle={{ color: 'oklch(0.78 0.15 25)' }}
-                >
+                <button className="ad-btn-x" onClick={() => removeTrigger(t)} title="Remove trigger" style={{ fontSize: 13 }}>
                   <i className="fa-solid fa-xmark" />
-                </HoverBtn>
+                </button>
               </div>
             ))}
             {noTrigs && (
@@ -1055,30 +896,26 @@ export default function AutomationDetail() {
         <div style={{ marginBottom: 26 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
             <Eyebrow style={{ color: 'var(--text-faint)' }}>RECENT EXECUTIONS</Eyebrow>
-            <HoverBtn
-              onClick={() => go('executions')}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontWeight: 500, fontSize: 11.5 }}
-              hoverStyle={{ color: 'var(--text)' }}
-            >
+            <button className="ad-btn-text" onClick={() => go('executions')} style={{ fontWeight: 500, fontSize: 11.5 }}>
               All executions <i className="fa-solid fa-chevron-right" style={{ fontSize: 9 }} />
-            </HoverBtn>
+            </button>
           </div>
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
             {recentExecs.map((e, i) => (
-              <HoverRow
+              <div
+                className="ad-hover-row"
                 key={e.id}
                 onClick={() => go('execution', { execId: e.id })}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 14, padding: '10px 18px',
-                  borderBottom: i === recentExecs.length - 1 ? 'none' : '1px solid rgba(255,255,255,.04)',
+                  borderBottom: i === recentExecs.length - 1 ? 'none' : '1px solid var(--hairline-dim)',
                   cursor: 'pointer',
                 }}
               >
                 <Badge
                   status={e.status}
                   style={{
-                    padding: '3px 8px', letterSpacing: '.05em', width: 88,
-                    display: 'inline-flex', justifyContent: 'center', flex: 'none',
+                    width: 88, display: 'inline-flex', justifyContent: 'center', flex: 'none',
                     animation: badgeAnim(e.status),
                   }}
                 />
@@ -1090,8 +927,8 @@ export default function AutomationDetail() {
                 <div style={{ flex: 1 }} />
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{e.dur}</span>
                 <span style={{ fontSize: 12, color: 'var(--text-faint)', width: 130, textAlign: 'right', flex: 'none' }}>{e.started}</span>
-                <span style={{ color: '#4a515c' }}><i className="fa-solid fa-chevron-right" style={{ fontSize: 10 }} /></span>
-              </HoverRow>
+                <span style={{ color: 'var(--text-faintest)' }}><i className="fa-solid fa-chevron-right" style={{ fontSize: 10 }} /></span>
+              </div>
             ))}
           </div>
         </div>
@@ -1117,76 +954,63 @@ export default function AutomationDetail() {
                       ? 'Next execution starts fresh, like the first time. Current memory is snapshotted first.'
                       : "Next execution starts fresh, like the first time. Automatic snapshots are off — this can't be undone."}
                   </span>
-                  <HoverBtn
-                    onClick={doClearMemory}
-                    style={{
-                      background: 'oklch(0.7 0.19 25 / .16)', border: '1px solid oklch(0.7 0.19 25 / .4)',
-                      borderRadius: 7, color: 'oklch(0.78 0.15 25)', fontWeight: 600, fontSize: 12, padding: '6px 13px',
-                    }}
-                    hoverStyle={{ background: 'oklch(0.7 0.19 25 / .26)' }}
-                  >
+                  <button className="ad-btn-danger-ghost" onClick={doClearMemory} style={{ fontSize: 12, padding: '6px 13px' }}>
                     Clear
-                  </HoverBtn>
-                  <HoverBtn onClick={() => setConfirmClear(false)} style={memBtn} hoverStyle={{ color: 'var(--text)' }}>
+                  </button>
+                  <button className="ad-btn-soft" onClick={() => setConfirmClear(false)}>
                     Keep
-                  </HoverBtn>
+                  </button>
                 </>
               ) : snapAsk ? (
                 <>
                   <input
+                    className="ad-input"
                     value={snapName}
                     onChange={(e) => setSnapName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') doSnapshot() }}
                     placeholder="Name — optional"
                     autoFocus
-                    style={{ ...inputBase, width: 220, fontSize: 12, padding: '6px 10px', border: '1px solid rgba(255,255,255,.1)' }}
+                    style={{ width: 220, fontSize: 12, padding: '5px 10px' }}
                   />
-                  <HoverBtn
+                  <button
+                    className="ad-btn-soft"
                     onClick={doSnapshot}
-                    style={{ ...memBtn, border: '1px solid oklch(0.74 0.155 52 / .4)', color: 'var(--accent)', fontWeight: 600 }}
-                    hoverStyle={{ background: 'var(--accent-bg)' }}
+                    style={{ border: '1px solid oklch(0.74 0.155 52 / .4)', color: 'var(--accent)', fontWeight: 600 }}
                   >
                     Save
-                  </HoverBtn>
-                  <HoverBtn
-                    onClick={() => { setSnapAsk(false); setSnapName('') }}
-                    style={memBtn} hoverStyle={{ color: 'var(--text)' }}
-                  >
+                  </button>
+                  <button className="ad-btn-soft" onClick={() => { setSnapAsk(false); setSnapName('') }}>
                     Cancel
-                  </HoverBtn>
+                  </button>
                 </>
               ) : (
                 <>
-                  <HoverBtn onClick={revealMemory} style={memBtn} hoverStyle={{ color: 'var(--text)' }}>
+                  <button className="ad-btn-soft" onClick={revealMemory}>
                     Show in Finder
-                  </HoverBtn>
+                  </button>
                   {auto.memory.size === 'empty' ? (
-                    <span title="Memory is empty" style={{ ...memBtn, color: 'var(--text-faintest)', cursor: 'default' }}>
+                    <button className="ad-btn-soft" disabled title="Memory is empty">
                       Snapshot
-                    </span>
+                    </button>
                   ) : (
-                    <HoverBtn onClick={() => setSnapAsk(true)} style={memBtn} hoverStyle={{ color: 'var(--text)' }}>
+                    <button className="ad-btn-soft" onClick={() => setSnapAsk(true)}>
                       Snapshot
-                    </HoverBtn>
+                    </button>
                   )}
-                  <HoverBtn
-                    onClick={() => setConfirmClear(true)}
-                    style={memBtn}
-                    hoverStyle={{ border: '1px solid oklch(0.7 0.19 25 / .5)', color: 'oklch(0.74 0.17 25)' }}
-                  >
+                  <button className="ad-btn-text danger" onClick={() => setConfirmClear(true)} style={{ fontWeight: 500, fontSize: 12 }}>
                     Clear memory
-                  </HoverBtn>
+                  </button>
                 </>
               )}
             </div>
             {(auto.snapshots ?? []).length > 0 && (
-              <div style={{ marginTop: 12, borderTop: '1px solid rgba(255,255,255,.06)' }}>
+              <div style={{ marginTop: 12, borderTop: '1px solid var(--hairline)' }}>
                 {(auto.snapshots ?? []).map((s) => (
                   <div
                     key={s.id}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-                      padding: '9px 0', borderBottom: '1px solid rgba(255,255,255,.04)',
+                      padding: '9px 0', borderBottom: '1px solid var(--hairline-dim)',
                     }}
                   >
                     {snapRow?.sid === s.id && snapRow.kind === 'restore' ? (
@@ -1197,52 +1021,49 @@ export default function AutomationDetail() {
                             : 'Replaces current memory — automatic snapshots are off, so the current state is lost.'}
                         </span>
                         <div style={{ flex: 1 }} />
-                        <HoverBtn
+                        <button
+                          className="ad-btn-soft"
                           onClick={() => { if (!auto.live) doRestoreSnap(s.id) }}
                           style={{
-                            ...memBtn, border: '1px solid oklch(0.74 0.155 52 / .4)',
+                            border: '1px solid oklch(0.74 0.155 52 / .4)',
                             color: auto.live ? 'var(--text-faintest)' : 'var(--accent)', fontWeight: 600,
                           }}
-                          hoverStyle={auto.live ? {} : { background: 'var(--accent-bg)' }}
                         >
                           Restore
-                        </HoverBtn>
-                        <HoverBtn onClick={() => setSnapRow(null)} style={memBtn} hoverStyle={{ color: 'var(--text)' }}>
+                        </button>
+                        <button className="ad-btn-soft" onClick={() => setSnapRow(null)}>
                           Keep
-                        </HoverBtn>
+                        </button>
                       </>
                     ) : snapRow?.sid === s.id && snapRow.kind === 'rename' ? (
                       <>
                         <input
+                          className="ad-input"
                           value={renameVal}
                           onChange={(e) => setRenameVal(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter') doRenameSnap(s.id) }}
                           placeholder="Name — optional"
                           autoFocus
-                          style={{ ...inputBase, width: 220, fontSize: 12, padding: '5px 10px', border: '1px solid rgba(255,255,255,.1)' }}
+                          style={{ width: 220, fontSize: 12, padding: '5px 10px' }}
                         />
                         <div style={{ flex: 1 }} />
-                        <HoverBtn onClick={() => doRenameSnap(s.id)} style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}>
+                        <button className="ad-btn-text" onClick={() => doRenameSnap(s.id)} style={memRowSize}>
                           Save
-                        </HoverBtn>
-                        <HoverBtn onClick={() => setSnapRow(null)} style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}>
+                        </button>
+                        <button className="ad-btn-text" onClick={() => setSnapRow(null)} style={memRowSize}>
                           Cancel
-                        </HoverBtn>
+                        </button>
                       </>
                     ) : snapRow?.sid === s.id && snapRow.kind === 'delete' ? (
                       <>
                         <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>Delete this snapshot?</span>
                         <div style={{ flex: 1 }} />
-                        <HoverBtn
-                          onClick={() => doDeleteSnap(s.id)}
-                          style={{ ...memRowBtn, color: 'oklch(0.74 0.17 25)', fontWeight: 600 }}
-                          hoverStyle={{ background: 'oklch(0.7 0.19 25 / .12)' }}
-                        >
+                        <button className="ad-btn-text danger" onClick={() => doDeleteSnap(s.id)} style={{ ...memRowSize, fontWeight: 600 }}>
                           Delete
-                        </HoverBtn>
-                        <HoverBtn onClick={() => setSnapRow(null)} style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}>
+                        </button>
+                        <button className="ad-btn-text" onClick={() => setSnapRow(null)} style={memRowSize}>
                           Keep
-                        </HoverBtn>
+                        </button>
                       </>
                     ) : (
                       <>
@@ -1253,21 +1074,19 @@ export default function AutomationDetail() {
                           {s.reason} · {s.version} · {s.size} · {s.files} {s.files === 1 ? 'file' : 'files'} · {s.when}
                         </span>
                         <div style={{ flex: 1 }} />
-                        <HoverBtn onClick={() => setSnapRow({ sid: s.id, kind: 'restore' })} style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}>
+                        <button className="ad-btn-text" onClick={() => setSnapRow({ sid: s.id, kind: 'restore' })} style={memRowSize}>
                           Restore
-                        </HoverBtn>
-                        <HoverBtn
+                        </button>
+                        <button
+                          className="ad-btn-text"
                           onClick={() => { setRenameVal(s.name ?? ''); setSnapRow({ sid: s.id, kind: 'rename' }) }}
-                          style={memRowBtn} hoverStyle={{ color: 'var(--text)' }}
+                          style={memRowSize}
                         >
                           Rename
-                        </HoverBtn>
-                        <HoverBtn
-                          onClick={() => setSnapRow({ sid: s.id, kind: 'delete' })}
-                          style={memRowBtn} hoverStyle={{ color: 'oklch(0.74 0.17 25)' }}
-                        >
+                        </button>
+                        <button className="ad-btn-text danger" onClick={() => setSnapRow({ sid: s.id, kind: 'delete' })} style={memRowSize}>
                           Delete
-                        </HoverBtn>
+                        </button>
                       </>
                     )}
                   </div>
@@ -1275,8 +1094,8 @@ export default function AutomationDetail() {
               </div>
             )}
             {/* §6.3 automatic-snapshot toggles */}
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.06)' }}>
-              <Eyebrow style={{ marginBottom: 4 }}>Automatic snapshots</Eyebrow>
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--hairline)' }}>
+              <Eyebrow style={{ marginBottom: 4 }}>AUTOMATIC SNAPSHOTS</Eyebrow>
               {SNAP_SETTINGS.map(({ key, label, help }) => (
                 <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '7px 0' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -1325,17 +1144,18 @@ export default function AutomationDetail() {
       {spec.length > 0 && (
         <div>
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
-            <HoverRow
+            <div
+              className="ad-hover-row"
               onClick={() => setSpecOpen(!specOpen)}
               style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', cursor: 'pointer' }}
             >
               <Eyebrow style={{ color: 'var(--text-faint)' }}>SPEC</Eyebrow>
               <span style={{ fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{auto.specMeta}</span>
               <div style={{ flex: 1 }} />
-              <span style={{ color: '#4a515c', fontSize: 11 }}>
+              <span style={{ color: 'var(--text-faintest)', fontSize: 11 }}>
                 <i className={specOpen ? 'fa-solid fa-caret-up' : 'fa-solid fa-caret-down'} style={{ fontSize: 9 }} /> {specOpen ? 'collapse' : 'expand'}
               </span>
-            </HoverRow>
+            </div>
             {specOpen && (
               <div style={{ borderTop: '1px solid var(--hairline)', padding: '8px 22px 18px' }}>
                 <SpecMarkdown blocks={spec} />

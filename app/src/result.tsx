@@ -37,15 +37,16 @@ function ViewCard({ title, kind, meta, mono = true, children }: {
   return (
     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
       <button
+        className="ad-btn-text"
         onClick={() => setOpen(!open)}
         style={{
           display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
-          padding: '12px 18px', cursor: 'pointer', background: 'none',
+          padding: '13px 18px', cursor: 'pointer', background: 'none',
         }}
       >
         <i
           className={open ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-right'}
-          style={{ fontSize: 10, color: 'var(--text-faint)', width: 10, flex: 'none' }}
+          style={{ fontSize: 10, width: 10, flex: 'none' }}
         />
         <span style={{
           fontFamily: mono ? 'var(--mono)' : undefined, fontSize: mono ? 12.5 : 13,
@@ -278,18 +279,19 @@ export function ResultSection({ label, result, execId, measure = 640 }: {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
         <button
+          className="ad-btn-text"
           onClick={() => setOpen(!open)}
           style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: 'none', padding: 0 }}
         >
           <i
             className={open ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-right'}
-            style={{ fontSize: 10, color: 'var(--text-faint)', width: 10 }}
+            style={{ fontSize: 10, width: 10 }}
           />
           <Eyebrow style={{ color: 'var(--text-faint)' }}>{label}</Eyebrow>
         </button>
         {chip && (
           <span style={{
-            display: 'inline-flex', padding: '3px 10px', borderRadius: 7, fontFamily: 'var(--mono)',
+            display: 'inline-flex', padding: '3px 10px', borderRadius: 6, fontFamily: 'var(--mono)',
             fontWeight: 600, fontSize: 11.5, letterSpacing: '.03em', background: bg, color: c,
           }}>
             {chip}
@@ -297,7 +299,7 @@ export function ResultSection({ label, result, execId, measure = 640 }: {
         )}
         {(result.chips ?? []).filter((t) => t !== chip).map((t) => (
           <span key={t} style={{
-            display: 'inline-flex', padding: '3px 9px', borderRadius: 7, fontFamily: 'var(--mono)',
+            display: 'inline-flex', padding: '3px 9px', borderRadius: 6, fontFamily: 'var(--mono)',
             fontWeight: 500, fontSize: 11, background: 'rgba(255,255,255,.05)',
             border: '1px solid rgba(255,255,255,.07)', color: 'var(--text-2em)',
           }}>

@@ -4,30 +4,16 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { logKey, useStore } from '../store'
-import { Badge, badgeOf, FailureNotice, logColor, paramSummary, Spinner } from '../ui'
+import { Badge, badgeOf, Chip, Eyebrow, FailureNotice, logColor, paramSummary, Spinner } from '../ui'
 import { ResultSection } from '../result'
 import type { ExecStep, LogLine } from '../types'
 
 // null = the execution-scoped log (§5 execution.ndjson)
 type Sel = { step: number | null; attempt: number | null }
 
-const eyebrow: React.CSSProperties = {
-  fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600,
-  letterSpacing: '.09em', color: 'var(--text-faint)',
-}
-
 function BackLink({ onClick }: { onClick: () => void }) {
-  const [hov, setHov] = useState(false)
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        color: hov ? 'var(--text)' : 'var(--text-muted)', fontSize: 12.5,
-        fontWeight: 500, padding: '4px 0', cursor: 'pointer',
-      }}
-    >
+    <button className="ad-btn-text" onClick={onClick} style={{ fontSize: 12.5, fontWeight: 500, padding: '4px 0' }}>
       <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Executions
     </button>
   )
@@ -38,21 +24,20 @@ const rowBase: React.CSSProperties = {
   textAlign: 'left', cursor: 'pointer', background: 'none', border: 'none',
 }
 
-function rowBg(selected: boolean, hov: boolean): React.CSSProperties {
-  return {
-    background: selected ? 'rgba(255,255,255,.06)' : hov ? 'rgba(255,255,255,.03)' : 'none',
-    boxShadow: selected ? 'inset 2px 0 0 var(--accent)' : 'none',
-  }
+// Selected rows keep their inline background — it wins over the ad-hover-row hover.
+function rowBg(selected: boolean): React.CSSProperties {
+  return selected
+    ? { background: 'rgba(255,255,255,.06)', boxShadow: 'inset 2px 0 0 var(--accent)' }
+    : {}
 }
 
 /** §7: the "Execution log" pseudo-row above step 1 — selects execution.ndjson. */
 function ExecLogRow({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
-  const [hov, setHov] = useState(false)
   return (
     <button
+      className="ad-hover-row"
       onClick={onSelect}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ ...rowBase, ...rowBg(selected, hov) }}
+      style={{ ...rowBase, ...rowBg(selected) }}
     >
       <i className="fa-solid fa-terminal" style={{ fontSize: 8, width: 8, color: 'var(--text-faint)', flex: 'none' }} />
       <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>Execution log</span>
@@ -65,14 +50,13 @@ function ExecLogRow({ selected, onSelect }: { selected: boolean; onSelect: () =>
 function StepRow({ step, selected, onSelect }: {
   step: ExecStep; selected: boolean; onSelect: () => void
 }) {
-  const [hov, setHov] = useState(false)
   const executing = step.status === 'executing'
-  const dot = step.status === 'queued' ? '#3a414c' : badgeOf(step.status).c
+  const dot = step.status === 'queued' ? 'var(--text-faintest)' : badgeOf(step.status).c
   return (
     <button
+      className="ad-hover-row"
       onClick={onSelect}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ ...rowBase, ...rowBg(selected, hov) }}
+      style={{ ...rowBase, ...rowBg(selected) }}
     >
       <span style={{
         width: 8, height: 8, borderRadius: '50%', background: dot, flex: 'none',
@@ -103,8 +87,6 @@ export default function ExecutionPage() {
 
   const [tab, setTab] = useState<'results' | 'logs'>('results')
   const [sel, setSel] = useState<Sel | null>(null)
-  const [hovTitle, setHovTitle] = useState(false)
-  const [hovAgain, setHovAgain] = useState(false)
   const tabInit = useRef(false)
   const manualSel = useRef(false) // a user click stops the live auto-follow (§7)
   const logRef = useRef<HTMLDivElement>(null)
@@ -172,7 +154,6 @@ export default function ExecutionPage() {
 
   const shell = (body: React.ReactNode) => (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 30px 70px', animation: 'adFadeUp .4s ease' }}>
-      <style>{'@keyframes adBlink{0%,100%{opacity:1}50%{opacity:0}}'}</style>
       <BackLink onClick={() => go('executions')} />
       {body}
     </div>
@@ -232,14 +213,10 @@ export default function ExecutionPage() {
         : 'This execution didn’t produce a result.'
 
   const redactNote = (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--mono)',
-      fontSize: 10.5, fontWeight: 500, color: 'var(--text-muted)',
-      background: 'rgba(255,255,255,.05)', borderRadius: 5, padding: '2px 8px',
-    }}>
+    <Chip style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontWeight: 500 }}>
       <i className="fa-solid fa-key" style={{ fontSize: 8.5 }} />
       secrets redacted: {e.redact}
-    </span>
+    </Chip>
   )
 
   const selStep = sel?.step != null ? steps[sel.step] : undefined
@@ -249,14 +226,12 @@ export default function ExecutionPage() {
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0 4px', flexWrap: 'wrap' }}>
         <h1
+          className={canOpenAuto ? 'ad-link-title' : undefined}
           onClick={() => { if (canOpenAuto) go('automation', { autoId: e.autoId }) }}
-          onMouseEnter={() => setHovTitle(true)}
-          onMouseLeave={() => setHovTitle(false)}
           title={canOpenAuto ? 'Open automation' : undefined}
           style={{
             fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0,
             cursor: canOpenAuto ? 'pointer' : 'default',
-            color: canOpenAuto && hovTitle ? 'var(--accent)' : 'var(--text)',
           }}
         >
           {e.autoName}
@@ -271,53 +246,33 @@ export default function ExecutionPage() {
         <div style={{ flex: 1 }} />
         {executing && liveIdx >= 0 && (
           <button
+            className="ad-btn-ghost"
             onClick={() => skipStep(liveIdx)}
             title="Skip this step — kills it and continues with the next one"
-            style={{
-              background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
-              border: '1px solid var(--border-btn)',
-              borderRadius: 8, padding: '8px 14px', fontWeight: 500, fontSize: 12.5, cursor: 'pointer',
-            }}
           >
             <i className="fa-solid fa-forward-step" style={{ fontSize: 10, marginRight: 6 }} />
             Skip step
           </button>
         )}
         {executing && (
-          <button
-            onClick={cancelExecution}
-            style={{
-              background: 'oklch(0.7 0.19 25 / .14)', border: '1px solid oklch(0.7 0.19 25 / .4)',
-              borderRadius: 8, color: 'oklch(0.78 0.15 25)', fontWeight: 600, fontSize: 12.5,
-              padding: '8px 14px', cursor: 'pointer',
-            }}
-          >
+          <button className="ad-btn-danger-ghost" onClick={cancelExecution}>
             Cancel
           </button>
         )}
         {retryPrimary && (
           <button
+            className="ad-btn-primary"
             onClick={retry}
-            onMouseEnter={() => setHovAgain(true)}
-            onMouseLeave={() => setHovAgain(false)}
             title="Retries this execution from the failed step. Steps that already succeeded keep their results."
-            style={{
-              background: hovAgain ? 'var(--accent-hover)' : 'var(--accent)', color: 'var(--on-accent)',
-              borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer',
-            }}
           >
             Retry
           </button>
         )}
         {againQuiet && (
           <button
+            className="ad-btn-ghost"
             onClick={executeAgain}
             title="Executes the automation again from the start"
-            style={{
-              background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
-              border: '1px solid var(--border-btn)',
-              borderRadius: 8, padding: '8px 14px', fontWeight: 500, fontSize: 12.5, cursor: 'pointer',
-            }}
           >
             Execute again
           </button>
@@ -332,7 +287,7 @@ export default function ExecutionPage() {
         {/* Left column: selectable step timeline (+ parameters) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, padding: '14px 0' }}>
-            <div style={{ ...eyebrow, padding: '0 16px', marginBottom: 10 }}>STEPS</div>
+            <Eyebrow style={{ padding: '0 16px', marginBottom: 10 }}>STEPS</Eyebrow>
             {!full ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0 10px' }}><Spinner size={14} /></div>
             ) : steps.length === 0 ? (
@@ -358,15 +313,15 @@ export default function ExecutionPage() {
           </div>
           {params.length > 0 && (
             <div className="ad-copy" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, padding: '13px 16px' }}>
-              <div style={{ ...eyebrow, marginBottom: 4 }}>PARAMETERS</div>
+              <Eyebrow style={{ marginBottom: 4 }}>PARAMETERS</Eyebrow>
               {params.map((p) => (
-                <div key={p.name} style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,.05)' }}>
+                <div key={p.name} style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '7px 0', borderTop: '1px solid var(--hairline-dim)' }}>
                   <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{p.label}</span>
                   {p.help && <span style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-faintest)' }}>{p.help}</span>}
                   <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2em)' }}>{paramSummary(p)}</span>
                 </div>
               ))}
-              <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-faintest)', paddingTop: 8, borderTop: '1px solid rgba(255,255,255,.05)' }}>
+              <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-faintest)', paddingTop: 8, borderTop: '1px solid var(--hairline-dim)' }}>
                 Values as used by this execution.
               </div>
             </div>
@@ -407,7 +362,7 @@ export default function ExecutionPage() {
             ) : (
               <div style={{
                 background: 'var(--bg-card)', border: '1px dashed rgba(255,255,255,.12)',
-                borderRadius: 12, padding: 26, textAlign: 'center',
+                borderRadius: 12, padding: 22, textAlign: 'center',
               }}>
                 <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>No result</div>
                 <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>{noResultWhy}</div>
@@ -416,15 +371,15 @@ export default function ExecutionPage() {
           )}
 
           {tab === 'logs' && (
-            <div style={{ background: '#07090d', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ background: 'var(--bg-code)', border: '1px solid var(--hairline)', borderRadius: 12, overflow: 'hidden' }}>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,.05)',
+                padding: '10px 16px', borderBottom: '1px solid var(--hairline-dim)',
               }}>
-                <span style={eyebrow}>
+                <Eyebrow style={{ display: 'inline-block' }}>
                   {sel?.step != null ? selStep?.name : 'Execution'}
                   {liveSelected ? ' · LIVE' : ''}
-                </span>
+                </Eyebrow>
                 {/* §7 attempt control — pills only when the step retried */}
                 {attempts.length > 1 && (
                   <span style={{ display: 'inline-flex', gap: 4 }}>
@@ -437,7 +392,7 @@ export default function ExecutionPage() {
                           onClick={() => { manualSel.current = true; setSel({ step: sel!.step, attempt: a.n }) }}
                           style={{
                             fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600,
-                            padding: '2px 8px', borderRadius: 5, cursor: 'pointer',
+                            padding: '2px 8px', borderRadius: 6, cursor: 'pointer',
                             color: active ? b.c : 'var(--text-faint)',
                             background: active ? b.bg : 'rgba(255,255,255,.04)',
                             border: 'none',
@@ -459,7 +414,7 @@ export default function ExecutionPage() {
                   const el = logRef.current
                   if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
                 }}
-                style={{ maxHeight: 420, overflowY: 'auto', padding: '13px 16px', fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.85 }}
+                style={{ maxHeight: 420, overflowY: 'auto', padding: '13px 16px', fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.75 }}
               >
                 {!full ? (
                   <Spinner size={14} />
@@ -467,7 +422,7 @@ export default function ExecutionPage() {
                   <>
                     {logs.map((l) => (
                       <div key={l.seq} style={{ display: 'flex', gap: 12 }}>
-                        <span style={{ color: '#3d434d', flex: 'none' }}>{l.t}</span>
+                        <span style={{ color: 'var(--text-faintest)', flex: 'none' }}>{l.t}</span>
                         <span style={{
                           color: logColor(l.k), whiteSpace: 'pre-wrap', minWidth: 0,
                           fontStyle: l.k === 'sys' ? 'italic' : 'normal',

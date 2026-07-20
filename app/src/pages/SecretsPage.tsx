@@ -4,19 +4,14 @@ import React, { useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { SecretMeta } from '../types'
-import { ConfirmModal, Modal } from '../ui'
+import { BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, Modal, PageTitle } from '../ui'
 
 const MASK = '••••••••••••'
 const NAME_RE = /^[A-Z][A-Z0-9_]*$/
 
-const labelStyle: React.CSSProperties = {
-  display: 'block', font: `600 9.5px var(--mono)`, letterSpacing: '.09em', color: 'var(--text-faint)',
-}
-
 const inputStyle: React.CSSProperties = {
-  width: '100%', boxSizing: 'border-box', background: 'var(--bg-card)',
-  border: '1px solid rgba(255,255,255,.09)', borderRadius: 7, color: 'var(--text)',
-  font: `400 12.5px var(--mono)`, padding: '9px 11px', outline: 'none',
+  width: '100%', boxSizing: 'border-box', color: 'var(--text)',
+  font: `400 12.5px var(--mono)`, padding: '9px 11px',
 }
 
 type ModalState = { mode: 'add' } | { mode: 'edit'; name: string; desc: string; usedBy: string } | null
@@ -65,9 +60,10 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
                 ? 'A password or API key your automations use by name — the value itself never appears in a script or a log.'
                 : 'A new value is used from the next execution onward — leave the value blank to keep the current one.'}
             </p>
-            <label style={{ ...labelStyle, margin: '0 0 6px' }}>NAME</label>
+            <Eyebrow style={{ margin: '0 0 6px' }}>NAME</Eyebrow>
             {isAdd ? (
               <input
+                className="ad-input"
                 value={name}
                 onChange={(e) => setName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
                 onKeyDown={onKeyDown}
@@ -79,7 +75,7 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
             ) : (
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-inset)',
-                border: '1px solid rgba(255,255,255,.06)', borderRadius: 7, padding: '9px 11px',
+                border: '1px solid var(--hairline)', borderRadius: 7, padding: '9px 11px',
               }}>
                 <i className="fa-solid fa-key" style={{ fontSize: 10, color: 'var(--text-faint)' }} />
                 <span style={{ font: `500 12.5px var(--mono)`, color: 'var(--text)' }}>{name}</span>
@@ -91,8 +87,9 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
                 </span>
               </div>
             )}
-            <label style={{ ...labelStyle, margin: '16px 0 6px' }}>DESCRIPTION · OPTIONAL</label>
+            <Eyebrow style={{ margin: '16px 0 6px' }}>DESCRIPTION · OPTIONAL</Eyebrow>
             <input
+              className="ad-input"
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
               onKeyDown={onKeyDown}
@@ -100,9 +97,10 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
               placeholder="What this secret is for — helps the drafting agent pick the right secret"
               style={inputStyle}
             />
-            <label style={{ ...labelStyle, margin: '16px 0 6px' }}>VALUE</label>
+            <Eyebrow style={{ margin: '16px 0 6px' }}>VALUE</Eyebrow>
             <div style={{ position: 'relative' }}>
               <textarea
+                className="ad-input"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 onKeyDown={onValueKeyDown}
@@ -118,39 +116,25 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
                 } as React.CSSProperties}
               />
               <button
+                className="ad-btn-text"
                 onClick={() => setShow(!show)}
                 style={{
-                  position: 'absolute', right: 5, top: 6,
-                  background: 'none', border: 'none', borderRadius: 5, color: 'var(--text-faint)',
-                  fontWeight: 500, fontSize: 11, padding: '4px 9px', cursor: 'pointer',
+                  position: 'absolute', right: 5, top: 6, borderRadius: 5,
+                  fontWeight: 500, fontSize: 11, padding: '4px 9px',
                 }}
               >
                 {show ? 'Hide' : 'Show'}
               </button>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 22 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'flex-end', marginTop: 22 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-faint)', marginRight: 'auto' }}>
                 <i className="fa-solid fa-lock" style={{ fontSize: 10 }} />
                 Stored in your Mac’s Keychain
               </span>
-              <button
-                onClick={close}
-                style={{
-                  background: 'none', border: '1px solid var(--border-btn)', borderRadius: 7,
-                  color: 'var(--text-2)', fontWeight: 500, fontSize: 12.5, padding: '8px 14px', cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => { void save() }}
-                style={{
-                  background: 'var(--accent)', color: 'var(--on-accent)', border: 'none', borderRadius: 7,
-                  fontWeight: 600, fontSize: 12.5, padding: '8px 14px', cursor: 'pointer',
-                }}
-              >
+              <BtnGhost onClick={close}>Cancel</BtnGhost>
+              <BtnPrimary onClick={() => { void save() }}>
                 {isAdd ? 'Save to Keychain' : 'Save changes'}
-              </button>
+              </BtnPrimary>
             </div>
           </>
         )
@@ -176,19 +160,12 @@ export default function SecretsPage() {
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0 }}>Secrets</h1>
-        <button
-          onClick={() => setModal({ mode: 'add' })}
-          style={{
-            background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
-            border: '1px solid var(--border-btn)', borderRadius: 8,
-            padding: '8px 13px', fontWeight: 500, fontSize: 12.5, cursor: 'pointer',
-          }}
-        >
-          Add secret
-        </button>
-      </div>
+      <PageTitle
+        style={{ marginBottom: 6 }}
+        right={<BtnGhost onClick={() => setModal({ mode: 'add' })}>Add secret</BtnGhost>}
+      >
+        Secrets
+      </PageTitle>
       <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', margin: '0 0 20px' }}>
         Stored in your Mac’s Keychain. Scripts use them by name — the values never appear in logs.
       </p>
@@ -201,15 +178,7 @@ export default function SecretsPage() {
           <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', maxWidth: 420 }}>
             No secrets yet. Add a password or API key once, and your automations use it by name — the value never appears in a script or a log.
           </p>
-          <button
-            onClick={() => setModal({ mode: 'add' })}
-            style={{
-              background: 'var(--accent)', color: 'var(--on-accent)', border: 'none', borderRadius: 8,
-              padding: '9px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer',
-            }}
-          >
-            Add your first secret
-          </button>
+          <BtnPrimary onClick={() => setModal({ mode: 'add' })}>Add your first secret</BtnPrimary>
         </div>
       ) : (
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
@@ -217,9 +186,9 @@ export default function SecretsPage() {
           display: 'grid', gridTemplateColumns: '1.2fr 1fr 1.7fr 64px', gap: 10,
           padding: '10px 18px', borderBottom: '1px solid var(--hairline)',
         }}>
-          <span style={labelStyle}>NAME</span>
-          <span style={labelStyle}>USED BY</span>
-          <span style={labelStyle}>VALUE</span>
+          <Eyebrow style={{ fontSize: 9.5 }}>NAME</Eyebrow>
+          <Eyebrow style={{ fontSize: 9.5 }}>USED BY</Eyebrow>
+          <Eyebrow style={{ fontSize: 9.5 }}>VALUE</Eyebrow>
           <span />
         </div>
         {secrets.map((s) => (
@@ -227,7 +196,7 @@ export default function SecretsPage() {
             key={s.name}
             style={{
               display: 'grid', gridTemplateColumns: '1.2fr 1fr 1.7fr 64px', gap: 10,
-              padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,.04)', alignItems: 'center',
+              padding: '12px 18px', borderBottom: '1px solid var(--hairline-dim)', alignItems: 'center',
             }}
           >
             <div style={{ minWidth: 0 }}>
@@ -250,23 +219,23 @@ export default function SecretsPage() {
             </span>
             <div style={{ display: 'flex', gap: 4, justifySelf: 'end', alignItems: 'center' }}>
               <button
+                className="ad-btn-text"
                 onClick={() => setModal({ mode: 'edit', name: s.name, desc: s.desc, usedBy: s.usedBy })}
                 title="Edit"
                 style={{
-                  background: 'none', border: 'none', borderRadius: 6, color: 'var(--text-faint)',
-                  width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', padding: 0,
+                  borderRadius: 6, width: 26, height: 26, display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', padding: 0,
                 }}
               >
                 <i className="fa-solid fa-pen" style={{ fontSize: 11 }} />
               </button>
               <button
+                className="ad-btn-text"
                 onClick={() => setDel(s)}
                 title="Delete"
                 style={{
-                  background: 'none', border: 'none', borderRadius: 6, color: 'var(--text-faint)',
-                  width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', padding: 0,
+                  borderRadius: 6, width: 26, height: 26, display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', padding: 0,
                 }}
               >
                 <i className="fa-solid fa-trash-can" style={{ fontSize: 11 }} />
@@ -285,7 +254,7 @@ export default function SecretsPage() {
               <span style={{ font: `500 12px var(--mono)`, color: 'var(--text)' }}>{del.name}</span>
               {' '}will be removed from your Keychain. This can’t be undone.
               {del.usedBy !== 'Not used yet' && (
-                <p style={{ color: 'oklch(0.78 0.15 25)', margin: '8px 0 0' }}>
+                <p style={{ color: 'var(--red-text)', margin: '8px 0 0' }}>
                   “{del.usedBy}” uses it by name and will stop working.
                 </p>
               )}

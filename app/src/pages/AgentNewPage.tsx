@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent } from '../types'
-import { P, RadioRing, Spinner } from '../ui'
+import { BtnPrimary, Eyebrow, GreenCheck, MiniBadge, P, ProgressBar, RadioRing, Spinner, SudoNotice } from '../ui'
 
 type HarnessId = 'claude' | 'gemini' | 'codex' | 'opencode' | 'ollama'
 
@@ -44,11 +44,33 @@ const SUGGESTED = [
   { id: 'deepseek-coder:6.7b', note: 'Light and quick', meta: '3.8 GB' },
 ]
 
-const eyebrow: React.CSSProperties = {
-  font: `600 10px var(--mono)`, letterSpacing: '.09em', color: 'var(--text-faint)', margin: '0 0 10px',
-}
-
 type InstState = 'idle' | 'installing' | 'sudo'
+
+/** Amber notice card (§12): pulsless dot + body + amber action button — used for
+ * the signed-out reconnect banner and the missing-Ollama install prompt. */
+function AmberNotice({ body, btn, onBtn, style }: {
+  body: string; btn: string; onBtn: () => void; style?: React.CSSProperties
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      background: 'oklch(0.8 0.13 85 / .08)', border: '1px solid oklch(0.8 0.13 85 / .25)',
+      borderRadius: 10, padding: '12px 14px', animation: 'adFadeUp .3s ease both', ...style,
+    }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: P.amber, flex: 'none' }} />
+      <span style={{ flex: 1, fontSize: 12.5, lineHeight: 1.5, color: '#e6d9b8' }}>{body}</span>
+      <button
+        onClick={onBtn}
+        style={{
+          background: P.amber, color: '#1a1508', border: 'none', borderRadius: 7,
+          padding: '6px 13px', fontWeight: 600, fontSize: 12, cursor: 'pointer', flex: 'none',
+        }}
+      >
+        {btn}
+      </button>
+    </div>
+  )
+}
 
 const HARNESS_ID: Record<string, HarnessId> = {
   'Claude Code': 'claude', 'Gemini CLI': 'gemini', 'Codex': 'codex', 'OpenCode': 'opencode', 'Ollama': 'ollama',
@@ -244,13 +266,10 @@ export default function AgentNewPage() {
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease' }}>
-      <style>{'@keyframes adBarSlide { from { transform: translateX(-100%); } to { transform: translateX(350%); } }'}</style>
       <button
+        className="ad-btn-text"
         onClick={() => go('agents')}
-        style={{
-          background: 'none', border: 'none', color: 'var(--text-muted)', fontWeight: 500,
-          fontSize: 12.5, cursor: 'pointer', padding: '4px 0', marginBottom: 10,
-        }}
+        style={{ fontWeight: 500, fontSize: 12.5, padding: '4px 0', marginBottom: 10 }}
       >
         <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Agents
       </button>
@@ -262,25 +281,12 @@ export default function AgentNewPage() {
       </p>
 
       {fix === 'needs' && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: 'oklch(0.8 0.13 85 / .08)', border: '1px solid oklch(0.8 0.13 85 / .25)',
-          borderRadius: 10, padding: '12px 14px', marginBottom: 22, animation: 'adFadeUp .3s ease both',
-        }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: P.amber, flex: 'none' }} />
-          <span style={{ flex: 1, fontSize: 12.5, lineHeight: 1.5, color: '#e6d9b8' }}>
-            This agent is signed out — reconnect it to create or edit automations.
-          </span>
-          <button
-            onClick={reconnect}
-            style={{
-              background: P.amber, color: '#1a1508', border: 'none', borderRadius: 7,
-              padding: '6px 13px', fontWeight: 600, fontSize: 12, cursor: 'pointer', flex: 'none',
-            }}
-          >
-            Reconnect
-          </button>
-        </div>
+        <AmberNotice
+          body="This agent is signed out — reconnect it to create or edit automations."
+          btn="Reconnect"
+          onBtn={reconnect}
+          style={{ marginBottom: 22 }}
+        />
       )}
       {fix === 'busy' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 22 }}>
@@ -289,43 +295,45 @@ export default function AgentNewPage() {
         </div>
       )}
 
-      <div style={eyebrow}>NAME</div>
+      <Eyebrow style={{ margin: '0 0 10px' }}>NAME</Eyebrow>
       <input
+        className="ad-input"
         value={name}
         onChange={(e) => { setName(e.target.value); if (e.target.value.trim()) setNameErr(false) }}
         placeholder="Name this agent"
         style={{
-          width: '100%', boxSizing: 'border-box', background: 'var(--bg-card)',
-          border: `1px solid ${nameErr ? 'oklch(0.7 0.19 25 / .65)' : 'var(--border-input)'}`,
-          boxShadow: nameErr ? '0 0 0 3px oklch(0.7 0.19 25 / .1)' : 'none',
-          borderRadius: 10, padding: '11px 14px', fontWeight: 500, fontSize: 13,
-          color: 'var(--text)', outline: 'none', marginBottom: 16,
+          width: '100%', boxSizing: 'border-box', padding: '11px 14px', fontWeight: 500, fontSize: 13,
+          color: 'var(--text)', marginBottom: 16,
+          ...(nameErr ? {
+            border: '1px solid oklch(0.7 0.19 25 / .65)',
+            boxShadow: '0 0 0 3px oklch(0.7 0.19 25 / .1)',
+          } : null),
         }}
       />
       {nameErr && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, margin: '-10px 0 16px', animation: 'adFadeUp .25s ease both' }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: P.red, flex: 'none' }} />
-          <span style={{ fontWeight: 500, fontSize: 12, color: 'oklch(0.74 0.17 25)' }}>
+          <span style={{ fontWeight: 500, fontSize: 12, color: 'var(--red-hover)' }}>
             A name is required — give this agent a name before saving.
           </span>
         </div>
       )}
 
-      <div style={eyebrow}>DESCRIPTION <span style={{ color: '#4a515c' }}>· OPTIONAL</span></div>
+      <Eyebrow style={{ margin: '0 0 10px' }}>DESCRIPTION <span style={{ color: 'var(--text-faintest)' }}>· OPTIONAL</span></Eyebrow>
       <textarea
+        className="ad-input"
         value={desc}
         onChange={(e) => setDesc(e.target.value)}
         placeholder="What this agent is for — shown on the Agents page and given to the drafting agent"
         rows={2}
         style={{
-          width: '100%', boxSizing: 'border-box', background: 'var(--bg-card)',
-          border: '1px solid var(--border-input)', borderRadius: 10, padding: '11px 14px',
+          width: '100%', boxSizing: 'border-box', padding: '11px 14px',
           fontWeight: 400, fontSize: 13, lineHeight: 1.5, color: 'var(--text)',
-          outline: 'none', resize: 'vertical', marginBottom: 22,
+          resize: 'vertical', marginBottom: 22,
         }}
       />
 
-      <div style={eyebrow}>HARNESS</div>
+      <Eyebrow style={{ margin: '0 0 10px' }}>HARNESS</Eyebrow>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
         {HARNESSES.map((h) => {
           const off = !SUPPORTED.has(h.id)
@@ -339,8 +347,8 @@ export default function AgentNewPage() {
                 setHarness(h.id); setMode('default'); setModel(null)
               }}
               style={{
-                background: on ? '#151920' : 'var(--bg-card)',
-                border: `1px solid ${on ? 'oklch(0.74 0.155 52 / .7)' : 'var(--border-card)'}`,
+                background: on ? 'var(--bg-card-sel)' : 'var(--bg-card)',
+                border: `1px solid ${on ? 'var(--accent-sel)' : 'var(--border-card)'}`,
                 borderRadius: 12, padding: '16px 18px', cursor: off ? 'default' : 'pointer',
                 display: 'flex', flexDirection: 'column', gap: 7, opacity: off ? 0.55 : 1,
               }}
@@ -348,24 +356,8 @@ export default function AgentNewPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
                 <RadioRing selected={on} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{h.name}</span>
-                {off && (
-                  <span style={{
-                    display: 'inline-flex', padding: '2px 7px', borderRadius: 6,
-                    font: `600 10px var(--mono)`, letterSpacing: '.05em', textTransform: 'uppercase',
-                    background: 'rgba(255,255,255,.07)', color: 'var(--text-muted)',
-                  }}>
-                    Not supported yet
-                  </span>
-                )}
-                {hasReq && (
-                  <span style={{
-                    display: 'inline-flex', padding: '2px 7px', borderRadius: 6,
-                    font: `600 10px var(--mono)`, letterSpacing: '.05em', textTransform: 'uppercase',
-                    background: P.amberBg, color: P.amber,
-                  }}>
-                    Needs Ollama
-                  </span>
-                )}
+                {off && <MiniBadge>Not supported yet</MiniBadge>}
+                {hasReq && <MiniBadge c={P.amber} bg={P.amberBg}>Needs Ollama</MiniBadge>}
               </div>
               <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-2)' }}>{h.desc}</p>
             </div>
@@ -375,7 +367,7 @@ export default function AgentNewPage() {
 
       {harness && (
         <>
-          <div style={eyebrow}>MODEL</div>
+          <Eyebrow style={{ margin: '0 0 10px' }}>MODEL</Eyebrow>
           <div style={{
             background: 'var(--bg-card)', border: '1px solid var(--border-card)',
             borderRadius: 12, overflow: 'hidden', marginBottom: 16,
@@ -386,12 +378,12 @@ export default function AgentNewPage() {
             ]).map((md) => {
               const on = mode === md.id
               return (
-                <div
+                <button
                   key={md.id}
                   onClick={() => { setMode(md.id); setModel(null) }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 11, padding: '14px 16px',
-                    borderBottom: '1px solid rgba(255,255,255,.04)', cursor: 'pointer',
+                    borderBottom: '1px solid var(--hairline-dim)', width: '100%', textAlign: 'left',
                   }}
                 >
                   <RadioRing selected={on} />
@@ -399,68 +391,48 @@ export default function AgentNewPage() {
                     <div style={{ fontWeight: 500, fontSize: 13, color: on ? 'var(--text)' : 'var(--text-2em)' }}>{md.name}</div>
                     <div style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--text-muted)', marginTop: 2 }}>{md.note}</div>
                   </div>
-                </div>
+                </button>
               )
             })}
           </div>
 
           {needsOllama && st && !ready && (
-            <div style={{
-              background: 'oklch(0.8 0.13 85 / .08)', border: '1px solid oklch(0.8 0.13 85 / .25)',
-              borderRadius: 10, padding: '12px 14px', marginBottom: 16, animation: 'adFadeUp .3s ease both',
-            }}>
-              {inst === 'idle' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: P.amber, flex: 'none' }} />
-                  <span style={{ flex: 1, fontSize: 12.5, lineHeight: 1.5, color: '#e6d9b8' }}>{olMissingMsg}</span>
-                  <button
-                    onClick={() => installOllama()}
-                    style={{
-                      background: P.amber, color: '#1a1508', border: 'none', borderRadius: 7,
-                      padding: '6px 13px', fontWeight: 600, fontSize: 12, cursor: 'pointer', flex: 'none',
-                    }}
-                  >
-                    Install Ollama · 1.1 GB
-                  </button>
-                </div>
-              )}
-              {inst === 'installing' && (
-                <div>
-                  <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
-                    Installing Ollama…{' '}
-                    <span style={{ font: `500 12px var(--mono)`, color: 'var(--text-muted)' }}>{(instPct / 100 * 1.1).toFixed(1)} GB of 1.1 GB</span>
-                  </div>
-                  <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,.08)', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', background: 'var(--accent)', width: `${Math.round(instPct)}%`, transition: 'width .12s linear' }} />
-                  </div>
-                </div>
-              )}
-              {inst === 'sudo' && (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
-                  <span style={{
-                    width: 7, height: 7, borderRadius: '50%', background: P.amber,
-                    animation: 'adPulse 1.2s ease-in-out infinite', flex: 'none', marginTop: 5,
-                  }} />
+            inst === 'idle' ? (
+              <AmberNotice
+                body={olMissingMsg}
+                btn="Install Ollama · 1.1 GB"
+                onBtn={() => installOllama()}
+                style={{ marginBottom: 16 }}
+              />
+            ) : (
+              <div style={{
+                background: 'oklch(0.8 0.13 85 / .08)', border: '1px solid oklch(0.8 0.13 85 / .25)',
+                borderRadius: 10, padding: '12px 14px', marginBottom: 16, animation: 'adFadeUp .3s ease both',
+              }}>
+                {inst === 'installing' && (
                   <div>
-                    <div style={{ fontWeight: 500, fontSize: 13 }}>macOS is asking for your permission…</div>
-                    <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                      Your Mac shows its own password or Touch ID prompt to finish installing Ollama — Auto Dave never sees your password.
+                    <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
+                      Installing Ollama…{' '}
+                      <span style={{ font: `500 12px var(--mono)`, color: 'var(--text-muted)' }}>{(instPct / 100 * 1.1).toFixed(1)} GB of 1.1 GB</span>
                     </div>
+                    <ProgressBar pct={instPct} />
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+                {inst === 'sudo' && (
+                  <SudoNotice body="Your Mac shows its own password or Touch ID prompt to finish installing Ollama — Auto Dave never sees your password." />
+                )}
+              </div>
+            )
           )}
           {needsOllama && ready && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-              <i className="fa-solid fa-check" style={{ color: P.green, fontSize: 13 }} />
-              <span style={{ fontWeight: 500, fontSize: 12.5, color: P.green }}>Ollama is installed and active.</span>
+            <div style={{ marginBottom: 16 }}>
+              <GreenCheck label="Ollama is installed and active." />
             </div>
           )}
 
           {mode === 'ollama' && ready && (
             <>
-              <div style={eyebrow}>LOCAL MODEL</div>
+              <Eyebrow style={{ margin: '0 0 10px' }}>LOCAL MODEL</Eyebrow>
               {models.length > 0 ? (
                 <div style={{
                   background: 'var(--bg-card)', border: '1px solid var(--border-card)',
@@ -475,7 +447,7 @@ export default function AgentNewPage() {
                         onClick={() => setModel(n)}
                         style={{
                           display: 'flex', alignItems: 'center', gap: 11, padding: '12px 16px',
-                          borderBottom: '1px solid rgba(255,255,255,.04)', cursor: 'pointer',
+                          borderBottom: '1px solid var(--hairline-dim)', cursor: 'pointer',
                         }}
                       >
                         <RadioRing selected={on} />
@@ -494,32 +466,22 @@ export default function AgentNewPage() {
                 </div>
               )}
 
-              <div style={{ ...eyebrow, margin: '0 0 10px' }}>DOWNLOAD A MODEL</div>
+              <Eyebrow style={{ margin: '0 0 10px' }}>DOWNLOAD A MODEL</Eyebrow>
               {!pulling ? (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                   <input
+                    className="ad-input"
                     value={pullText}
                     onChange={(e) => setPullText(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') startPull(pullText) }}
                     placeholder="e.g. qwen3-coder:30b"
                     style={{
-                      flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border-input)',
-                      borderRadius: 10, padding: '11px 14px', font: `500 13px var(--mono)`,
-                      color: 'var(--text)', outline: 'none',
+                      flex: 1, padding: '11px 14px', font: `500 13px var(--mono)`, color: 'var(--text)',
                     }}
                   />
-                  <button
-                    onClick={() => startPull(pullText)}
-                    style={{
-                      background: pullText.trim() ? 'var(--accent)' : 'rgba(255,255,255,.05)',
-                      color: pullText.trim() ? 'var(--on-accent)' : 'var(--text-2em)',
-                      border: `1px solid ${pullText.trim() ? 'var(--accent)' : 'var(--border-btn)'}`,
-                      borderRadius: 10, padding: '0 16px', fontWeight: 600, fontSize: 12.5,
-                      cursor: 'pointer', flex: 'none',
-                    }}
-                  >
+                  <BtnPrimary onClick={() => startPull(pullText)} style={{ flex: 'none' }}>
                     Download
-                  </button>
+                  </BtnPrimary>
                 </div>
               ) : (
                 <div style={{
@@ -549,18 +511,14 @@ export default function AgentNewPage() {
 
               {sugRows.length > 0 && (
                 <>
-                  <div style={{ ...eyebrow, margin: '0 0 8px' }}>SUGGESTED</div>
+                  <Eyebrow style={{ margin: '0 0 8px' }}>SUGGESTED</Eyebrow>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
                     {sugRows.map((sg) => (
                       <button
                         key={sg.id}
                         title={sg.note}
+                        className="ad-chip-btn"
                         onClick={() => setPullText(sg.id)}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 7,
-                          background: 'var(--bg-card)', border: '1px solid var(--border-input)',
-                          borderRadius: 999, padding: '7px 13px', cursor: 'pointer',
-                        }}
                       >
                         <span style={{ font: `500 12px var(--mono)`, color: 'var(--text-2em)' }}>{sg.id}</span>
                         <span style={{ font: `400 10.5px var(--mono)`, color: 'var(--text-faint)' }}>{sg.meta}</span>
@@ -574,11 +532,8 @@ export default function AgentNewPage() {
                 href="https://ollama.com/library"
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 7, color: 'var(--text-muted)',
-                  fontWeight: 500, fontSize: 12.5, textDecoration: 'none',
-                  border: '1px solid var(--border-input)', borderRadius: 8, padding: '8px 13px', marginBottom: 22,
-                }}
+                className="ad-chip-btn"
+                style={{ textDecoration: 'none', marginBottom: 22 }}
               >
                 Browse more models on Ollama <span style={{ fontWeight: 400, fontSize: 11 }}>↗</span>
               </a>
@@ -588,20 +543,13 @@ export default function AgentNewPage() {
       )}
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <button
-          onClick={() => { void addAgent() }}
-          style={{
-            background: canAdd ? 'var(--accent)' : 'rgba(255,255,255,.06)',
-            color: canAdd ? 'var(--on-accent)' : 'var(--text-faint)',
-            border: 'none', borderRadius: 8, padding: '10px 18px',
-            fontWeight: 600, fontSize: 13.5, cursor: canAdd ? 'pointer' : 'default',
-          }}
-        >
+        <BtnPrimary onClick={() => { void addAgent() }} disabled={!canAdd}>
           {editAgent ? 'Save changes' : 'Add agent'}
-        </button>
+        </BtnPrimary>
         <button
+          className="ad-btn-text dim"
           onClick={() => go('agents')}
-          style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontWeight: 500, fontSize: 12.5, cursor: 'pointer' }}
+          style={{ fontWeight: 500, fontSize: 12.5 }}
         >
           Cancel
         </button>

@@ -3,11 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import { RadioRing, Toggle } from '../ui'
-
-const sectionLabel: React.CSSProperties = {
-  font: `600 10px var(--mono)`, letterSpacing: '.09em', color: 'var(--text-faint)', paddingLeft: 2,
-}
+import { Eyebrow, PageTitle, RadioRing, Toggle } from '../ui'
 
 const card: React.CSSProperties = {
   background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden',
@@ -16,13 +12,8 @@ const card: React.CSSProperties = {
 const rowTitle: React.CSSProperties = { fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }
 const rowSub: React.CSSProperties = { fontSize: 12, lineHeight: 1.55, color: 'var(--text-muted)', marginTop: 3 }
 
-const smallBtn: React.CSSProperties = {
-  background: 'none', border: '1px solid var(--border-input)', borderRadius: 7,
-  color: 'var(--text-2)', fontWeight: 500, fontSize: 12, padding: '6px 12px', cursor: 'pointer',
-}
-
 const pathBox: React.CSSProperties = {
-  marginTop: 10, background: 'var(--bg-inset)', border: '1px solid rgba(255,255,255,.06)',
+  marginTop: 10, background: 'var(--bg-inset)', border: '1px solid var(--hairline)',
   borderRadius: 7, padding: '7px 11px', font: `400 11.5px var(--mono)`, color: 'var(--text-muted)',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
@@ -64,12 +55,12 @@ export default function SettingsPage() {
       maxWidth: 640, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease',
       display: 'flex', flexDirection: 'column', gap: 26,
     }}>
-      <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0 }}>Settings</h1>
+      <PageTitle style={{ marginBottom: 0 }}>Settings</PageTitle>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-        <div style={sectionLabel}>GENERAL</div>
+        <Eyebrow style={{ paddingLeft: 2 }}>GENERAL</Eyebrow>
         <div style={card}>
-          <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+          <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid var(--hairline-dim)' }}>
             <div style={{ flex: 1 }}>
               <div style={rowTitle}>Launch at login</div>
               <div style={rowSub}>Auto Dave starts quietly in the menu bar.</div>
@@ -79,7 +70,7 @@ export default function SettingsPage() {
               onChange={(v) => { patch({ login: v }); void window.autodave?.setLoginItem(v) }}
             />
           </div>
-          <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+          <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid var(--hairline-dim)' }}>
             <div style={{ flex: 1 }}>
               <div style={rowTitle}>Show in the menu bar</div>
               <div style={rowSub}>The quickest way to execute an automation.</div>
@@ -114,24 +105,24 @@ export default function SettingsPage() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-        <div style={sectionLabel}>EXECUTION HISTORY</div>
+        <Eyebrow style={{ paddingLeft: 2 }}>EXECUTION HISTORY</Eyebrow>
         <div style={card}>
           {!settings.keepForever && (
-            <div style={{ padding: '15px 20px', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', alignItems: 'center', gap: 20 }}>
+            <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--hairline-dim)', display: 'flex', alignItems: 'center', gap: 20 }}>
               <div style={{ flex: 1 }}>
                 <div style={rowTitle}>Keep executions for</div>
                 <div style={rowSub}>Older executions and logs are removed automatically.</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }}>
                 <input
+                  className="ad-input"
                   value={days}
                   onChange={(e) => setDays(e.target.value.replace(/[^0-9]/g, ''))}
                   onBlur={onDaysBlur}
                   inputMode="numeric"
                   style={{
-                    width: 64, background: 'var(--bg-inset)', border: '1px solid var(--border-input)',
-                    borderRadius: 8, color: 'var(--text)', font: `500 12.5px var(--mono)`,
-                    textAlign: 'center', padding: '6px 10px', outline: 'none',
+                    width: 64, color: 'var(--text)', font: `500 12.5px var(--mono)`,
+                    textAlign: 'center', padding: '6px 10px',
                   }}
                 />
                 <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>days</span>
@@ -153,17 +144,18 @@ export default function SettingsPage() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-        <div style={sectionLabel}>ON THIS MAC</div>
+        <Eyebrow style={{ paddingLeft: 2 }}>ON THIS MAC</Eyebrow>
         <div style={card}>
-          <div style={{ padding: '15px 20px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+          <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--hairline-dim)' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={rowTitle}>Automations &amp; settings</div>
                 <div style={rowSub}>Your automations and preferences — small, and always on this Mac.</div>
               </div>
               <button
+                className="ad-btn-soft"
                 onClick={() => { void window.autodave?.revealPath(settings.appPath ?? '~/Library/Application Support/Auto Dave') }}
-                style={{ ...smallBtn, flex: 'none' }}
+                style={{ flex: 'none' }}
               >
                 Show in Finder
               </button>
@@ -180,10 +172,10 @@ export default function SettingsPage() {
                 <div style={rowSub}>Logs and results from every execution. This is the part that grows.</div>
               </div>
               <div style={{ display: 'flex', gap: 8, flex: 'none' }}>
-                <button onClick={() => { void changeDataPath() }} style={smallBtn}>Change</button>
+                <button className="ad-btn-soft" onClick={() => { void changeDataPath() }}>Change</button>
                 <button
+                  className="ad-btn-soft"
                   onClick={() => { void window.autodave?.revealPath(settings.dataPath) }}
-                  style={smallBtn}
                 >
                   Show in Finder
                 </button>
@@ -195,7 +187,7 @@ export default function SettingsPage() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-        <div style={sectionLabel}>DEVELOPER</div>
+        <Eyebrow style={{ paddingLeft: 2 }}>DEVELOPER</Eyebrow>
         <div style={card}>
           <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20 }}>
             <div style={{ flex: 1 }}>

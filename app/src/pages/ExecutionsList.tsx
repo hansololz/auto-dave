@@ -15,16 +15,13 @@ const headCell: React.CSSProperties = {
 }
 
 function Row({ e, onOpen }: { e: Exec; onOpen: () => void }) {
-  const [hov, setHov] = useState(false)
   return (
     <div
+      className="ad-hover-row"
       onClick={onOpen}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
       style={{
         display: 'grid', gridTemplateColumns: GRID, gap: 10, padding: '11px 18px',
-        borderBottom: '1px solid rgba(255,255,255,.04)', alignItems: 'center',
-        cursor: 'pointer', background: hov ? 'rgba(255,255,255,.025)' : 'transparent',
+        borderBottom: '1px solid var(--hairline-dim)', alignItems: 'center', cursor: 'pointer',
       }}
     >
       <div style={{ minWidth: 0 }}>
@@ -67,15 +64,15 @@ export default function ExecutionsList() {
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease' }}>
       <PageTitle
         right={
-          <div style={{ display: 'inline-flex', border: '1px solid rgba(255,255,255,.09)', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ display: 'inline-flex', border: '1px solid var(--border-input)', borderRadius: 8, overflow: 'hidden' }}>
             {FILTERS.map((f) => (
               <button
                 key={f}
+                className="ad-btn-text"
                 onClick={() => setFilt(f)}
                 style={{
                   padding: '6px 14px', fontSize: 12, fontWeight: 500, borderRadius: 0,
-                  background: filt === f ? 'rgba(255,255,255,.08)' : 'transparent',
-                  color: filt === f ? 'var(--text)' : 'var(--text-muted)',
+                  ...(filt === f ? { background: 'rgba(255,255,255,.08)', color: 'var(--text)' } : null),
                 }}
               >
                 {f}
@@ -90,7 +87,7 @@ export default function ExecutionsList() {
       {shown.length === 0 ? (
         <div style={{
           background: 'var(--bg-card)', border: '1px dashed rgba(255,255,255,.12)',
-          borderRadius: 12, padding: 26, textAlign: 'center',
+          borderRadius: 12, padding: 22, textAlign: 'center',
         }}>
           <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>
             {filt === 'All' ? 'No executions yet' : `No ${filt.toLowerCase()} executions`}

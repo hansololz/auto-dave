@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useStore, type AgentCheck } from '../store'
 import type { Agent } from '../types'
-import { ConfirmModal, MenuRow, menuStyle, P, Spinner, usePopover, dispModel } from '../ui'
+import { BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, MenuRow, menuStyle, MiniBadge, P, PageTitle, Spinner, usePopover, dispModel } from '../ui'
 import { openAgentEdit } from './AgentNewPage'
 
 
@@ -18,12 +18,6 @@ function detailOf(ag: Agent, ready: boolean): string {
   // Claude Code
   if (!ready) return 'Signed out. Reconnect to create or edit automations — existing ones still execute on schedule.'
   return 'Signed in with your Claude account. Uses your existing subscription — nothing extra to pay here.'
-}
-
-const ghostBtn: React.CSSProperties = {
-  background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
-  border: '1px solid var(--border-btn)', borderRadius: 8, padding: '8px 13px',
-  fontWeight: 500, fontSize: 12.5, cursor: 'pointer',
 }
 
 function AgentCard({ ag, check, onDelete }: {
@@ -67,13 +61,7 @@ function AgentCard({ ag, check, onDelete }: {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 600, fontSize: 15 }}>{ag.name || ag.harness}</span>
-        <span style={{
-          display: 'inline-flex', padding: '3px 8px', borderRadius: 6,
-          font: `600 10.5px var(--mono)`, letterSpacing: '.05em', textTransform: 'uppercase',
-          background: badge.bg, color: badge.c,
-        }}>
-          {badge.label}
-        </span>
+        <MiniBadge c={badge.c} bg={badge.bg}>{badge.label}</MiniBadge>
       </div>
       <div style={{ font: `500 11.5px var(--mono)`, color: 'var(--text-faint)', marginTop: -5 }}>
         {ag.harness} · {dispModel(ag)}
@@ -83,18 +71,15 @@ function AgentCard({ ag, check, onDelete }: {
       </p>
       {uses.length > 0 ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ font: `600 10px var(--mono)`, letterSpacing: '.09em', color: 'var(--text-faint)' }}>USED BY</span>
+          <Eyebrow>USED BY</Eyebrow>
           {uses.map((u) => {
             const auto = autos.find((a) => a.name === u)
             return (
               <button
                 key={u}
+                className="ad-chip-btn"
                 onClick={() => { if (auto) go('automation', { autoId: auto.id }) }}
-                style={{
-                  background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)',
-                  borderRadius: 999, padding: '4px 11px', fontWeight: 500, fontSize: 11.5,
-                  color: 'var(--text-2)', cursor: auto ? 'pointer' : 'default',
-                }}
+                style={{ cursor: auto ? 'pointer' : 'default' }}
               >
                 {u}
               </button>
@@ -115,26 +100,21 @@ function AgentCard({ ag, check, onDelete }: {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {!ready && (
             // Needs setup — accent-primary Edit opens the form with the reconnect banner (§12).
-            <button
-              onClick={() => { openAgentEdit(ag, true); go('agentNew') }}
-              style={{
-                background: 'var(--accent)', color: 'var(--on-accent)', border: 'none', borderRadius: 8,
-                padding: '9px 14px', fontWeight: 600, fontSize: 13, cursor: 'pointer', flex: 'none',
-              }}
-            >
+            <BtnPrimary onClick={() => { openAgentEdit(ag, true); go('agentNew') }} style={{ flex: 'none' }}>
               Edit
-            </button>
+            </BtnPrimary>
           )}
           {ready && (
-            <button onClick={() => { openAgentEdit(ag, false); go('agentNew') }} style={ghostBtn}>
+            <BtnGhost onClick={() => { openAgentEdit(ag, false); go('agentNew') }}>
               Edit
-            </button>
+            </BtnGhost>
           )}
           <div ref={menuRef} style={{ position: 'relative' }}>
             <button
+              className="ad-btn-ghost"
               onClick={() => setMenuOpen(!menuOpen)}
               title="More actions"
-              style={{ ...ghostBtn, padding: '8px 10px' }}
+              style={{ padding: '8px 10px' }}
             >
               <i className="fa-solid fa-ellipsis" style={{ fontSize: 12 }} />
             </button>
@@ -201,10 +181,12 @@ export default function AgentsPage() {
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0 }}>Agents</h1>
-        <button onClick={() => go('agentNew')} style={ghostBtn}>Add agent</button>
-      </div>
+      <PageTitle
+        style={{ marginBottom: 6 }}
+        right={<BtnGhost onClick={() => go('agentNew')}>Add agent</BtnGhost>}
+      >
+        Agents
+      </PageTitle>
       <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', margin: '0 0 20px' }}>
         The AI that writes your automations. It never executes anything — Auto Dave does that. New automations use your default agent.
       </p>
@@ -220,18 +202,10 @@ export default function AgentsPage() {
           padding: '36px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center',
           gap: 12, textAlign: 'center',
         }}>
-          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', maxWidth: 400 }}>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', maxWidth: 420 }}>
             No agents yet. Existing automations still execute on schedule — but you need an agent to create or edit them.
           </p>
-          <button
-            onClick={() => go('agentNew')}
-            style={{
-              background: 'var(--accent)', color: 'var(--on-accent)', border: 'none', borderRadius: 8,
-              padding: '9px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer',
-            }}
-          >
-            Add your first agent
-          </button>
+          <BtnPrimary onClick={() => go('agentNew')}>Add your first agent</BtnPrimary>
         </div>
       )}
       {delAgent && (

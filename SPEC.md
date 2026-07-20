@@ -1409,24 +1409,34 @@ done; its label is "Continue →" when prior data exists (going straight to the 
 "Connect your AI →".
 
 **Step 2 — Connect your AI.** A searching spinner ("Looking for an AI already on this Mac…",
-shown ≥1.9 s), then detected apps as radio-select "FOUND ON THIS MAC" cards (Claude Code / Ollama /
+shown ≥1.9 s), then detected apps as "FOUND ON THIS MAC" cards (Claude Code / Ollama /
 Codex / Gemini CLI / OpenCode, each with a version/sign-in detail line — see §20 on the
 prototype's smaller detection set), with suggestion cards for providers not found shown alongside
 (e.g. the free-local card still appears when only Claude was detected). When nothing is detected,
 a note card renders instead of the found list: "No AI app was found on this Mac — here are two
-suggestions for moving forward." The two suggestion cards:
-- **Use Claude** — state machine: idle → installing (labelled progress bar with %) → macOS sudo
-  prompt (amber pulsing dot, "Auto Dave never sees your password") → waiting for browser
-  sign-in (reopen / cancel) → connected.
-- **Use a free local AI** — Ollama + Qwen3 8B, "Download and install · 5.2 GB": install Ollama →
-  download model (two-step progress, continues in background), same sudo handling, ends
-  "Ready to go."
+suggestions for moving forward."
 
-If more than one AI ends up ready, radios pick which one Auto Dave uses ("N AIs are ready — pick
-the one Auto Dave should use. You can switch anytime under Agents."); Continue label becomes
-"Continue with `<name>` →". "Skip for now" always available. Persistent footer: the three green-dot
-promises (§1). On continue, connected providers are committed as agent records and any existing
-automations get the chosen default agent.
+Every card resolves inside itself — there is no page-level Continue button, no radio selection,
+and no multi-ready banner. All step-2 cards use the neutral card border; a card's border turns
+accent-tinted once its provider is connected/ready, harmonizing with the in-card accent
+Continue button (the green check label alone signals success; the accent
+"FOUND ON THIS MAC" eyebrow alone marks the detected section). Each card carries a single
+action slot that advances through its states in place:
+- **Found card** — "Check connection" → inline spinner "Checking connection…" → green
+  "Connected" plus a primary "Continue with `<name>` →" button in the same card.
+- **Use Claude** (suggestion) — state machine: idle ("Set up Claude Code") → installing
+  (labelled progress bar with %) → macOS sudo prompt (amber pulsing dot, "Auto Dave never sees
+  your password") → waiting for browser sign-in (reopen / cancel) → connected ("Connected —
+  signed in as you.") plus "Continue with Claude →".
+- **Use a free local AI** (suggestion) — Ollama + Qwen3 8B, "Download and install · 5.2 GB":
+  install Ollama → download model (two-step progress, continues in background), same sudo
+  handling, ends "Ready to go." plus "Continue with local AI →".
+
+Clicking a card's Continue is what picks the provider: it becomes the default agent, all
+connected/ready providers are committed as agent records, and any existing automations get the
+chosen default agent. While committing, all Continue buttons are disabled. "Skip for now" always
+available (commits any connected providers, goes to the app). Persistent footer: the three
+green-dot promises (§1).
 
 **Step 3 — First automation.** The Create flow (§11) labeled "Step 3 of 3", skippable.
 
@@ -1835,14 +1845,21 @@ which would drop the WebSocket and all renderer state. The footer link sends pla
   orange `oklch(0.72 0.15 60)` for attention-flavored result chips (e.g. "5 of 6 checked").
 - Radii: buttons/inputs 8 px, cards 12 px, pills 16–20 px. Cards flat (border only); popovers and
   toasts get large soft shadows.
-- Button hover states come in two patterns. Shared chrome (`ui.tsx`, create/edit flow) uses CSS
-  `:hover` classes in `tokens.css` (`.ad-btn-primary`, `.ad-btn-ghost`, `.ad-btn-soft`,
-  `.ad-btn-text`[`.dim`], `.ad-btn-pill`, `.ad-btn-dashed`, `.ad-btn-x`, `.ad-chip-btn`,
-  `.ad-menu-row`). Other pages (detail, lists, execution, menu bar, onboarding) use small local
-  JS hover helpers — `useState` flag flipped by `onMouseEnter`/`onMouseLeave` (e.g. `HoverBtn`/
-  `HoverRow` in `AutomationDetail.tsx`) — since pages may not edit `ui.tsx`. In JS `hoverStyle`
-  overrides, set the full `border` shorthand (`border: '1px solid …'`), never `borderColor`
-  alone — mixing shorthand base style with longhand hover override renders inconsistently.
+- All hover and focus states are CSS classes in `tokens.css` — never JS mouse-state (a JS hover
+  flag sticks when a re-render or layout shift moves the node under the cursor). Buttons:
+  `.ad-btn-primary`, `.ad-btn-ghost`, `.ad-btn-soft`, `.ad-btn-text`[`.dim`], `.ad-btn-pill`,
+  `.ad-btn-dashed`, `.ad-btn-x`, `.ad-btn-accent-ghost` (accent-tinted ghost: Execute once/draft,
+  Add trigger), `.ad-btn-danger-ghost` (red-tinted confirm), `.ad-btn-text.danger` (red text
+  button), `.ad-btn-link` (accent link-styled button), `.ad-chip-btn`, `.ad-menu-row`.
+  Surfaces: `.ad-hover-row` (clickable list/table rows), `.ad-card-click` (clickable cards),
+  `.ad-link-title` (clickable titles), `.ad-nav-row` (sidebar nav). Text fields use `.ad-input`
+  (border + accent focus ring; `.amber` variant on amber notice cards). Classes own colors and
+  interaction; call sites may size (padding/font) inline.
+- Derived tokens beyond the base palette: `--red-hover`, `--red-text`, `--accent-sel`
+  (selected-card border), `--hairline-dim` (in-card row dividers; `--hairline` stays for card
+  borders/headers), `--bg-code` + `--code-text` (script/log wells). Recurring fragments are
+  `ui.tsx` primitives: `MiniBadge` (uppercase mono chip; status `Badge` maps onto it),
+  `ProgressBar`, `SudoNotice`, `GreenCheck`, `Spinner` (optional `color`), `PageTitle`, `Eyebrow`.
 - Icons: Font Awesome 6.5.2. App mark: accent rounded square with a hammer glyph (`fa-solid fa-hammer`).
   The same mark is the macOS dock icon (`app/electron/appIcon.png`, 1024 px, mark at ~80% of canvas,
   generated by `scripts/gen_app_icon.cjs`; set at startup via `app.dock.setIcon` in

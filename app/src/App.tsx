@@ -29,7 +29,6 @@ function Sidebar() {
   const nExecs = useStore((s) => s.execs.length)
   const nAgents = useStore((s) => s.agents.length)
   const nSecrets = useStore((s) => s.secrets.length)
-  const [hovPage, setHovPage] = useState<string | null>(null)
   const activeRoot = page === 'automation' ? 'automations' : page === 'execution' ? 'executions' : page === 'agentNew' ? 'agents' : page
   const counts: Record<string, number> = {
     automations: nAutos,
@@ -53,14 +52,13 @@ function Sidebar() {
           return (
             <button
               key={n.page}
+              className={'ad-nav-row' + (active ? ' active' : '')}
               onClick={() => go(n.page as never, { autoId: null, execId: null })}
-              onMouseEnter={() => setHovPage(n.page)}
-              onMouseLeave={() => setHovPage(null)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 11px',
                 borderRadius: 7, fontSize: 13, fontWeight: 500, textAlign: 'left',
                 color: active ? 'var(--text)' : 'var(--text-muted)',
-                background: active ? 'rgba(255,255,255,.07)' : hovPage === n.page ? 'rgba(255,255,255,.05)' : 'transparent',
+                ...(active ? { background: 'rgba(255,255,255,.07)' } : null),
               }}
             >
               <i className={`fa-solid ${n.icon}`} style={{ width: 16, fontSize: 12, opacity: 0.85 }} />

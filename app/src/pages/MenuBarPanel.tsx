@@ -1,5 +1,5 @@
 // Menu-bar surface (§13): 334px translucent panel — one row per automation.
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import { Eyebrow } from '../ui'
@@ -14,9 +14,6 @@ function dotColor(a: { lastStatus: string; live: string | null }): { c: string; 
 
 export default function MenuBarPanel() {
   const { autos, version } = useStore()
-  const [hovRow, setHovRow] = useState<string | null>(null)
-  const [hovBtn, setHovBtn] = useState<string | null>(null)
-  const [hovLink, setHovLink] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   const failed = autos.filter((a) => a.lastStatus === 'failed').length
@@ -41,29 +38,26 @@ export default function MenuBarPanel() {
     >
       <div style={{ padding: '11px 14px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Eyebrow>Auto Dave</Eyebrow>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500, color: failed ? 'oklch(0.74 0.17 25)' : 'var(--text-faint)' }}>{aggregate}</div>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500, color: failed ? 'var(--red-hover)' : 'var(--text-faint)' }}>{aggregate}</div>
       </div>
       <div>
         {autos.map((a) => {
           const d = dotColor(a)
-          const hov = hovRow === a.id
           const subColor = a.live
             ? 'var(--cyan)'
             : a.lastStatus === 'failed'
-              ? 'oklch(0.74 0.17 25)'
+              ? 'var(--red-hover)'
               : a.resultChip
                 ? 'var(--accent)'
                 : 'var(--text-faint)'
           return (
             <div
               key={a.id}
+              className="ad-hover-row"
               onClick={() => openAuto(a.id)}
-              onMouseEnter={() => setHovRow(a.id)}
-              onMouseLeave={() => setHovRow(null)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
                 cursor: 'pointer',
-                background: hov ? 'rgba(255,255,255,.06)' : 'transparent',
               }}
             >
               <span style={{
@@ -79,19 +73,15 @@ export default function MenuBarPanel() {
                 </div>
               </div>
               <button
+                className="ad-btn-link"
                 onClick={(e) => {
                   e.stopPropagation()
                   if (!a.live) void api.executeNow(a.id, undefined, 'Menu bar').catch(() => undefined)
                 }}
                 title="Execute now"
-                onMouseEnter={() => setHovBtn(a.id)}
-                onMouseLeave={() => setHovBtn(null)}
                 style={{
                   width: 24, height: 24, borderRadius: 6, flex: 'none',
-                  border: `1px solid ${hovBtn === a.id ? 'var(--accent)' : 'rgba(255,255,255,.12)'}`,
-                  background: 'rgba(255,255,255,.05)',
-                  color: hovBtn === a.id ? 'var(--accent)' : 'var(--text-2em)',
-                  opacity: hovBtn === a.id ? 1 : 0.35,
+                  border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >
@@ -114,10 +104,9 @@ export default function MenuBarPanel() {
         padding: '9px 16px', borderTop: '1px solid var(--hairline)',
       }}>
         <button
+          className="ad-btn-link"
           onClick={() => void window.autodave?.openApp('/app')}
-          onMouseEnter={() => setHovLink(true)}
-          onMouseLeave={() => setHovLink(false)}
-          style={{ fontSize: 12, color: hovLink ? 'var(--link-hover)' : 'var(--accent)', fontWeight: 500 }}
+          style={{ fontSize: 12 }}
         >
           Open Auto Dave
         </button>

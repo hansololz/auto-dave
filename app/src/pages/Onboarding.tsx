@@ -1,10 +1,10 @@
 // Onboarding surface (SPEC §10): step 1 (welcome + live self-check) and
 // step 2 (connect your AI). Step 3 is the Create flow — on entry we mark
 // onboarding done and hand off via setSurface('create', 'onboard').
-import React, { useEffect, useReducer, useRef, useState } from 'react'
+import React, { useEffect, useReducer, useRef } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import { Logo, RadioRing, Spinner } from '../ui'
+import { BtnPrimary, Eyebrow, GreenCheck, Logo, MiniBadge, ProgressBar, Spinner, SudoNotice } from '../ui'
 
 interface Det { id: string; name: string; detail: string }
 
@@ -64,99 +64,6 @@ function freshOb(): Ob {
     chosen: null,
     committing: false,
   }
-}
-
-// ---------- local primitives (prototype-exact) ----------
-
-function AccentBtn({ children, onClick, style }: {
-  children: React.ReactNode; onClick?: (e: React.MouseEvent) => void; style?: React.CSSProperties
-}) {
-  const [hov, setHov] = useState(false)
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        background: hov ? 'var(--accent-hover)' : 'var(--accent)', color: 'var(--on-accent)',
-        border: 'none', borderRadius: 8, padding: '9px 14px', fontWeight: 600, fontSize: 13,
-        cursor: 'pointer', transition: 'background .15s ease', ...style,
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
-function SubtleBtn({ children, onClick, style }: {
-  children: React.ReactNode; onClick?: (e: React.MouseEvent) => void; style?: React.CSSProperties
-}) {
-  const [hov, setHov] = useState(false)
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        background: 'rgba(255,255,255,.05)', color: 'var(--text-2em)',
-        border: `1px solid ${hov ? 'var(--border-hover)' : 'var(--border-btn)'}`,
-        borderRadius: 8, padding: '9px 14px', fontWeight: 500, fontSize: 13,
-        cursor: 'pointer', transition: 'border-color .15s ease', alignSelf: 'flex-start', ...style,
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
-function LinkBtn({ children, onClick, faint }: {
-  children: React.ReactNode; onClick?: (e: React.MouseEvent) => void; faint?: boolean
-}) {
-  const [hov, setHov] = useState(false)
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        background: 'none', border: 'none', padding: 0,
-        color: faint ? (hov ? 'var(--text-2)' : 'var(--text-faint)') : (hov ? 'var(--link-hover)' : 'var(--accent)'),
-        fontWeight: 500, fontSize: 12, cursor: 'pointer', transition: 'color .15s ease',
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
-function ProgressBar({ pct }: { pct: number }) {
-  return (
-    <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,.08)', overflow: 'hidden' }}>
-      <div style={{ height: '100%', background: 'var(--accent)', width: `${Math.round(pct)}%`, transition: 'width .12s linear' }} />
-    </div>
-  )
-}
-
-/** Amber pulsing-dot notice ("macOS is asking for your permission…"). */
-function SudoNotice({ body }: { body: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
-      <span style={{
-        width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)',
-        animation: 'adPulse 1.2s ease-in-out infinite', flex: 'none', marginTop: 5,
-      }} />
-      <div>
-        <div style={{ fontWeight: 500, fontSize: 13 }}>macOS is asking for your permission…</div>
-        <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 2 }}>{body}</div>
-      </div>
-    </div>
-  )
-}
-
-function GreenCheck({ label }: { label: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'adFadeUp .3s ease both' }}>
-      <i className="fa-solid fa-check" style={{ color: 'var(--green)', fontSize: 13 }} />
-      <span style={{ fontWeight: 500, fontSize: 13, color: 'var(--green)' }}>{label}</span>
-    </div>
-  )
 }
 
 // ---------- page ----------
@@ -239,7 +146,7 @@ export default function Onboarding() {
     }, 80)
   }
   const claudeSignIn = () => {
-    t(() => { if (ob.cl === 'waiting') up((o) => { o.cl = 'connected'; if (!o.chosen) o.chosen = 'claude' }) }, 3400)
+    t(() => { if (ob.cl === 'waiting') up((o) => { o.cl = 'connected' }) }, 3400)
   }
   const claudeSudoWait = (ms: number) => {
     t(() => {
@@ -269,7 +176,7 @@ export default function Onboarding() {
       up((o) => { o.loPct = Math.min(100, o.loPct + 1.6) })
       if (ob.loPct >= 100) {
         clearInterval(id)
-        up((o) => { o.lo = 'ready'; if (!o.chosen) o.chosen = 'local' })
+        up((o) => { o.lo = 'ready' })
       }
     }, 70)
   }
@@ -311,7 +218,7 @@ export default function Onboarding() {
   useEffect(() => {
     if (ob.fuState === 'busy' && ob.fuId) {
       const id = ob.fuId
-      t(() => { if (ob.fuId === id && ob.fuState === 'busy') up((o) => { o.fuState = 'connected'; if (!o.chosen) o.chosen = 'found' }) }, 1400)
+      t(() => { if (ob.fuId === id && ob.fuState === 'busy') up((o) => { o.fuState = 'connected' }) }, 1400)
     }
     if (ob.cl === 'installing') { if (ob.clPct < 55) claudeRise(); else claudeFinish() }
     else if (ob.cl === 'sudo') claudeSudoWait(2400)
@@ -329,16 +236,11 @@ export default function Onboarding() {
   // goes straight to the app instead of step 2.
   const pre = agentPre || autoPre
   const foundConn = ob.fuState === 'connected'
-  const foundObj = ob.found.find((f) => f.id === ob.fuId) ?? null
-  const readyCount = (ob.cl === 'connected' ? 1 : 0) + (ob.lo === 'ready' ? 1 : 0) + (foundConn ? 1 : 0)
-  const choice = readyCount > 1
-  const chosen = ob.chosen ?? (foundConn ? 'found' : ob.cl === 'connected' ? 'claude' : ob.lo === 'ready' ? 'local' : null)
-  const chosenName = chosen === 'claude' ? 'Claude'
-    : chosen === 'local' ? 'the local AI'
-    : chosen === 'found' && foundObj ? foundObj.name : null
 
   // ----- commit.sh connected providers as real agent records -----
-  const commitOnboardAgents = async (): Promise<void> => {
+  // `pick` is the provider whose in-card Continue was clicked (null on skip);
+  // it becomes the default agent. All connected providers are committed.
+  const commitOnboardAgents = async (pick: 'claude' | 'local' | 'found' | null): Promise<void> => {
     type Spec = { key: 'claude' | 'codex' | 'gemini' | 'opencode' | 'found-ollama' | 'local'; body: { name: string | null; harness: string; mode: string; model: string | null } }
     const specs: Spec[] = []
     if (foundConn && ob.fuId === 'claude') specs.push({ key: 'claude', body: { name: null, harness: 'Claude Code', mode: 'default', model: null } })
@@ -354,9 +256,9 @@ export default function Onboarding() {
       : ob.fuId === 'gemini' ? 'gemini'
       : ob.fuId === 'opencode' ? 'opencode'
       : 'found-ollama'
-    const defKey: Spec['key'] | undefined = chosen === 'claude' ? 'claude'
-      : chosen === 'local' ? 'local'
-      : chosen === 'found' ? foundKey
+    const defKey: Spec['key'] | undefined = pick === 'claude' ? 'claude'
+      : pick === 'local' ? 'local'
+      : pick === 'found' ? foundKey
       : specs[0].key
     const existing = useStore.getState().agents
     let defaultId: string | null = null
@@ -387,12 +289,12 @@ export default function Onboarding() {
     if (pre) { setSurface('app'); return }
     up((o) => { o.phase = 'connect' })
   }
-  const obContinue = () => {
+  const obContinue = (pick: 'claude' | 'local' | 'found') => {
     if (ob.committing) return
-    up((o) => { o.committing = true })
+    up((o) => { o.chosen = pick; o.committing = true })
     void (async () => {
       try {
-        await commitOnboardAgents()
+        await commitOnboardAgents(pick)
       } catch (e) {
         showToast((e as Error).message)
         up((o) => { o.committing = false })
@@ -407,7 +309,7 @@ export default function Onboarding() {
   const obSkip = () => {
     void (async () => {
       try {
-        await commitOnboardAgents()
+        await commitOnboardAgents(null)
       } catch (e) {
         showToast((e as Error).message)
       }
@@ -446,7 +348,7 @@ export default function Onboarding() {
     const stepDot = (s: Ob['smSteps'][number]) =>
       s.status === 'executing' ? { dot: 'var(--cyan)', anim: 'adPulse 1.2s ease-in-out infinite', c: 'var(--text)' }
       : s.status === 'done' ? { dot: 'var(--green)', anim: 'none', c: 'var(--text-2em)' }
-      : { dot: '#3a414c', anim: 'none', c: 'var(--text-faint)' }
+      : { dot: 'var(--text-faintest)', anim: 'none', c: 'var(--text-faint)' }
     const chips = ['Settings created', 'Folders in place']
     if (agentPre) chips.push('Agent found')
     if (autoPre) chips.push('Automations found')
@@ -495,15 +397,9 @@ export default function Onboarding() {
           </div>
           {ob.smShowResult && (
             <div style={{ borderTop: '1px solid var(--hairline)', background: 'var(--bg-inset)', padding: '16px 18px', animation: 'adFadeUp .4s ease' }}>
-              <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 10, letterSpacing: '.09em', color: 'var(--text-faint)', marginBottom: 10 }}>READY</div>
+              <Eyebrow style={{ marginBottom: 10 }}>READY</Eyebrow>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                <span style={{
-                  display: 'inline-flex', padding: '3px 9px', borderRadius: 6, fontFamily: 'var(--mono)',
-                  fontWeight: 600, fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase',
-                  background: 'var(--green-bg)', color: 'var(--green)',
-                }}>
-                  All set
-                </span>
+                <MiniBadge c="var(--green)" bg="var(--green-bg)">All set</MiniBadge>
                 {chips.map((ch) => (
                   <span key={ch} style={{
                     display: 'inline-flex', padding: '3px 9px', borderRadius: 6, fontFamily: 'var(--mono)',
@@ -521,7 +417,7 @@ export default function Onboarding() {
 
         <p style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-2)', margin: '20px 0 16px' }}>{nextPara}</p>
         {ob.smDone
-          ? <AccentBtn onClick={obToConnect} style={{ padding: '10px 18px', fontSize: 13.5, animation: 'adFadeUp .3s ease both' }}>{nextLabel}</AccentBtn>
+          ? <BtnPrimary onClick={obToConnect} style={{ padding: '10px 18px', fontSize: 13.5, animation: 'adFadeUp .3s ease both' }}>{nextLabel}</BtnPrimary>
           : <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-faint)' }}>Setting things up…</span>}
       </div>
     )
@@ -551,7 +447,7 @@ export default function Onboarding() {
           <>
             {anyFound && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 26, animation: 'adFadeUp .35s ease both' }}>
-                <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 10, letterSpacing: '.09em', color: 'var(--accent)' }}>FOUND ON THIS MAC</div>
+                <Eyebrow style={{ color: 'var(--accent)' }}>FOUND ON THIS MAC</Eyebrow>
                 {ob.found.map((f) => renderFoundCard(f))}
               </div>
             )}
@@ -573,26 +469,11 @@ export default function Onboarding() {
               </div>
             )}
 
-            {choice && (
-              <div style={{
-                marginTop: 22, background: 'oklch(0.74 0.155 52 / .07)', border: '1px solid oklch(0.74 0.155 52 / .25)',
-                borderRadius: 10, padding: '11px 14px', fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-2em)', animation: 'adFadeUp .3s ease both',
-              }}>
-                {readyCount} AIs are ready — pick the one Auto Dave should use. You can switch anytime under Agents.
-              </div>
-            )}
-
             <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 24 }}>
-              {readyCount > 0 && (
-                <AccentBtn onClick={obContinue} style={{ padding: '10px 18px', fontSize: 13.5, animation: 'adFadeUp .3s ease both', opacity: ob.committing ? 0.6 : 1 }}>
-                  {choice && chosenName ? `Continue with ${chosenName} →` : 'Continue →'}
-                </AccentBtn>
-              )}
               <button
+                className="ad-btn-text dim"
                 onClick={obSkip}
-                style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontWeight: 500, fontSize: 12.5, cursor: 'pointer', padding: '6px 2px' }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-2)' }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-faint)' }}
+                style={{ fontWeight: 500, fontSize: 12.5, padding: '6px 2px' }}
               >
                 Skip for now
               </button>
@@ -607,16 +488,13 @@ export default function Onboarding() {
     const conn = ob.fuId === f.id && ob.fuState === 'connected'
     const busy = ob.fuId === f.id && ob.fuState === 'busy'
     const idle = !busy && !conn
-    const sel = choice && chosen === 'found' && conn
-    const pickable = choice && conn
-    const borderC = sel ? 'oklch(0.74 0.155 52 / .7)' : pickable ? 'rgba(255,255,255,.12)' : 'oklch(0.74 0.155 52 / .35)'
     return (
       <div
         key={f.id}
-        onClick={() => { if (pickable) up((o) => { o.chosen = 'found' }) }}
         style={{
-          background: 'var(--bg-card-sel)', border: `1px solid ${borderC}`, borderRadius: 12, padding: '17px 22px',
-          display: 'flex', alignItems: 'center', gap: 16, cursor: pickable ? 'pointer' : 'default', transition: 'border-color .2s',
+          background: 'var(--bg-card-sel)', border: `1px solid ${conn ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.09)'}`,
+          borderRadius: 12, padding: '17px 22px',
+          display: 'flex', alignItems: 'center', gap: 16, transition: 'border-color .2s',
         }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -624,54 +502,56 @@ export default function Onboarding() {
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{f.detail}</div>
         </div>
         {idle && (
-          <AccentBtn
-            onClick={(e) => {
-              e.stopPropagation()
+          <button
+            className="ad-btn-ghost"
+            onClick={() => {
               up((o) => { o.fuId = f.id; o.fuState = 'busy' })
-              t(() => { if (ob.fuId === f.id) up((o) => { o.fuState = 'connected'; if (!o.chosen) o.chosen = 'found' }) }, 1400)
+              t(() => { if (ob.fuId === f.id) up((o) => { o.fuState = 'connected' }) }, 1400)
             }}
             style={{ flex: 'none' }}
           >
-            {`Use ${f.name} →`}
-          </AccentBtn>
+            Check connection
+          </button>
         )}
         {busy && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 'none' }}>
             <Spinner size={13} style={{ animationDuration: '.8s' }} />
-            <span style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2)' }}>Connecting…</span>
+            <span style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2)' }}>Checking connection…</span>
           </div>
         )}
         {conn && (
-          <div style={{ flex: 'none' }}>
-            <GreenCheck label={choice ? 'Connected' : `Connected — Auto Dave will use ${f.name}.`} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 'none', animation: 'adFadeUp .3s ease both' }}>
+            <GreenCheck label="Connected" />
+            <button
+              className="ad-btn-primary"
+              onClick={() => obContinue('found')}
+              disabled={ob.committing}
+              style={{ opacity: ob.committing ? 0.6 : 1 }}
+            >
+              {`Continue with ${f.name} →`}
+            </button>
           </div>
         )}
-        {choice && conn && <RadioRing selected={sel} />}
       </div>
     )
   }
 
   function renderClaudeCard() {
-    const sel = choice && chosen === 'claude'
-    const pickable = choice && ob.cl === 'connected'
     return (
       <div
-        onClick={() => { if (pickable) up((o) => { o.chosen = 'claude' }) }}
         style={{
-          background: 'var(--bg-card-sel)', border: `1px solid ${sel ? 'oklch(0.74 0.155 52 / .7)' : 'rgba(255,255,255,.09)'}`,
+          background: 'var(--bg-card-sel)',
+          border: `1px solid ${ob.cl === 'connected' ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.09)'}`,
           borderRadius: 12, padding: 22, display: 'flex', flexDirection: 'column', gap: 10,
-          cursor: pickable ? 'pointer' : 'default', transition: 'border-color .2s',
+          transition: 'border-color .2s',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <div style={{ fontWeight: 600, fontSize: 15 }}>Use Claude</div>
-          {choice && ob.cl === 'connected' && <RadioRing selected={sel} />}
-        </div>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>Use Claude</div>
         <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)', flex: 1 }}>
           You&rsquo;ll need Claude Code installed and a Claude account on Pro or higher.
         </p>
         {ob.cl === 'idle' && (
-          <AccentBtn onClick={(e) => { e.stopPropagation(); claudeInstall() }} style={{ alignSelf: 'flex-start' }}>Set up Claude Code</AccentBtn>
+          <button className="ad-btn-primary" onClick={claudeInstall} style={{ alignSelf: 'flex-start' }}>Set up Claude Code</button>
         )}
         {ob.cl === 'installing' && (
           <div>
@@ -700,37 +580,44 @@ export default function Onboarding() {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingLeft: 16 }}>
-              <LinkBtn onClick={(e) => { e.stopPropagation(); showToast('Opened the sign-in page in your browser again.') }}>Reopen the sign-in page</LinkBtn>
-              <LinkBtn faint onClick={(e) => { e.stopPropagation(); up((o) => { o.cl = 'idle'; o.clPct = 0 }) }}>Cancel</LinkBtn>
+              <button className="ad-btn-link" style={{ fontSize: 12 }} onClick={() => showToast('Opened the sign-in page in your browser again.')}>Reopen the sign-in page</button>
+              <button className="ad-btn-text dim" style={{ fontSize: 12 }} onClick={() => up((o) => { o.cl = 'idle'; o.clPct = 0 })}>Cancel</button>
             </div>
           </div>
         )}
-        {ob.cl === 'connected' && <GreenCheck label="Connected — signed in as you." />}
+        {ob.cl === 'connected' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'adFadeUp .3s ease both' }}>
+            <GreenCheck label="Connected — signed in as you." />
+            <button
+              className="ad-btn-primary"
+              onClick={() => obContinue('claude')}
+              disabled={ob.committing}
+              style={{ alignSelf: 'flex-start', opacity: ob.committing ? 0.6 : 1 }}
+            >
+              Continue with Claude →
+            </button>
+          </div>
+        )}
       </div>
     )
   }
 
   function renderLocalCard() {
-    const sel = choice && chosen === 'local'
-    const pickable = choice && ob.lo === 'ready'
     return (
       <div
-        onClick={() => { if (pickable) up((o) => { o.chosen = 'local' }) }}
         style={{
-          background: 'var(--bg-card)', border: `1px solid ${sel ? 'oklch(0.74 0.155 52 / .7)' : 'var(--border-card)'}`,
+          background: 'var(--bg-card-sel)',
+          border: `1px solid ${ob.lo === 'ready' ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.09)'}`,
           borderRadius: 12, padding: 22, display: 'flex', flexDirection: 'column', gap: 10,
-          cursor: pickable ? 'pointer' : 'default', transition: 'border-color .2s',
+          transition: 'border-color .2s',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <div style={{ fontWeight: 600, fontSize: 15 }}>Use a free local AI</div>
-          {choice && ob.lo === 'ready' && <RadioRing selected={sel} />}
-        </div>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>Use a free local AI</div>
         <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)', flex: 1 }}>
           Sets up Ollama with Qwen3 8B. Local to this Mac, works offline.
         </p>
         {ob.lo === 'idle' && (
-          <SubtleBtn onClick={(e) => { e.stopPropagation(); ollamaInstall() }}>Download and install · 5.2 GB</SubtleBtn>
+          <button className="ad-btn-ghost" onClick={ollamaInstall} style={{ alignSelf: 'flex-start' }}>Download and install · 5.2 GB</button>
         )}
         {ob.lo === 'installing' && (
           <div>
@@ -758,7 +645,19 @@ export default function Onboarding() {
             </div>
           </div>
         )}
-        {ob.lo === 'ready' && <GreenCheck label="Ready to go." />}
+        {ob.lo === 'ready' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'adFadeUp .3s ease both' }}>
+            <GreenCheck label="Ready to go." />
+            <button
+              className="ad-btn-primary"
+              onClick={() => obContinue('local')}
+              disabled={ob.committing}
+              style={{ alignSelf: 'flex-start', opacity: ob.committing ? 0.6 : 1 }}
+            >
+              Continue with local AI →
+            </button>
+          </div>
+        )}
       </div>
     )
   }
