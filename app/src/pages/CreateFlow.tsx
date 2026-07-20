@@ -371,7 +371,7 @@ function finalizeSteps(steps: Step[], enabled: string[]): Step[] {
 
 // §4.3 cron-subset replace: a sync's drafted crons take over the schedule — an
 // entry matching an existing cron on (expr, tz) keeps its id and off state,
-// and one-shot `time` triggers survive untouched.
+// and one-shot `time` and `app_start` triggers survive untouched.
 function mergeDraftTriggers(cur: DraftTrigger[], drafted: DraftTrigger[]): DraftTrigger[] {
   const crons = cur.filter((t) => t.kind === 'cron')
   const used = new Set<number>()
@@ -381,7 +381,7 @@ function mergeDraftTriggers(cur: DraftTrigger[], drafted: DraftTrigger[]): Draft
     used.add(i)
     return crons[i]
   })
-  return [...next, ...cur.filter((t) => t.kind === 'time')]
+  return [...next, ...cur.filter((t) => t.kind !== 'cron')]
 }
 
 function serializeDraft(r: Rev): DraftPayload {

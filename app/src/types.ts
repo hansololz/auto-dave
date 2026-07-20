@@ -73,11 +73,11 @@ export interface VersionInfo {
   triggers?: DraftTrigger[]
 }
 
-// §4.3 trigger — cron or one-shot time; discord/imessage/pubsub are reserved
-// kinds the API refuses to store ("coming soon").
+// §4.3 trigger — cron, one-shot time, or app start; discord/imessage/pubsub
+// are reserved kinds the API refuses to store ("coming soon").
 export interface Trigger {
   id: string
-  kind: 'cron' | 'time'
+  kind: 'cron' | 'time' | 'app_start'
   off: boolean
   expr?: string   // cron: 5-field expression
   at?: string     // time: wall-clock ISO timestamp
@@ -90,7 +90,7 @@ export interface Trigger {
 // entries that already exist on the automation (kept through an edit save).
 export interface DraftTrigger {
   id?: string
-  kind: 'cron' | 'time'
+  kind: 'cron' | 'time' | 'app_start'
   off: boolean
   expr?: string
   at?: string

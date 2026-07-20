@@ -14,7 +14,28 @@ from .storage import Store
 
 TICK_S = 15
 RETRY_AFTER = timedelta(minutes=5)
-TRIGGER_LABELS = ("Cron", "Once")  # §4.5 trigger-fired execution labels
+TRIGGER_LABELS = ("Cron", "Once", "App start")  # §4.5 trigger-fired execution labels
+
+
+def fire_trigger(store: Store, engine: Engine, a: dict, t: dict) -> bool:
+    """Start a trigger-fired execution; mid-execution → a skipped record (§6).
+    True when an execution actually started."""
+    label = schedule.trigger_exec_label(t)
+    if a.get("_live"):
+        h = store.create_execution(a, f"v{a['current_version']}", label,
+                                   steps=[], status="skipped",
+                                   note="previous execution still in progress")
+        h["dur_ms"] = 0
+        h["finished_at"] = h["started_at"]
+        store.update_execution(h)
+        hub.publish("exec.finished", execId=h["id"], autoId=a["id"],
+                    exec_json=store.exec_json(h), auto_json=None)
+        return False
+    try:
+        engine.start(a, label)
+        return True
+    except RuntimeError:
+        return False
 
 
 class Scheduler:
@@ -113,20 +134,6 @@ class Scheduler:
                 hub.publish("auto.changed")
 
     def _fire(self, a: dict, t: dict) -> None:
-        label = schedule.trigger_exec_label(t)
-        if a.get("_live"):
-            # §6: a trigger firing mid-execution is skipped, not queued
-            # (a due one-shot is still consumed by the caller).
-            h = self.store.create_execution(a, f"v{a['current_version']}", label,
-                                            steps=[], status="skipped",
-                                            note="previous execution still in progress")
-            h["dur_ms"] = 0
-            h["finished_at"] = h["started_at"]
-            self.store.update_execution(h)
-            hub.publish("exec.finished", execId=h["id"], autoId=a["id"],
-                        exec_json=self.store.exec_json(h), auto_json=None)
-            return
-        try:
-            self.engine.start(a, label)
-        except RuntimeError:
-            pass
+        # §6: a trigger firing mid-execution is skipped, not queued
+        # (a due one-shot is still consumed by the caller).
+        fire_trigger(self.store, self.engine, a, t)

@@ -196,8 +196,8 @@ Derive cron triggers from the user's words ("every morning at 8" →
 `- cron: "0 8 * * *"`; "Mondays at 9" → `- cron: "0 9 * * 1"`). Cron fields:
 minute hour day-of-month month day-of-week (0–6, Sun = 0); numbers, `*`,
 lists, ranges, and steps only — no names, no `@daily`. When the spec names no
-time, omit the `triggers` key entirely. Never emit one-shot or message
-triggers — the user adds those on the automation page.
+time, omit the `triggers` key entirely. Never emit one-shot, app-start, or
+message triggers — the user adds those on the automation page.
 
 ## Parameters
 

@@ -89,20 +89,25 @@ const pickChipStyle = (active: boolean): React.CSSProperties => ({
 
 const TZ_LIST: string[] = Intl.supportedValuesOf('timeZone')
 
-function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: string; at?: string; tz?: string }) => void }) {
+function AddTrigger({ hasAppStart, onAdd }: {
+  hasAppStart: boolean
+  onAdd: (t: { kind: 'cron' | 'time' | 'app_start'; expr?: string; at?: string; tz?: string }) => void
+}) {
   const [open, setOpen] = useState(false)
-  const [kind, setKind] = useState<'cron' | 'time'>('cron')
+  const [kind, setKind] = useState<'cron' | 'time' | 'app_start'>('cron')
   const [expr, setExpr] = useState('')
   const [at, setAt] = useState('')
   const [tz, setTz] = useState('') // '' → local time, no tz stored (§4.3)
   const exprOk = cronValid(expr)
   const atDate = at ? timeAt(at, tz || undefined) : null
   const atOk = !!atDate && !Number.isNaN(atDate.getTime()) && atDate > new Date()
-  const canAdd = kind === 'cron' ? exprOk : atOk
+  const canAdd = kind === 'cron' ? exprOk : kind === 'time' ? atOk : true
   const nxt = kind === 'cron' && exprOk ? cronNext(expr, undefined, tz || undefined) : null
   const preview = kind === 'cron'
     ? (exprOk ? `${cronLabels(expr, tz || undefined).label}${nxt ? ` · next: ${fmtMoment(nxt)}` : ''}` : (expr ? 'Not a valid cron expression' : ''))
-    : (atOk ? `Once at ${fmtMoment(new Date(at))}${tzSuffix(tz || undefined)}` : (at ? 'Pick a time in the future' : ''))
+    : kind === 'time'
+    ? (atOk ? `Once at ${fmtMoment(new Date(at))}${tzSuffix(tz || undefined)}` : (at ? 'Pick a time in the future' : ''))
+    : 'On app start — executes when you launch the app'
   const reset = () => { setOpen(false); setKind('cron'); setExpr(''); setAt(''); setTz('') }
 
   if (!open) {
@@ -124,6 +129,14 @@ function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: stri
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
         <button onClick={() => setKind('cron')} style={pickChipStyle(kind === 'cron')}>Cron</button>
         <button onClick={() => setKind('time')} style={pickChipStyle(kind === 'time')}>One time</button>
+        <button
+          onClick={() => { if (!hasAppStart) setKind('app_start') }}
+          disabled={hasAppStart}
+          title={hasAppStart ? 'Already added' : undefined}
+          style={{ ...pickChipStyle(kind === 'app_start'), ...(hasAppStart ? { color: '#4a515c', cursor: 'default' } : {}) }}
+        >
+          App start
+        </button>
         {['Discord', 'iMessage', 'Pub/Sub'].map((n) => (
           <span
             key={n} title="Coming soon"
@@ -147,7 +160,7 @@ function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: stri
             border: `1px solid ${expr && !exprOk ? 'oklch(0.7 0.19 25 / .55)' : 'rgba(255,255,255,.1)'}`,
           }}
         />
-      ) : (
+      ) : kind === 'time' ? (
         <input
           type="datetime-local"
           value={at}
@@ -158,20 +171,22 @@ function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: stri
             colorScheme: 'dark',
           }}
         />
+      ) : null}
+      {kind !== 'app_start' && (
+        <select
+          value={tz}
+          onChange={(e) => setTz(e.target.value)}
+          title="Timezone the trigger's times read in"
+          style={{
+            ...inputBase, display: 'block', marginTop: 8, fontFamily: 'var(--mono)', fontSize: 12,
+            padding: '6px 10px', border: '1px solid rgba(255,255,255,.1)', colorScheme: 'dark',
+            color: tz ? 'var(--text)' : 'var(--text-muted)',
+          }}
+        >
+          <option value="">Local time</option>
+          {TZ_LIST.map((z) => <option key={z} value={z}>{z}</option>)}
+        </select>
       )}
-      <select
-        value={tz}
-        onChange={(e) => setTz(e.target.value)}
-        title="Timezone the trigger's times read in"
-        style={{
-          ...inputBase, display: 'block', marginTop: 8, fontFamily: 'var(--mono)', fontSize: 12,
-          padding: '6px 10px', border: '1px solid rgba(255,255,255,.1)', colorScheme: 'dark',
-          color: tz ? 'var(--text)' : 'var(--text-muted)',
-        }}
-      >
-        <option value="">Local time</option>
-        {TZ_LIST.map((z) => <option key={z} value={z}>{z}</option>)}
-      </select>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
         <span style={{
           flex: 1, minWidth: 0, fontFamily: 'var(--mono)', fontSize: 11,
@@ -180,7 +195,11 @@ function AddTrigger({ onAdd }: { onAdd: (t: { kind: 'cron' | 'time'; expr?: stri
           {preview}
         </span>
         <HoverBtn
-          onClick={() => { onAdd({ ...(kind === 'cron' ? { kind, expr: expr.trim() } : { kind, at }), ...(tz ? { tz } : {}) }); reset() }}
+          onClick={() => {
+            onAdd(kind === 'app_start' ? { kind }
+              : { ...(kind === 'cron' ? { kind, expr: expr.trim() } : { kind, at }), ...(tz ? { tz } : {}) })
+            reset()
+          }}
           disabled={!canAdd}
           style={{
             background: 'oklch(0.74 0.155 52 / .1)', border: '1px solid oklch(0.74 0.155 52 / .3)',
@@ -523,13 +542,17 @@ export default function AutomationDetail() {
   const allOff = auto.triggersOff
   const countdown = auto.nextAt == null ? '' : nextIn(auto)
   const nextShort = nextTriggerShort(trigs)
+  // §4.3: an enabled app_start has no computable next — nextAt stays null.
+  const appStartOnly = auto.nextAt == null && trigs.some((t) => t.kind === 'app_start' && !t.off)
   const trigChip = executing ? `${auto.triggerChip} · executing now`
     : noTrigs ? 'No triggers'
     : allOff ? `${auto.triggerChip} · triggers off`
+    : appStartOnly ? `${auto.triggerChip} · on app start`
     : `${auto.triggerChip} · next in ${countdown}`
   const trigStatusText = executing ? 'Executing now… the triggers are unchanged.'
     : noTrigs ? 'No triggers set — executes only when you press Execute now or use the menu bar.'
     : allOff ? 'All triggers are off — won’t execute on its own. Execute now and the menu bar still work.'
+    : appStartOnly ? 'Executes when this app next starts — Execute now and the menu bar still work.'
     : `Next execution in ${countdown}${nextShort ? ` (${nextShort})` : ''} · executes even when the app is closed.`
   const trigChipOn = executing || (!allOff && !noTrigs)
   const execLabel = executing ? 'Executing…' : 'Execute now'
@@ -927,7 +950,7 @@ export default function AutomationDetail() {
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
                   transition: 'background .18s ease,color .18s ease',
                 }}>
-                  <i className={t.kind === 'cron' ? 'fa-solid fa-clock' : 'fa-solid fa-calendar-day'} style={{ fontSize: 12 }} />
+                  <i className={t.kind === 'cron' ? 'fa-solid fa-clock' : t.kind === 'app_start' ? 'fa-solid fa-rocket' : 'fa-solid fa-calendar-day'} style={{ fontSize: 12 }} />
                 </span>
                 <span
                   className="ad-copy"
@@ -958,7 +981,10 @@ export default function AutomationDetail() {
               </div>
             )}
             <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 8 }}>{trigStatusText}</div>
-            <AddTrigger onAdd={(t) => putTriggers([...trigs, { ...t, off: false }], `Trigger added — ${triggerShort(t)}.`)} />
+            <AddTrigger
+              hasAppStart={trigs.some((t) => t.kind === 'app_start')}
+              onAdd={(t) => putTriggers([...trigs, { ...t, off: false }], `Trigger added — ${triggerShort(t)}.`)}
+            />
           </div>
         </div>
       </div>

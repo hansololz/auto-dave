@@ -3,7 +3,7 @@
 // The API remains the authority: every stored trigger is validated server-side.
 
 export interface TriggerLike {
-  kind: 'cron' | 'time'
+  kind: 'cron' | 'time' | 'app_start'
   expr?: string
   at?: string
   tz?: string
@@ -167,6 +167,7 @@ export function timeLabels(at: string, tz?: string): { label: string; short: str
 }
 
 export function triggerShort(t: TriggerLike): string {
+  if (t.kind === 'app_start') return 'App start'
   return t.kind === 'cron' ? cronLabels(t.expr ?? '', t.tz).short : timeLabels(t.at ?? '', t.tz).short
 }
 
@@ -174,7 +175,7 @@ export function triggerShort(t: TriggerLike): string {
 export function nextTriggerShort(triggers: TriggerLike[]): string | null {
   let best: { at: Date; t: TriggerLike } | null = null
   for (const t of triggers) {
-    if (t.off) continue
+    if (t.off || t.kind === 'app_start') continue // §4.3: no computable next occurrence
     const at = t.kind === 'cron' ? cronNext(t.expr ?? '', undefined, t.tz) : timeAt(t.at ?? '', t.tz)
     if (!at || Number.isNaN(at.getTime()) || at <= new Date()) continue
     if (!best || at < best.at) best = { at, t }

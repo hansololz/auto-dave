@@ -200,9 +200,9 @@ never mints a version and never involves the AI. The cron schedule additionally 
 spec: **saving an edit (§4.4) replaces the list's cron subset with the draft's spec-derived
 cron triggers** — a drafted entry that matches a stored cron on (`expr`, `tz`) keeps that
 trigger's `id` and `off` state; other drafted entries arrive enabled with fresh ids; stored
-cron triggers the draft no longer derives are dropped. `time` one-shots always survive a save
-untouched. Manual starts (Execute now, the menu bar, CLI) are not triggers in this list — they
-always work, whatever the list holds.
+cron triggers the draft no longer derives are dropped. `time` one-shots and `app_start`
+triggers always survive a save untouched. Manual starts (Execute now, the menu bar, CLI) are
+not triggers in this list — they always work, whatever the list holds.
 
 Trigger shape: `{ id: uuid, kind, off: bool, …kind fields }` plus the backend-derived display
 strings `label` and `short`. The backend assigns `id` to entries that arrive without one. Kinds:
@@ -211,6 +211,7 @@ strings `label` and `short`. The backend assigns `id` to entries that arrive wit
 |---|---|---|---|
 | `cron` | `expr`: 5-field cron expression · optional `tz` | at every match | humanized when simple (below), else the raw expression in mono |
 | `time` | `at`: wall-clock ISO timestamp ("2026-07-20T15:00") · optional `tz` | once, then the trigger is consumed | "Once at Jul 20, 3:00 PM" / "Once Jul 20 15:00" |
+| `app_start` | — | at every desktop-app launch (§6 firing path) | "On app start" / "App start" |
 | `discord` · `imessage` · `pubsub` | — | future message triggers | — |
 
 **Timezone (`tz`)** — optional IANA zone name (e.g. `Asia/Tokyo`) on `cron` and `time`
@@ -244,6 +245,12 @@ the check reads `at` in the trigger's `tz`).
 The trigger is consumed — removed from the list — when it fires, and equally when its moment is
 skipped (backend down when it passed, or superseded mid-execution, §6). It never lingers spent.
 
+**App-start semantics** (`app_start`): fires when the desktop app launches — the Electron
+process starting (§6 firing path), not a window reopening from the tray. No fields, no `tz`.
+An automation holds at most one: a list carrying a second `app_start` answers 422 and nothing
+is stored. It has no computable next occurrence — it never contributes to `nextAt` — and it
+survives an edit save untouched (the cron-subset replace above only touches crons).
+
 **Next occurrence:** each enabled (`off: false`) trigger computes its own next time — cron: the
 next expression match strictly after now; time: `at`. The automation's `nextAt` is the minimum
 across them, null when no enabled trigger has one. The countdown renders "next in Xd Xh" /
@@ -259,6 +266,9 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
   bar." (pause icon)
 - all off → "All triggers are off — won't execute on its own. Execute now and the menu bar
   still work." (pause icon)
+- `nextAt` null but an enabled `app_start` exists → "Executes when this app next starts —
+  Execute now and the menu bar still work." (clock icon); the detail-page trigger chip reads
+  "`<triggerChip>` · on app start"
 - else → "Next execution in `<countdown>` (`<short label of the next trigger>`) · executes even
   when the app is closed." (clock icon)
 
@@ -321,8 +331,9 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
 
 ```
 id: uuid, autoId: uuid, ver ("v3" or "Draft"), status,
-trigger: Manual | Menu bar | Cron | Once (future: Discord | iMessage | Pub/Sub) — the label of
-  what started the execution (§4.3 kinds map cron → "Cron", time → "Once")
+trigger: Manual | Menu bar | Cron | Once | App start (future: Discord | iMessage | Pub/Sub) —
+  the label of what started the execution (§4.3 kinds map cron → "Cron", time → "Once",
+  app_start → "App start")
 dur, started ("Today, 8:00 AM"), startedMs
 steps: [{ name, status, dur }]
 logs: [{ t, k: sys|out|wrn|err, text }]
@@ -648,7 +659,12 @@ never used for lookups.
   execution is retried once after 5 minutes — once per failure streak, keyed on the automation:
   a retry that also fails is not retried again until a trigger-fired success resets it. The
   retry resumes from the failed step (§7 re-execute semantics: earlier steps `reused`, workspace
-  copied), not from scratch.
+  copied), not from scratch. **App-start firing:** the Electron main process calls §19
+  `POST /app-started` once per app launch (on ready; while the backend isn't answering it
+  re-reads `backend.json` and retries every 2 s for up to 60 s, then the occurrence lapses —
+  no queue). The backend then starts one execution per automation holding an enabled
+  `app_start` trigger; the mid-execution skip and the 5-minute failure retry apply as above.
+  Reopening a window from the tray is not an app start.
 - **Missed executions** — execute when possible: if a trigger's moment passes while the Mac is
   asleep (backend alive but suspended), the execution fires on wake. If the backend itself wasn't
   running when the moment passed, that occurrence is skipped entirely — no catch-up queue at
@@ -1207,12 +1223,17 @@ Sections top to bottom:
   state (dashed
   card): "No executions yet / Press Execute now — the first result will appear right here."
 - **TRIGGERS** card — one row per trigger (kind icon — fa-clock for
-  cron, fa-calendar-day for time; §4.3 `label`; per-row on/off toggle; remove ×), the §4.3
+  cron, fa-calendar-day for time, fa-rocket for app start; §4.3 `label`; per-row on/off toggle;
+  remove ×), the §4.3
   status line beneath the rows, and an **"+ Add trigger"** button opening an inline editor:
-  kind picker (Cron / One time; Discord, iMessage, and Pub/Sub render as disabled "coming soon"
+  kind picker (Cron / One time / App start; Discord, iMessage, and Pub/Sub render as disabled
+  "coming soon"
   options) then either a cron-expression input with a live preview line (the humanized label
   when simple, plus "next: `<time>`"; an invalid expression gets the red input border and
-  blocks Add) or a native date+time input that must be in the future. Both kinds add a
+  blocks Add) or a native date+time input that must be in the future; App start shows no
+  input — just the preview line "On app start — executes when you launch the app", and its
+  picker chip renders disabled (title "Already added") while the list holds one. Cron and
+  One time add a
   **timezone select** below the input — first option "Local time" (the default; stores no
   `tz`), then every IANA zone (`Intl.supportedValuesOf('timeZone')`); a non-local choice is
   stored as the trigger's §4.3 `tz`, and the preview line (labels and "next:") reflects it,
@@ -1882,13 +1903,17 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   (backs the §11 Framework-instructions and Build-instructions cards)
 - `GET /automations` · `GET /automations/{id}` · `DELETE /automations/{id}`
 - `PATCH /automations/{id}` — user-owned fields only: name, triggers (the §4.3 list, replaced
-  whole; entries keep their `id`, new entries get one assigned; cron/time kinds only — a message
-  kind, an invalid cron expression, an unknown `tz`, or a past `time` answers 422 and nothing
-  is stored), param
+  whole; entries keep their `id`, new entries get one assigned; cron/time/app_start kinds
+  only — a message kind, an invalid cron expression, an unknown `tz`, a past `time`, or a
+  second `app_start` answers 422 and nothing is stored), param
   values, agentId, stepAgents, allowedSecrets, snapshotSettings (the §6.3 automatic-snapshot
   toggles — partial object, sent keys merged over the stored ones)
 - `POST /automations/{id}/execute` `{ version?: "vN" | "draft" (case-insensitive), trigger? }` →
   `{ execId }` (409 while live)
+- `POST /app-started` → `{ fired }` — the §6 app-start firing path, called by the Electron
+  main process once per app launch: starts an execution for every automation holding an
+  enabled `app_start` trigger (one mid-execution gets a skipped record instead, §6); `fired`
+  counts the executions started
 - `POST /automations` `{ draft }` — create v1 from a validated draft; consumes the §4.4
   pending create-mode slot (`<root>/draft/` is deleted on success)
 - `POST /automations/{id}/versions` `{ draft }` — save edit as vN+1; the draft's `triggers`

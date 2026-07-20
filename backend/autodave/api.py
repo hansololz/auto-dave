@@ -17,6 +17,7 @@ from . import drafting, packages as pkglib, schedule
 from .drafting import draft_jobs
 from .engine import Engine
 from .events import hub
+from .scheduler import fire_trigger
 from .storage import SECRET_REF_RE, Store, param_default, resolve_param_value, store
 from .testrun import test_runs
 
@@ -301,6 +302,21 @@ def execute_auto(auto_id: str, body: dict | None = None) -> dict:
     except RuntimeError as e:
         raise HTTPException(409, str(e)) from e
     return {"execId": h["id"]}
+
+
+@app.post("/app-started", dependencies=[Depends(auth)])
+def app_started() -> dict:
+    """§6 app-start firing: the Electron main process calls this once per app
+    launch; every automation holding an enabled `app_start` trigger executes."""
+    with store.lock:
+        autos = list(store.autos.values())
+    fired = 0
+    for a in autos:
+        t = next((t for t in a["triggers"]
+                  if t["kind"] == "app_start" and not t["off"]), None)
+        if t and fire_trigger(store, engine, a, t):
+            fired += 1
+    return {"fired": fired}
 
 
 # ---------- tests (§11 Test — §19 POST /tests) ----------

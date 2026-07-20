@@ -128,6 +128,8 @@ def validate_trigger(t: dict) -> str | None:
     kind = t.get("kind")
     if kind in RESERVED_KINDS:
         return f"{kind} triggers are coming soon"
+    if kind == "app_start":
+        return None
     if kind == "cron":
         if err := tz_error(t.get("tz")):
             return err
@@ -163,9 +165,12 @@ def normalize_triggers(raw: list) -> tuple[list[dict], str | None]:
                    "kind": t["kind"], "off": bool(t.get("off", False))}
         if t["kind"] == "cron":
             n["expr"] = t["expr"].strip()
-        else:
+        elif t["kind"] == "time":
             n["at"] = t["at"]
-        if t.get("tz"):
+        else:  # app_start — no fields, at most one per automation (§4.3)
+            if any(x["kind"] == "app_start" for x in out):
+                return [], "only one app-start trigger per automation"
+        if t["kind"] != "app_start" and t.get("tz"):
             n["tz"] = t["tz"]
         out.append(n)
     return out, None
@@ -200,17 +205,21 @@ def time_display(at: str, tz: str | None = None) -> tuple[str, str]:
 def trigger_display(t: dict) -> tuple[str, str]:
     if t["kind"] == "cron":
         return cron_display(t["expr"], t.get("tz"))
+    if t["kind"] == "app_start":
+        return "On app start", "App start"
     return time_display(t["at"], t.get("tz"))
 
 
 def trigger_exec_label(t: dict) -> str:
     """§4.5 execution trigger label."""
-    return "Cron" if t["kind"] == "cron" else "Once"
+    return {"cron": "Cron", "app_start": "App start"}.get(t["kind"], "Once")
 
 
 def trigger_next(t: dict, after: datetime | None = None) -> datetime | None:
     """Next occurrence of one trigger strictly after `after`, both local naive.
     A `tz` trigger is evaluated on its zone's wall clock (off is the caller's concern)."""
+    if t["kind"] == "app_start":
+        return None  # §4.3: no computable next occurrence
     tz = zone_of(t)
     base = after or datetime.now()
     if t["kind"] == "cron":

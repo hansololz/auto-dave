@@ -183,11 +183,15 @@ class Store:
         with a warning (disk is hand-editable)."""
         out = []
         for t in raw:
-            if isinstance(t, dict) and schedule.validate_trigger(t) is None:
+            if (isinstance(t, dict) and t.get("kind") == "app_start"
+                    and any(x["kind"] == "app_start" for x in out)):
+                log.warning("dropping duplicate app-start trigger %r", t)  # §4.3: at most one
+            elif isinstance(t, dict) and schedule.validate_trigger(t) is None:
                 out.append({"id": t.get("id") or new_id(), "kind": t["kind"],
                             "off": bool(t.get("off", False)),
-                            **({"expr": t["expr"]} if t["kind"] == "cron" else {"at": t["at"]}),
-                            **({"tz": t["tz"]} if t.get("tz") else {})})
+                            **({"expr": t["expr"]} if t["kind"] == "cron" else
+                               {"at": t["at"]} if t["kind"] == "time" else {}),
+                            **({"tz": t["tz"]} if t.get("tz") and t["kind"] != "app_start" else {})})
             elif isinstance(t, dict) and t.get("kind") == "time":
                 # A past one-shot found on disk was missed while the backend was
                 # down — consumed (§4.3), never loaded.

@@ -356,6 +356,35 @@ def test_patch_automation_triggers_and_grants(client):
     assert j["triggersOff"] is False
 
 
+def test_app_started_fires_enabled_app_start_triggers(client, monkeypatch):
+    # §6 app-start firing: POST /app-started executes every automation with an
+    # enabled app_start trigger; off ones stay quiet.
+    from autodave.storage import store
+
+    events = _capture_events(monkeypatch)
+    a = store.create_automation(make_version(), "On start", "mock")
+    b = store.create_automation(make_version(), "On start (off)", "mock")
+    assert client.patch(f"/automations/{a['id']}",
+                        json={"triggers": [{"kind": "app_start", "off": False}]}).status_code == 200
+    assert client.patch(f"/automations/{b['id']}",
+                        json={"triggers": [{"kind": "app_start", "off": True}]}).status_code == 200
+    # a second app_start in one list → 422 (§4.3)
+    r = client.patch(f"/automations/{a['id']}", json={
+        "triggers": [{"kind": "app_start", "off": False}, {"kind": "app_start", "off": False}]})
+    assert r.status_code == 422
+
+    assert client.post("/app-started").json() == {"fired": 1}
+    _until(events, "exec.finished")
+    execs = client.get("/executions").json()
+    assert [e["trigger"] for e in execs if e["autoId"] == a["id"]] == ["App start"]
+    assert [e for e in execs if e["autoId"] == b["id"]] == []
+    # §4.3 derived display: app_start contributes no nextAt
+    j = client.get(f"/automations/{a['id']}").json()
+    assert j["nextAt"] is None
+    assert j["triggers"][0]["label"] == "On app start"
+    assert j["triggerChip"] == "App start"
+
+
 def test_patch_automation_triggers_422(client):
     from autodave.storage import store
 

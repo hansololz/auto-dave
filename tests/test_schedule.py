@@ -125,6 +125,25 @@ def test_tz_labels():
         "Once at Jul 20, 3:00 PM (Tokyo)", "Once Jul 20 15:00 (Tokyo)")
 
 
+def test_app_start_trigger():
+    from autodave.schedule import trigger_display, trigger_exec_label
+
+    assert validate_trigger({"kind": "app_start"}) is None
+    norm, err = normalize_triggers([{"kind": "app_start", "off": True, "tz": "UTC"}])
+    assert err is None
+    assert norm[0]["kind"] == "app_start" and norm[0]["off"] is True and norm[0]["id"]
+    assert "tz" not in norm[0] and "expr" not in norm[0] and "at" not in norm[0]
+    # §4.3: at most one per automation
+    _, err = normalize_triggers([{"kind": "app_start"}, {"kind": "app_start"}])
+    assert "one app-start" in err
+    t = {"id": "1", "kind": "app_start", "off": False}
+    assert trigger_next(t) is None  # no computable next occurrence
+    assert next_at([t]) is None
+    assert trigger_display(t) == ("On app start", "App start")
+    assert trigger_chip([t]) == "App start"
+    assert trigger_exec_label(t) == "App start"
+
+
 def test_reserved_and_unknown_kinds_rejected():
     for kind in ("discord", "imessage", "pubsub"):
         assert "coming soon" in validate_trigger({"kind": kind})

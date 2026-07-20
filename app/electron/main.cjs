@@ -23,6 +23,25 @@ function backendInfo() {
   }
 }
 
+// §6 app-start firing: tell the backend this app process launched, once. The
+// backend may still be coming up — re-read backend.json and retry every 2 s
+// for up to 60 s, then let the occurrence lapse (no queue).
+async function notifyAppStarted() {
+  for (let i = 0; i < 30; i++) {
+    const info = backendInfo()
+    if (info) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${info.port}/app-started`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${info.token}` },
+        })
+        if (res.ok) return
+      } catch { /* backend not answering yet — retry */ }
+    }
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+}
+
 function load(w, hash) {
   // AUTODAVE_RENDERER_URL (§15): serve the same renderer source from a dev
   // server (HMR) instead of the built bundle. Configuration only — same code.
@@ -158,6 +177,7 @@ app.whenReady().then(() => {
   }
   createWindow()
   createTray()
+  void notifyAppStarted()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 
