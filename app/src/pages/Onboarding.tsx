@@ -8,7 +8,7 @@
 import React, { useEffect, useReducer, useRef } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import { BtnPrimary, Eyebrow, GreenCheck, Logo, MiniBadge, Spinner } from '../ui'
+import { BtnPrimary, Eyebrow, Logo, MiniBadge, Spinner } from '../ui'
 
 interface Det { id: string; name: string; installed: boolean; signedIn: boolean | null; detail: string }
 
@@ -165,7 +165,13 @@ export default function Onboarding() {
       .catch(() => [] as Det[])
       .then((provs) => {
         const wait = Math.max(0, 1900 - (Date.now() - started))
-        t(() => up((o) => { o.det = 'cards'; o.provs = provs }), wait)
+        t(() => {
+          up((o) => { o.det = 'cards'; o.provs = provs })
+          // §10: connection checks run on their own — signed-out providers
+          // skip it (the check would fail) and show Sign in directly.
+          provs.filter((p) => p.installed && p.signedIn !== false)
+            .forEach((p) => startCheck(p))
+        }, wait)
       })
   }
 
@@ -522,6 +528,17 @@ export default function Onboarding() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 26, animation: 'adFadeUp .35s ease both' }}>
                 <Eyebrow style={{ color: 'var(--accent)' }}>FOUND ON THIS MAC</Eyebrow>
                 {foundList.map((f) => renderFoundCard(f))}
+                {foundList.every((f) => card(f.id).phase !== 'checking') && (
+                  foundList.some((f) => card(f.id).phase === 'connected') ? (
+                    <div style={{ fontSize: 13, color: 'var(--text-2)', animation: 'adFadeUp .3s ease both' }}>
+                      You’re ready — continue with a connected AI, or set up another below.
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: 'var(--amber)', animation: 'adFadeUp .3s ease both' }}>
+                      More setup needed — finish the steps above before continuing.
+                    </div>
+                  )
+                )}
               </div>
             )}
 
@@ -620,9 +637,9 @@ export default function Onboarding() {
       <div
         key={f.id}
         style={{
-          background: 'var(--bg-card-sel)', border: `1px solid ${conn ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.09)'}`,
+          background: 'var(--bg-card-sel)', border: '1px solid rgba(255,255,255,.09)',
           borderRadius: 12, padding: '17px 22px',
-          display: 'flex', alignItems: 'center', gap: 16, transition: 'border-color .2s',
+          display: 'flex', alignItems: 'center', gap: 16,
         }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -644,7 +661,7 @@ export default function Onboarding() {
           </button>
         ) : (
           <button className="ad-btn-ghost" onClick={() => startCheck(f)} style={{ flex: 'none' }}>
-            Check connection
+            Check again
           </button>
         ))}
         {c.phase === 'checking' && (
@@ -657,17 +674,14 @@ export default function Onboarding() {
           <div style={{ flex: 'none', maxWidth: 340 }}>{renderSigninWait(f)}</div>
         )}
         {conn && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 'none', animation: 'adFadeUp .3s ease both' }}>
-            <GreenCheck label="Connected" />
-            <button
-              className="ad-btn-primary"
-              onClick={() => obContinue(f.id)}
-              disabled={ob.committing}
-              style={{ opacity: ob.committing ? 0.6 : 1 }}
-            >
-              {`Continue with ${f.name} →`}
-            </button>
-          </div>
+          <button
+            className="ad-btn-primary"
+            onClick={() => obContinue(f.id)}
+            disabled={ob.committing}
+            style={{ flex: 'none', opacity: ob.committing ? 0.6 : 1, animation: 'adFadeUp .3s ease both' }}
+          >
+            {`Continue with ${f.name} →`}
+          </button>
         )}
       </div>
     )
@@ -683,8 +697,8 @@ export default function Onboarding() {
         key={p.id}
         style={{
           background: 'var(--bg-card-sel)',
-          border: `1px solid ${conn ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.09)'}`,
-          borderRadius: 12, padding: '17px 22px', transition: 'border-color .2s',
+          border: '1px solid rgba(255,255,255,.09)',
+          borderRadius: 12, padding: '17px 22px',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -708,17 +722,14 @@ export default function Onboarding() {
             </div>
           )}
           {conn && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 'none', animation: 'adFadeUp .3s ease both' }}>
-              <GreenCheck label={p.id === 'ollama' ? 'Ready to go.' : 'Connected — signed in as you.'} />
-              <button
-                className="ad-btn-primary"
-                onClick={() => obContinue(p.id)}
-                disabled={ob.committing}
-                style={{ opacity: ob.committing ? 0.6 : 1 }}
-              >
-                {CONTINUE_LABEL[p.id]}
-              </button>
-            </div>
+            <button
+              className="ad-btn-primary"
+              onClick={() => obContinue(p.id)}
+              disabled={ob.committing}
+              style={{ flex: 'none', opacity: ob.committing ? 0.6 : 1, animation: 'adFadeUp .3s ease both' }}
+            >
+              {CONTINUE_LABEL[p.id]}
+            </button>
           )}
         </div>
         {busy && (

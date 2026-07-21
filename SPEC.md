@@ -1429,23 +1429,29 @@ there is no eyebrow and no collapse — the list is always visible, with a note 
 "No AI app was found on this Mac — here are some suggestions for moving forward."
 
 Every card resolves inside itself — there is no page-level Continue button, no radio selection,
-and no multi-ready banner. All step-2 cards use the neutral card border; a card's border turns
-accent-tinted once its provider is connected/ready, harmonizing with the in-card accent
-Continue button (the green check label alone signals success; the accent
-"FOUND ON THIS MAC" eyebrow alone marks the detected section). Each card carries a single
+and no multi-ready banner. All step-2 cards keep the neutral card border in every state —
+no accent tint and no "Connected" label on connect; the Continue button alone is the
+success signal (the accent "FOUND ON THIS MAC" eyebrow alone marks the detected section). Each card carries a single
 action slot that advances through its states in place. All machines are real — backend installs,
 real sign-in checks; no simulation in any mode:
-- **Found card, signed in (or Ollama)** — "Check connection" → inline spinner "Checking
-  connection…" (real §19 `POST /agents/check-harness`) → green "Connected" plus a primary
-  "Continue with `<name>` →" button in the same card. A failed check shows amber "Not ready —
-  `<reason>`" and the button returns to "Check connection".
-- **Found card, not signed in** — sign-in help only when necessary: amber "Sign in" button →
+- **Found card, signed in (or Ollama)** — the connection check runs automatically as soon as
+  the cards land; the user never has to ask for it. The card starts on an inline spinner
+  "Checking connection…" (real §19 `POST /agents/check-harness`) → a primary
+  "Continue with `<name>` →" button in the same card. A failed check shows amber
+  "Not ready — `<reason>`" with a "Check again" button.
+- **Found card, not signed in** — skips the auto-check (it would fail); sign-in help only
+  when necessary: amber "Sign in" button →
   §19 `POST /agents/login` → waiting state (amber pulsing dot; copy matches the login method
   the backend reports: browser for Codex — "We opened your browser — sign in there and come
   back. We'll notice on our own."; Terminal for the others — "We opened Terminal — finish
   signing in there and come back. We'll notice on our own."), with "Cancel" returning to idle.
   The UI polls §19 `GET /agents/signin/{id}` every 2 s; once signed in the card runs the
   connection check automatically and lands on Connected + Continue.
+- **Setup status line** — once every found card's auto-check has settled (none still
+  checking), a line under the found section says whether the user can move on: "You're
+  ready — continue with a connected AI, or set up another below." when at least one found
+  card is connected, otherwise amber "More setup needed — finish the steps above before
+  continuing."
 - **Suggestion card** (one per missing provider) — "Claude" ("Set up Claude Code") /
   "Codex" / "Gemini" / "OpenCode" (each "Set up `<name>`") / "Free local AI"
   (Ollama + Qwen3 8B, "Download and install · 5.2 GB"): install via §19
@@ -1453,8 +1459,8 @@ real sign-in checks; no simulation in any mode:
   `harness.install` stream carries a percent, indeterminate otherwise) → then the sign-in flow
   above **only if the provider needs an account and isn't signed in** (Ollama instead continues
   into "Step 2 of 2 — Downloading Qwen3 8B…" via `POST /ollama/pull`, real percent from the
-  pull stream, continues in the background) → connected ("Connected — signed in as you." /
-  Ollama "Ready to go.") plus "Continue with `<name>` →". An install failure shows red
+  pull stream, continues in the background) → connected: "Continue with `<name>` →" alone.
+  An install failure shows red
   "Install failed — `<first error line>`" with "Try again". There is no sudo step: every
   install lands in user-writable locations (§19 channels), so macOS never prompts for an
   admin password.
@@ -2168,7 +2174,7 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `POST /executions/{id}/skip-step` `{ index }` (§7 skip; 409 unless that step is executing)
 - `GET/POST /agents` · `PATCH/DELETE /agents/{id}` · `POST /agents/{id}/check` (health/badge)
   and `POST /agents/check-harness` `{ harness, model? }` (the same check before an agent record
-  exists — onboarding's found-card "Check connection") — one shared readiness check
+  exists — onboarding's found-card auto-check) — one shared readiness check
   (`harness.check_ready`) decides ready vs. needs-setup everywhere: the harness binary must
   resolve (rule below), Ollama's server must answer **and the agent's model must be installed**
   (the model appears in `/api/tags`; a bare name without a tag matches its `:latest` variant;
