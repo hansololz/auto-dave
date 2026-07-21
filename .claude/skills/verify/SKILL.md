@@ -36,8 +36,10 @@ description: Build, launch, and drive Auto Dave (Electron + Python backend) to v
 - **Onboarding only shows when the backend has zero automations AND `ad-onboarded` is absent
   from localStorage** (`store.ts` boot). Non-empty home → straight to app. Use an empty home on
   a second port.
-- The onboarding install machines are simulated (timers) and always succeed; the `denied` UI
-  branch is currently unreachable (§10).
+- The onboarding install machines are REAL (§10/§19): clicking a "Set up …" suggestion card
+  actually installs that CLI into `~/.local/bin` on this Mac, and sign-in help really opens
+  Terminal/browser. Don't click them in automated runs unless that side effect is intended;
+  found-card "Check connection" is safe (read-only readiness check).
 - Flows drive fine headless-less on macOS; screenshot via `page.screenshot`.
 
 ## Worth driving

@@ -73,7 +73,7 @@ def test_codex_invoked_with_read_only_sandbox(monkeypatch):
     assert cmd[-1] == "question: hi?"
 
 
-def test_detect_finds_gemini_and_opencode(monkeypatch):
+def test_detect_reports_all_five_with_sign_in_state(monkeypatch):
     from autodave import harness
 
     present = {"gemini", "opencode"}
@@ -86,12 +86,19 @@ def test_detect_finds_gemini_and_opencode(monkeypatch):
         stderr = ""
 
     monkeypatch.setattr(harness.subprocess, "run", lambda *a, **kw: _R())
-    monkeypatch.setattr(harness, "ollama_status", lambda: {"ready": False, "models": []})
-    found = harness.detect()
-    by_id = {f["id"]: f for f in found}
-    assert by_id["gemini"]["name"] == "Gemini CLI" and "9.9.9" in by_id["gemini"]["detail"]
-    assert by_id["opencode"]["name"] == "OpenCode" and "9.9.9" in by_id["opencode"]["detail"]
-    assert "claude" not in by_id and "codex" not in by_id
+    monkeypatch.setattr(harness, "ollama_status",
+                        lambda: {"ready": False, "installed": False, "models": []})
+    monkeypatch.setattr(harness, "signed_in",
+                        lambda pid: None if pid == "ollama" else pid == "gemini")
+    by_id = {f["id"]: f for f in harness.detect()}
+    # §19: one entry per provider, all five always present
+    assert set(by_id) == {"claude", "ollama", "codex", "gemini", "opencode"}
+    assert by_id["gemini"]["installed"] and by_id["gemini"]["signedIn"] is True
+    assert "9.9.9" in by_id["gemini"]["detail"] and "signed in" in by_id["gemini"]["detail"]
+    assert by_id["opencode"]["installed"] and by_id["opencode"]["signedIn"] is False
+    assert "not signed in yet" in by_id["opencode"]["detail"]
+    assert not by_id["claude"]["installed"] and by_id["claude"]["detail"] == ""
+    assert by_id["ollama"]["signedIn"] is None  # no account
 
 
 def test_detect_finds_fake_claude_from_path(monkeypatch):
@@ -102,8 +109,35 @@ def test_detect_finds_fake_claude_from_path(monkeypatch):
                         lambda: {"ready": False, "installed": False, "models": []})
     found = harness.detect()
     by_id = {f["id"]: f for f in found}
-    assert "claude" in by_id
+    assert by_id["claude"]["installed"]
     assert "auto-dave test fake" in by_id["claude"]["detail"]
+
+
+def test_check_ready_requires_sign_in(monkeypatch):
+    """§19: every account-backed harness must be signed in to be ready."""
+    from autodave import harness
+
+    monkeypatch.setattr(harness, "resolve_bin", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr(harness, "signed_in", lambda pid: False)
+    for name in ("Claude Code", "Codex", "Gemini CLI", "OpenCode"):
+        assert not harness.check_ready(name)
+    monkeypatch.setattr(harness, "signed_in", lambda pid: True)
+    for name in ("Claude Code", "Codex", "Gemini CLI", "OpenCode"):
+        assert harness.check_ready(name)
+    monkeypatch.setattr(harness, "resolve_bin", lambda name: None)
+    assert not harness.check_ready("Codex")  # not installed → never ready
+
+
+def test_signin_state_is_cheap_per_provider(monkeypatch):
+    from autodave import harness
+
+    monkeypatch.setattr(harness, "resolve_bin", lambda name: "/usr/local/bin/x")
+    monkeypatch.setattr(harness, "signed_in", lambda pid: pid == "codex")
+    assert harness.signin_state("codex") == {"installed": True, "signedIn": True}
+    assert harness.signin_state("gemini") == {"installed": True, "signedIn": False}
+    monkeypatch.setattr(harness, "ollama_status",
+                        lambda: {"ready": False, "installed": False, "models": []})
+    assert harness.signin_state("ollama") == {"installed": False, "signedIn": None}
 
 
 def test_check_ready_ollama_requires_installed_model(monkeypatch):

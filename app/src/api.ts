@@ -106,7 +106,19 @@ export const api = {
   patchAgent: (id: string, body: Record<string, unknown>) => req('PATCH', `/agents/${id}`, body),
   deleteAgent: (id: string) => req('DELETE', `/agents/${id}`),
   checkAgent: (id: string) => req<{ status: string }>('POST', `/agents/${id}/check`),
-  detectAgents: () => req<{ id: string; name: string; detail: string }[]>('GET', '/agents/detect'),
+  // §19 §4.7 readiness check before an agent record exists (§10 found cards)
+  checkHarness: (harness: string, model?: string | null) =>
+    req<{ status: string }>('POST', '/agents/check-harness', { harness, model }),
+  detectAgents: () =>
+    req<{ id: string; name: string; installed: boolean; signedIn: boolean | null; detail: string }[]>(
+      'GET', '/agents/detect'),
+  // §19 real installs + sign-in help (§10 step 2)
+  installHarness: (id: string) => req('POST', '/agents/install', { id }),
+  installStatus: (id: string) =>
+    req<{ state: 'idle' | 'running' | 'done' | 'failed'; pct?: number; line?: string; error?: string }>(
+      'GET', `/agents/install/${id}`),
+  loginHarness: (id: string) => req<{ ok: boolean; method: 'browser' | 'terminal' }>('POST', '/agents/login', { id }),
+  signinStatus: (id: string) => req<{ installed: boolean; signedIn: boolean | null }>('GET', `/agents/signin/${id}`),
   ollamaStatus: () => req<{ ready: boolean; installed: boolean; models: string[] }>('GET', '/ollama/status'),
   ollamaPull: (model: string) => req('POST', '/ollama/pull', { model }),
   putSecret: (name: string, value: string, desc?: string) =>

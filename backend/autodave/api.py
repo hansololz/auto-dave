@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from . import __version__, harness, keychain, paths
+from . import __version__, harness, installer, keychain, paths
 from . import drafting, packages as pkglib, schedule
 from .drafting import draft_jobs
 from .engine import Engine
@@ -685,6 +685,62 @@ def check_agent(agent_id: str) -> dict:
 @app.get("/agents/detect", dependencies=[Depends(auth)])
 def detect_agents() -> list[dict]:
     return harness.detect()
+
+
+def _provider_or_422(provider_id: str | None) -> str:
+    if provider_id not in harness.PROVIDER_NAME:
+        raise HTTPException(422, "unknown provider")
+    return provider_id
+
+
+@app.post("/agents/check-harness", dependencies=[Depends(auth)])
+def check_harness(body: dict) -> dict:
+    """§19: the §4.7 readiness check before an agent record exists (§10)."""
+    if body.get("harness") not in harness.HARNESS_ID:
+        raise HTTPException(422, "unknown harness")
+    return {"status": "ready" if harness.check_ready(body["harness"], body.get("model"))
+            else "needs-setup"}
+
+
+@app.get("/agents/signin/{provider_id}", dependencies=[Depends(auth)])
+def agents_signin(provider_id: str) -> dict:
+    return harness.signin_state(_provider_or_422(provider_id))
+
+
+@app.post("/agents/install", dependencies=[Depends(auth)])
+def agents_install(body: dict) -> dict:
+    pid = _provider_or_422(body.get("id"))
+
+    def publish(**kw) -> None:
+        hub.publish("harness.install", id=pid,
+                    **{k: v for k, v in kw.items() if v is not None})
+
+    if not installer.start(pid, publish):
+        raise HTTPException(409, "an install for this provider is already running")
+    return {"ok": True}
+
+
+@app.get("/agents/install/{provider_id}", dependencies=[Depends(auth)])
+def agents_install_status(provider_id: str) -> dict:
+    return installer.status(_provider_or_422(provider_id))
+
+
+@app.post("/agents/login", dependencies=[Depends(auth)])
+def agents_login(body: dict) -> dict:
+    """§19 sign-in help — only when the provider needs it."""
+    pid = _provider_or_422(body.get("id"))
+    if pid == "ollama":
+        raise HTTPException(409, "Ollama needs no sign-in")
+    st = harness.signin_state(pid)
+    if not st["installed"]:
+        raise HTTPException(409, f"{harness.PROVIDER_NAME[pid]} isn't installed on this Mac")
+    if st["signedIn"] is True:
+        raise HTTPException(409, "already signed in")
+    try:
+        method = installer.login(pid)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e)) from e
+    return {"ok": True, "method": method}
 
 
 @app.get("/ollama/status", dependencies=[Depends(auth)])

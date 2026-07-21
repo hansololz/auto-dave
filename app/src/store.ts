@@ -56,6 +56,8 @@ export interface Model {
     issue: Blocker[] | null
   } | null
   ollamaPull: { model: string; line: string; done: boolean; ok?: boolean } | null
+  // §19 harness.install stream, latest event per provider id
+  harnessInstall: Record<string, { line?: string; pct?: number; done: boolean; ok?: boolean; error?: string }>
   // §12 session cache of agent status checks, keyed by agent id
   agentChecks: Record<string, AgentCheck>
 
@@ -106,6 +108,7 @@ export const useStore = create<Model>((set, get) => ({
   execLogs: {},
   test: null,
   ollamaPull: null,
+  harnessInstall: {},
   agentChecks: {},
 
   // §12: the one place a status check runs — badge goes to `pending` while the
@@ -256,6 +259,19 @@ export const useStore = create<Model>((set, get) => ({
       } else {
         set({ test: { ...t, analyzing: false, issue: (msg.blockers as Blocker[]) ?? [] } })
       }
+      return
+    }
+    if (ev === 'harness.install') {
+      const id = msg.id as string
+      set({
+        harnessInstall: {
+          ...get().harnessInstall,
+          [id]: {
+            line: msg.line as string | undefined, pct: msg.pct as number | undefined,
+            done: !!msg.done, ok: msg.ok as boolean | undefined, error: msg.error as string | undefined,
+          },
+        },
+      })
       return
     }
     if (ev === 'ollama.pull') {

@@ -641,3 +641,45 @@ def test_memory_snapshot_409_while_live(client):
         assert client.post(f"{base}/{snap['id']}/restore").status_code == 409
     finally:
         a["_live"] = None
+
+
+def test_check_harness_endpoint(client, monkeypatch):
+    # §19: the §4.7 readiness check before an agent record exists (§10 cards).
+    from autodave import harness
+
+    monkeypatch.setattr(harness, "check_ready", lambda name, model=None: name == "Codex")
+    assert client.post("/agents/check-harness",
+                       json={"harness": "Codex"}).json() == {"status": "ready"}
+    assert client.post("/agents/check-harness",
+                       json={"harness": "Gemini CLI"}).json() == {"status": "needs-setup"}
+    assert client.post("/agents/check-harness", json={"harness": "GPT-5"}).status_code == 422
+
+
+def test_signin_and_login_endpoints(client, monkeypatch):
+    # §19 sign-in help: only for an installed, signed-out, account-backed provider.
+    from autodave import harness, installer
+
+    monkeypatch.setattr(harness, "signin_state",
+                        lambda pid: {"installed": pid != "gemini", "signedIn": pid == "claude"})
+    assert client.get("/agents/signin/codex").json() == {"installed": True, "signedIn": False}
+    assert client.get("/agents/signin/nope").status_code == 422
+
+    assert client.post("/agents/login", json={"id": "ollama"}).status_code == 409  # no account
+    assert client.post("/agents/login", json={"id": "gemini"}).status_code == 409  # not installed
+    assert client.post("/agents/login", json={"id": "claude"}).status_code == 409  # already signed in
+    monkeypatch.setattr(installer, "login", lambda pid: "browser")
+    assert client.post("/agents/login", json={"id": "codex"}).json() == {"ok": True, "method": "browser"}
+
+
+def test_install_endpoints(client, monkeypatch):
+    # §19: install runs in the backend; the status snapshot reattaches a remounted UI.
+    from autodave import installer
+
+    assert client.post("/agents/install", json={"id": "nope"}).status_code == 422
+    assert client.get("/agents/install/claude").json() == {"state": "idle"}
+
+    started = {}
+    monkeypatch.setattr(installer, "start", lambda pid, publish: started.setdefault(pid, True))
+    assert client.post("/agents/install", json={"id": "codex"}).json() == {"ok": True}
+    monkeypatch.setattr(installer, "start", lambda pid, publish: False)  # already running
+    assert client.post("/agents/install", json={"id": "codex"}).status_code == 409

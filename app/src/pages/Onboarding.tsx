@@ -1,15 +1,59 @@
 // Onboarding surface (SPEC §10): step 1 (welcome + live self-check) and
 // step 2 (connect your AI). Step 3 is the Create flow — on entry we mark
 // onboarding done and hand off via setSurface('create', 'onboard').
+//
+// Step 2 is fully real (§10/§19): detection reports installed + sign-in state
+// for all five providers, installs run in the backend (`harness.install` WS
+// stream), and sign-in help opens only when the provider actually needs it.
 import React, { useEffect, useReducer, useRef } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import { BtnPrimary, Eyebrow, GreenCheck, Logo, MiniBadge, ProgressBar, Spinner, SudoNotice } from '../ui'
+import { BtnPrimary, Eyebrow, GreenCheck, Logo, MiniBadge, Spinner } from '../ui'
 
-interface Det { id: string; name: string; detail: string }
+interface Det { id: string; name: string; installed: boolean; signedIn: boolean | null; detail: string }
 
-type ClState = 'idle' | 'installing' | 'sudo' | 'waiting' | 'connected'
-type LoState = 'idle' | 'installing' | 'sudo' | 'downloading' | 'ready'
+type CardPhase = 'idle' | 'installing' | 'pulling' | 'signin' | 'checking' | 'connected' | 'failed'
+interface Card {
+  phase: CardPhase
+  pct: number | null            // install percent, when the stream carries one
+  line: string                  // latest install line
+  pullPct: number               // §10 Qwen3 8B model download percent
+  method: 'browser' | 'terminal' | null
+  error: string | null          // failed-install first error line
+  notReady: string | null       // failed connection check, shown on the idle card
+}
+
+const LOCAL_MODEL = 'qwen3:8b'
+const SUG_ORDER = ['claude', 'codex', 'gemini', 'opencode', 'ollama']
+const SUG: Record<string, { title: string; body: string; btn: string; primary: boolean }> = {
+  claude: {
+    title: 'Use Claude', primary: true, btn: 'Set up Claude Code',
+    body: 'You’ll need a Claude account on Pro or higher. The most capable option — nothing extra to pay.',
+  },
+  codex: {
+    title: 'Use Codex', primary: false, btn: 'Set up Codex',
+    body: 'Signs in with your ChatGPT account.',
+  },
+  gemini: {
+    title: 'Use Gemini', primary: false, btn: 'Set up Gemini CLI',
+    body: 'Signs in with your Google account. Generous free tier. Needs Node.js on this Mac.',
+  },
+  opencode: {
+    title: 'Use OpenCode', primary: false, btn: 'Set up OpenCode',
+    body: 'Open-source — works with any provider you’ve already set up.',
+  },
+  ollama: {
+    title: 'Use a free local AI', primary: false, btn: 'Download and install · 5.2 GB',
+    body: 'Sets up Ollama with Qwen3 8B. Local to this Mac, works offline.',
+  },
+}
+const CONTINUE_LABEL: Record<string, string> = {
+  claude: 'Continue with Claude →',
+  codex: 'Continue with Codex →',
+  gemini: 'Continue with Gemini →',
+  opencode: 'Continue with OpenCode →',
+  ollama: 'Continue with local AI →',
+}
 
 interface Ob {
   phase: 'welcome' | 'connect'
@@ -19,25 +63,23 @@ interface Ob {
   smDone: boolean
   det: 'searching' | 'cards'
   detStarted: boolean
-  found: Det[]
-  fuId: string | null
-  fuState: 'idle' | 'busy' | 'connected'
-  cl: ClState
-  clPct: number
-  lo: LoState
-  loInsPct: number
-  loPct: number
-  chosen: 'claude' | 'local' | 'found' | null
+  provs: Det[]
+  cards: Record<string, Card>
+  chosen: string | null
   committing: boolean
 }
 
 // When the Create flow (step 3) navigates back into onboarding, resume at
 // step 2 instead of repeating the welcome self-check.
 let resumeAtConnect = false
-// The prototype keeps onboarding state in its central model: back from step 3
-// lands on step 2 with detection results, connect states, and the chosen
-// provider intact. Persist the last state across this component's unmount.
+// Back from step 3 lands on step 2 with detection results, card states, and
+// the chosen provider intact. Persist the last state across unmount; installs
+// and downloads live in the backend, so the resume effect below reattaches.
 let savedOb: Ob | null = null
+
+const freshCard = (): Card => ({
+  phase: 'idle', pct: null, line: '', pullPct: 0, method: null, error: null, notReady: null,
+})
 
 function freshOb(): Ob {
   if (resumeAtConnect && savedOb) return { ...savedOb, phase: 'connect', committing: false }
@@ -53,14 +95,8 @@ function freshOb(): Ob {
     smDone: false,
     det: 'searching',
     detStarted: false,
-    found: [],
-    fuId: null,
-    fuState: 'idle',
-    cl: 'idle',
-    clPct: 0,
-    lo: 'idle',
-    loInsPct: 0,
-    loPct: 0,
+    provs: [],
+    cards: {},
     chosen: null,
     committing: false,
   }
@@ -73,6 +109,8 @@ export default function Onboarding() {
   const autos = useStore((s) => s.autos)
   const showToast = useStore((s) => s.showToast)
   const setSurface = useStore((s) => s.setSurface)
+  const harnessInstall = useStore((s) => s.harnessInstall)
+  const ollamaPull = useStore((s) => s.ollamaPull)
 
   const [, bump] = useReducer((n: number) => n + 1, 0)
   const obRef = useRef<Ob | null>(null)
@@ -123,9 +161,9 @@ export default function Onboarding() {
     const started = Date.now()
     void api.detectAgents()
       .catch(() => [] as Det[])
-      .then((found) => {
+      .then((provs) => {
         const wait = Math.max(0, 1900 - (Date.now() - started))
-        t(() => up((o) => { o.det = 'cards'; o.found = found }), wait)
+        t(() => up((o) => { o.det = 'cards'; o.provs = provs }), wait)
       })
   }
 
@@ -134,98 +172,145 @@ export default function Onboarding() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ob.phase])
 
-  // ----- Use Claude state machine (prototype claudeInstall/claudeFinish) -----
-  const claudeFinish = () => {
-    const id = iv(() => {
-      up((o) => { o.clPct = Math.min(100, o.clPct + 4) })
-      if (ob.clPct >= 100) {
-        clearInterval(id)
-        up((o) => { o.cl = 'waiting' })
-        claudeSignIn()
-      }
-    }, 80)
-  }
-  const claudeSignIn = () => {
-    t(() => { if (ob.cl === 'waiting') up((o) => { o.cl = 'connected' }) }, 3400)
-  }
-  const claudeSudoWait = (ms: number) => {
-    t(() => {
-      if (ob.cl !== 'sudo') return
-      up((o) => { o.cl = 'installing' })
-      claudeFinish()
-    }, ms)
-  }
-  const claudeRise = () => {
-    const id = iv(() => {
-      up((o) => { o.clPct = Math.min(55, o.clPct + 4) })
-      if (ob.clPct >= 55) {
-        clearInterval(id)
-        up((o) => { o.cl = 'sudo' })
-        claudeSudoWait(2400)
-      }
-    }, 80)
-  }
-  const claudeInstall = () => {
-    up((o) => { o.cl = 'installing'; o.clPct = 0 })
-    claudeRise()
+  // ----- per-provider card machine (§10) -----
+  const card = (id: string): Card => ob.cards[id] ?? freshCard()
+  const setCard = (id: string, patch: Partial<Card>) =>
+    up((o) => { o.cards = { ...o.cards, [id]: { ...card(id), ...patch } } })
+
+  // Found-card "Check connection": the real §4.7 readiness check (§19
+  // /agents/check-harness), padded to ≥900 ms so the spinner reads.
+  const startCheck = (p: Det) => {
+    setCard(p.id, { phase: 'checking', notReady: null })
+    const t0 = Date.now()
+    void api.checkHarness(p.name, null)
+      .then((r) => r.status === 'ready')
+      .catch(() => false)
+      .then(async (ready) => {
+        let reason = 'it didn’t answer the readiness check'
+        if (!ready && p.id === 'ollama') {
+          const st = await api.ollamaStatus().catch(() => null)
+          reason = st?.ready ? 'the Qwen3 8B model isn’t installed yet' : 'the local server isn’t answering'
+        }
+        t(() => {
+          if (card(p.id).phase !== 'checking') return
+          if (ready) setCard(p.id, { phase: 'connected' })
+          else setCard(p.id, { phase: 'idle', notReady: `Not ready — ${reason}.` })
+        }, Math.max(0, 900 - (Date.now() - t0)))
+      })
   }
 
-  // ----- Use a free local AI state machine (prototype ollamaInstall/ollamaFinish) -----
-  const ollamaDownload = () => {
-    const id = iv(() => {
-      up((o) => { o.loPct = Math.min(100, o.loPct + 1.6) })
-      if (ob.loPct >= 100) {
-        clearInterval(id)
-        up((o) => { o.lo = 'ready' })
+  // Sign-in help, only when necessary (§10): the backend opens the browser
+  // (Codex) or Terminal (the rest); we poll until the sign-in rule flips.
+  const pollSignin = (p: Det) => {
+    iv(() => {
+      if (card(p.id).phase !== 'signin') return
+      void api.signinStatus(p.id).then((s) => {
+        if (s.signedIn === true && card(p.id).phase === 'signin') startCheck(p)
+      }).catch(() => { /* backend hiccup — keep polling */ })
+    }, 2000)
+  }
+  const startSignin = (p: Det) => {
+    void api.loginHarness(p.id)
+      .then((r) => { setCard(p.id, { phase: 'signin', method: r.method }); pollSignin(p) })
+      .catch((e: Error) => {
+        if (e.message.includes('already signed in')) startCheck(p)
+        else showToast(e.message)
+      })
+  }
+
+  // Suggestion-card install: real backend install (§19 POST /agents/install);
+  // progress arrives via the harness.install effect below.
+  const startInstall = (p: Det) => {
+    setCard(p.id, { phase: 'installing', pct: null, line: '', error: null })
+    api.installHarness(p.id).catch((e: Error & { status?: number }) => {
+      // 409 = already running (a resumed machine) — the stream keeps feeding us.
+      if (e.status !== 409) setCard(p.id, { phase: 'failed', error: e.message })
+    })
+  }
+
+  // §10 model download completion: the model appearing in the installed list
+  // is the source of truth (percent comes from the ollama.pull effect below).
+  const pollPull = (id: string) => {
+    iv(() => {
+      if (card(id).phase !== 'pulling') return
+      void api.ollamaStatus().then((s) => {
+        if (s.models.includes(LOCAL_MODEL) && card(id).phase === 'pulling') {
+          setCard(id, { phase: 'connected' })
+        }
+      }).catch(() => { /* keep polling */ })
+    }, 2000)
+  }
+
+  // After a finished install: Ollama continues into the model download; the
+  // account-backed providers go through sign-in only if they need it.
+  const afterInstall = (id: string) => {
+    const p = ob.provs.find((x) => x.id === id)
+    if (!p || !['installing'].includes(card(id).phase)) return
+    if (id === 'ollama') {
+      setCard(id, { phase: 'pulling', pullPct: 0 })
+      // A previous attempt's terminal ollama.pull event may still sit in the
+      // store — clear it or the failure effect would instantly kill this pull.
+      useStore.setState({ ollamaPull: null })
+      void api.ollamaPull(LOCAL_MODEL).catch((e: Error) => setCard(id, { phase: 'failed', error: e.message }))
+      pollPull(id)
+      return
+    }
+    setCard(id, { phase: 'checking' })
+    void api.signinStatus(id)
+      .then((s) => { if (s.signedIn === false) startSignin(p); else startCheck(p) })
+      .catch(() => startCheck(p))
+  }
+
+  // Live install progress from the §19 harness.install WS stream.
+  useEffect(() => {
+    for (const [id, evt] of Object.entries(harnessInstall)) {
+      const c = ob.cards[id]
+      if (!c || c.phase !== 'installing') continue
+      if (!evt.done) {
+        if (evt.line !== undefined || evt.pct !== undefined) {
+          setCard(id, { line: evt.line ?? c.line, pct: evt.pct ?? c.pct })
+        }
+      } else if (evt.ok) {
+        afterInstall(id)
+      } else {
+        setCard(id, { phase: 'failed', error: evt.error ?? 'install failed' })
       }
-    }, 70)
-  }
-  const ollamaFinish = () => {
-    const id = iv(() => {
-      up((o) => { o.loInsPct = Math.min(100, o.loInsPct + 5) })
-      if (ob.loInsPct >= 100) {
-        clearInterval(id)
-        up((o) => { o.lo = 'downloading' })
-        ollamaDownload()
-      }
-    }, 80)
-  }
-  const ollamaSudoWait = (ms: number) => {
-    t(() => {
-      if (ob.lo !== 'sudo') return
-      up((o) => { o.lo = 'installing' })
-      ollamaFinish()
-    }, ms)
-  }
-  const ollamaRise = () => {
-    const id = iv(() => {
-      up((o) => { o.loInsPct = Math.min(60, o.loInsPct + 5) })
-      if (ob.loInsPct >= 60) {
-        clearInterval(id)
-        up((o) => { o.lo = 'sudo' })
-        ollamaSudoWait(2400)
-      }
-    }, 80)
-  }
-  const ollamaInstall = () => {
-    up((o) => { o.lo = 'installing'; o.loInsPct = 0; o.loPct = 0 })
-    ollamaRise()
-  }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [harnessInstall])
+
+  // Live model-download percent / failure from the ollama.pull WS stream.
+  useEffect(() => {
+    const c = ob.cards.ollama
+    if (!c || c.phase !== 'pulling' || !ollamaPull || ollamaPull.model !== LOCAL_MODEL) return
+    if (ollamaPull.done && ollamaPull.ok === false) {
+      setCard('ollama', { phase: 'failed', error: ollamaPull.line || `couldn't pull ${LOCAL_MODEL}` })
+      return
+    }
+    const m = (ollamaPull.line || '').match(/(\d{1,3})%/)
+    if (m) setCard('ollama', { pullPct: Math.min(100, parseInt(m[1], 10)) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ollamaPull])
 
   // ----- resume in-flight machines after remount (back from step 3) -----
-  // Timers died with the previous mount; pick each machine up where it left
-  // off — the local model download "finishes in the background" as designed.
+  // Installs and downloads run in the backend; reattach via the §19 status
+  // snapshot and re-arm the polls that died with the previous mount.
   useEffect(() => {
-    if (ob.fuState === 'busy' && ob.fuId) {
-      const id = ob.fuId
-      t(() => { if (ob.fuId === id && ob.fuState === 'busy') up((o) => { o.fuState = 'connected' }) }, 1400)
+    for (const p of ob.provs) {
+      const c = ob.cards[p.id]
+      if (!c) continue
+      if (c.phase === 'installing') {
+        void api.installStatus(p.id).then((s) => {
+          if (card(p.id).phase !== 'installing') return
+          if (s.state === 'done') afterInstall(p.id)
+          else if (s.state === 'failed') setCard(p.id, { phase: 'failed', error: s.error ?? 'install failed' })
+          else if (s.state === 'idle') setCard(p.id, { phase: 'failed', error: 'the install didn’t start' })
+          // running → the live harness.install stream keeps feeding us
+        }).catch(() => { /* backend hiccup — the WS stream still lands */ })
+      } else if (c.phase === 'signin') pollSignin(p)
+      else if (c.phase === 'pulling') pollPull(p.id)
+      else if (c.phase === 'checking') startCheck(p)
     }
-    if (ob.cl === 'installing') { if (ob.clPct < 55) claudeRise(); else claudeFinish() }
-    else if (ob.cl === 'sudo') claudeSudoWait(2400)
-    else if (ob.cl === 'waiting') claudeSignIn()
-    if (ob.lo === 'installing') { if (ob.loInsPct < 60) ollamaRise(); else ollamaFinish() }
-    else if (ob.lo === 'sudo') ollamaSudoWait(2400)
-    else if (ob.lo === 'downloading') ollamaDownload()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -235,50 +320,35 @@ export default function Onboarding() {
   // With prior data (agents or automations), step 1 still shows but Continue
   // goes straight to the app instead of step 2.
   const pre = agentPre || autoPre
-  const foundConn = ob.fuState === 'connected'
 
-  // ----- commit.sh connected providers as real agent records -----
+  // ----- commit connected providers as real agent records -----
   // `pick` is the provider whose in-card Continue was clicked (null on skip);
   // it becomes the default agent. All connected providers are committed.
-  const commitOnboardAgents = async (pick: 'claude' | 'local' | 'found' | null): Promise<void> => {
-    type Spec = { key: 'claude' | 'codex' | 'gemini' | 'opencode' | 'found-ollama' | 'local'; body: { name: string | null; harness: string; mode: string; model: string | null } }
-    const specs: Spec[] = []
-    if (foundConn && ob.fuId === 'claude') specs.push({ key: 'claude', body: { name: null, harness: 'Claude Code', mode: 'default', model: null } })
-    if (foundConn && ob.fuId === 'codex') specs.push({ key: 'codex', body: { name: null, harness: 'Codex', mode: 'default', model: null } })
-    if (foundConn && ob.fuId === 'gemini') specs.push({ key: 'gemini', body: { name: null, harness: 'Gemini CLI', mode: 'default', model: null } })
-    if (foundConn && ob.fuId === 'opencode') specs.push({ key: 'opencode', body: { name: null, harness: 'OpenCode', mode: 'default', model: null } })
-    if (foundConn && ob.fuId === 'ollama') specs.push({ key: 'found-ollama', body: { name: 'Ollama', harness: 'Ollama', mode: 'default', model: null } })
-    if (ob.cl === 'connected' && !specs.some((s) => s.key === 'claude')) specs.push({ key: 'claude', body: { name: null, harness: 'Claude Code', mode: 'default', model: null } })
-    if (ob.lo === 'ready') specs.push({ key: 'local', body: { name: 'Qwen3 8B', harness: 'Ollama', mode: 'ollama', model: 'qwen3:8b' } })
-    if (specs.length === 0) return
-    const foundKey: Spec['key'] = ob.fuId === 'claude' ? 'claude'
-      : ob.fuId === 'codex' ? 'codex'
-      : ob.fuId === 'gemini' ? 'gemini'
-      : ob.fuId === 'opencode' ? 'opencode'
-      : 'found-ollama'
-    const defKey: Spec['key'] | undefined = pick === 'claude' ? 'claude'
-      : pick === 'local' ? 'local'
-      : pick === 'found' ? foundKey
-      : specs[0].key
+  const commitOnboardAgents = async (pick: string | null): Promise<void> => {
+    const conn = ob.provs.filter((p) => card(p.id).phase === 'connected')
+    if (conn.length === 0) return
+    // A found Ollama keeps its own configured default; a fresh suggestion
+    // install committed the Qwen3 8B model it just downloaded (§10).
+    const bodyFor = (p: Det) => p.id === 'ollama'
+      ? (p.installed
+        ? { name: 'Ollama', harness: 'Ollama', mode: 'default', model: null }
+        : { name: 'Qwen3 8B', harness: 'Ollama', mode: 'ollama', model: LOCAL_MODEL })
+      : { name: null, harness: p.name, mode: 'default', model: null }
     const existing = useStore.getState().agents
+    const defPid = pick ?? conn[0].id
     let defaultId: string | null = null
-    for (const s of specs) {
-      const dup = existing.find((a) => a.harness === s.body.harness && a.model === s.body.model)
-      let id: string
-      if (dup) {
-        id = dup.id
-      } else {
-        const created = await api.addAgent(s.body)
-        id = created.id
-      }
-      if (s.key === defKey) defaultId = id
+    for (const p of conn) {
+      const body = bodyFor(p)
+      const dup = existing.find((a) => a.harness === body.harness && a.model === body.model)
+      const id = dup ? dup.id : (await api.addAgent(body)).id
+      if (p.id === defPid) defaultId = id
     }
     if (defaultId) {
       await api.patchAgent(defaultId, { default: true })
       // §10: every seed automation gets the chosen default agent.
-      const autos = useStore.getState().autos
+      const allAutos = useStore.getState().autos
       await Promise.all(
-        autos.filter((a) => a.agentId !== defaultId)
+        allAutos.filter((a) => a.agentId !== defaultId)
           .map((a) => api.patchAuto(a.id, { agentId: defaultId })),
       )
     }
@@ -289,7 +359,7 @@ export default function Onboarding() {
     if (pre) { setSurface('app'); return }
     up((o) => { o.phase = 'connect' })
   }
-  const obContinue = (pick: 'claude' | 'local' | 'found') => {
+  const obContinue = (pick: string) => {
     if (ob.committing) return
     up((o) => { o.chosen = pick; o.committing = true })
     void (async () => {
@@ -425,9 +495,10 @@ export default function Onboarding() {
 
   // ---------- step 2 ----------
   function renderConnect() {
-    const anyFound = ob.found.length > 0
-    const showSuggestions = !ob.found.some((f) => f.id === 'ollama')
-    const sugClaude = ob.found.length === 0
+    const foundList = ob.provs.filter((p) => p.installed)
+    const missing = SUG_ORDER
+      .map((id) => ob.provs.find((p) => p.id === id && !p.installed))
+      .filter((p): p is Det => !!p)
 
     return (
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '44px 32px 60px', animation: 'adFadeUp .5s ease both' }}>
@@ -445,27 +516,26 @@ export default function Onboarding() {
 
         {ob.det === 'cards' && (
           <>
-            {anyFound && (
+            {foundList.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 26, animation: 'adFadeUp .35s ease both' }}>
                 <Eyebrow style={{ color: 'var(--accent)' }}>FOUND ON THIS MAC</Eyebrow>
-                {ob.found.map((f) => renderFoundCard(f))}
+                {foundList.map((f) => renderFoundCard(f))}
               </div>
             )}
 
-            {!anyFound && (
+            {foundList.length === 0 && (
               <div style={{
                 background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 10, padding: '12px 16px',
                 marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10, animation: 'adFadeUp .35s ease both',
               }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-faint)', flex: 'none' }} />
-                <span style={{ fontSize: 13, color: 'var(--text-2)' }}>No AI app was found on this Mac — here are two suggestions for moving forward.</span>
+                <span style={{ fontSize: 13, color: 'var(--text-2)' }}>No AI app was found on this Mac — here are some suggestions for moving forward.</span>
               </div>
             )}
 
-            {showSuggestions && (
+            {missing.length > 0 && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16, alignItems: 'start', animation: 'adFadeUp .35s ease both' }}>
-                {sugClaude && renderClaudeCard()}
-                {renderLocalCard()}
+                {missing.map((p) => renderSuggestionCard(p))}
               </div>
             )}
 
@@ -484,10 +554,47 @@ export default function Onboarding() {
     )
   }
 
+  function renderBar(pct: number | null) {
+    return (
+      <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,.08)', overflow: 'hidden' }}>
+        {pct !== null ? (
+          <div style={{ height: '100%', width: `${Math.round(pct)}%`, background: 'var(--accent)', transition: 'width .12s linear' }} />
+        ) : (
+          <div style={{ height: '100%', width: '30%', background: 'var(--accent)', animation: 'adBarSlide 1.2s ease-in-out infinite' }} />
+        )}
+      </div>
+    )
+  }
+
+  // Amber "waiting for you to sign in" block, shared by found and suggestion
+  // cards; copy follows the §19 login method the backend reported.
+  function renderSigninWait(p: Det) {
+    const c = card(p.id)
+    const where = c.method === 'browser'
+      ? 'We opened your browser — sign in there and come back. We’ll notice on our own.'
+      : 'We opened Terminal — finish signing in there and come back. We’ll notice on our own.'
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)',
+            animation: 'adPulse 1.2s ease-in-out infinite', flex: 'none', marginTop: 5,
+          }} />
+          <div>
+            <div style={{ fontWeight: 500, fontSize: 13 }}>Waiting for you to sign in…</div>
+            <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 2 }}>{where}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingLeft: 16 }}>
+          <button className="ad-btn-text dim" style={{ fontSize: 12 }} onClick={() => setCard(p.id, { phase: 'idle', method: null })}>Cancel</button>
+        </div>
+      </div>
+    )
+  }
+
   function renderFoundCard(f: Det) {
-    const conn = ob.fuId === f.id && ob.fuState === 'connected'
-    const busy = ob.fuId === f.id && ob.fuState === 'busy'
-    const idle = !busy && !conn
+    const c = card(f.id)
+    const conn = c.phase === 'connected'
     return (
       <div
         key={f.id}
@@ -500,31 +607,40 @@ export default function Onboarding() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 15 }}>{f.name}</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{f.detail}</div>
+          {c.phase === 'idle' && c.notReady && (
+            <div style={{ fontSize: 12, color: 'var(--amber)', marginTop: 4 }}>{c.notReady}</div>
+          )}
         </div>
-        {idle && (
+        {c.phase === 'idle' && (f.signedIn === false ? (
           <button
-            className="ad-btn-ghost"
-            onClick={() => {
-              up((o) => { o.fuId = f.id; o.fuState = 'busy' })
-              t(() => { if (ob.fuId === f.id) up((o) => { o.fuState = 'connected' }) }, 1400)
+            onClick={() => startSignin(f)}
+            style={{
+              background: 'var(--amber)', color: '#1a1508', border: 'none', borderRadius: 7,
+              padding: '7px 14px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', flex: 'none',
             }}
-            style={{ flex: 'none' }}
           >
+            Sign in
+          </button>
+        ) : (
+          <button className="ad-btn-ghost" onClick={() => startCheck(f)} style={{ flex: 'none' }}>
             Check connection
           </button>
-        )}
-        {busy && (
+        ))}
+        {c.phase === 'checking' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 'none' }}>
             <Spinner size={13} style={{ animationDuration: '.8s' }} />
             <span style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2)' }}>Checking connection…</span>
           </div>
+        )}
+        {c.phase === 'signin' && (
+          <div style={{ flex: 'none', maxWidth: 340 }}>{renderSigninWait(f)}</div>
         )}
         {conn && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 'none', animation: 'adFadeUp .3s ease both' }}>
             <GreenCheck label="Connected" />
             <button
               className="ad-btn-primary"
-              onClick={() => obContinue('found')}
+              onClick={() => obContinue(f.id)}
               disabled={ob.committing}
               style={{ opacity: ob.committing ? 0.6 : 1 }}
             >
@@ -536,125 +652,88 @@ export default function Onboarding() {
     )
   }
 
-  function renderClaudeCard() {
+  function renderSuggestionCard(p: Det) {
+    const c = card(p.id)
+    const s = SUG[p.id]
+    const conn = c.phase === 'connected'
     return (
       <div
+        key={p.id}
         style={{
           background: 'var(--bg-card-sel)',
-          border: `1px solid ${ob.cl === 'connected' ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.09)'}`,
+          border: `1px solid ${conn ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.09)'}`,
           borderRadius: 12, padding: 22, display: 'flex', flexDirection: 'column', gap: 10,
           transition: 'border-color .2s',
         }}
       >
-        <div style={{ fontWeight: 600, fontSize: 15 }}>Use Claude</div>
-        <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)', flex: 1 }}>
-          You&rsquo;ll need Claude Code installed and a Claude account on Pro or higher.
-        </p>
-        {ob.cl === 'idle' && (
-          <button className="ad-btn-primary" onClick={claudeInstall} style={{ alignSelf: 'flex-start' }}>Set up Claude Code</button>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>{s.title}</div>
+        <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)', flex: 1 }}>{s.body}</p>
+        {c.phase === 'idle' && (
+          <button
+            className={s.primary ? 'ad-btn-primary' : 'ad-btn-ghost'}
+            onClick={() => startInstall(p)}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            {s.btn}
+          </button>
         )}
-        {ob.cl === 'installing' && (
+        {c.phase === 'installing' && (
           <div>
             <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
-              Installing the helper…{' '}
-              <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>{Math.round(ob.clPct)}%</span>
+              {p.id === 'ollama' ? 'Step 1 of 2 — Installing Ollama…' : `Installing ${p.name}…`}{' '}
+              {c.pct !== null && (
+                <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>{Math.round(c.pct)}%</span>
+              )}
             </div>
-            <ProgressBar pct={ob.clPct} />
-          </div>
-        )}
-        {ob.cl === 'sudo' && (
-          <SudoNotice body="Your Mac shows its own password or Touch ID prompt for this step — Auto Dave never sees your password." />
-        )}
-        {ob.cl === 'waiting' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
-              <span style={{
-                width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)',
-                animation: 'adPulse 1.2s ease-in-out infinite', flex: 'none', marginTop: 5,
-              }} />
-              <div>
-                <div style={{ fontWeight: 500, fontSize: 13 }}>Waiting for you to sign in…</div>
-                <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                  We opened your browser — sign in to your Claude account there and come back. We&rsquo;ll notice on our own.
-                </div>
+            {renderBar(c.pct)}
+            {c.line && c.pct === null && (
+              <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text-faint)', marginTop: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {c.line}
               </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingLeft: 16 }}>
-              <button className="ad-btn-link" style={{ fontSize: 12 }} onClick={() => showToast('Opened the sign-in page in your browser again.')}>Reopen the sign-in page</button>
-              <button className="ad-btn-text dim" style={{ fontSize: 12 }} onClick={() => up((o) => { o.cl = 'idle'; o.clPct = 0 })}>Cancel</button>
-            </div>
+            )}
           </div>
         )}
-        {ob.cl === 'connected' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'adFadeUp .3s ease both' }}>
-            <GreenCheck label="Connected — signed in as you." />
-            <button
-              className="ad-btn-primary"
-              onClick={() => obContinue('claude')}
-              disabled={ob.committing}
-              style={{ alignSelf: 'flex-start', opacity: ob.committing ? 0.6 : 1 }}
-            >
-              Continue with Claude →
-            </button>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  function renderLocalCard() {
-    return (
-      <div
-        style={{
-          background: 'var(--bg-card-sel)',
-          border: `1px solid ${ob.lo === 'ready' ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.09)'}`,
-          borderRadius: 12, padding: 22, display: 'flex', flexDirection: 'column', gap: 10,
-          transition: 'border-color .2s',
-        }}
-      >
-        <div style={{ fontWeight: 600, fontSize: 15 }}>Use a free local AI</div>
-        <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)', flex: 1 }}>
-          Sets up Ollama with Qwen3 8B. Local to this Mac, works offline.
-        </p>
-        {ob.lo === 'idle' && (
-          <button className="ad-btn-ghost" onClick={ollamaInstall} style={{ alignSelf: 'flex-start' }}>Download and install · 5.2 GB</button>
-        )}
-        {ob.lo === 'installing' && (
-          <div>
-            <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
-              Step 1 of 2 — Installing Ollama…{' '}
-              <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>{Math.round(ob.loInsPct)}%</span>
-            </div>
-            <ProgressBar pct={ob.loInsPct} />
-          </div>
-        )}
-        {ob.lo === 'sudo' && (
-          <SudoNotice body="Your Mac shows its own password or Touch ID prompt to finish installing Ollama — Auto Dave never sees your password." />
-        )}
-        {ob.lo === 'downloading' && (
+        {c.phase === 'pulling' && (
           <div>
             <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
               Step 2 of 2 — Downloading Qwen3 8B…{' '}
               <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>
-                {(ob.loPct / 100 * 5.2).toFixed(1)} GB of 5.2 GB
+                {(c.pullPct / 100 * 5.2).toFixed(1)} GB of 5.2 GB
               </span>
             </div>
-            <ProgressBar pct={ob.loPct} />
+            {renderBar(c.pullPct)}
             <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 8 }}>
               Ollama is installed. You can keep using your Mac — this finishes in the background.
             </div>
           </div>
         )}
-        {ob.lo === 'ready' && (
+        {c.phase === 'checking' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <Spinner size={13} style={{ animationDuration: '.8s' }} />
+            <span style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2)' }}>Checking connection…</span>
+          </div>
+        )}
+        {c.phase === 'signin' && renderSigninWait(p)}
+        {c.phase === 'failed' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--red)' }}>
+              Install failed — {c.error ?? 'something went wrong'}
+            </div>
+            <button className="ad-btn-ghost" onClick={() => startInstall(p)} style={{ alignSelf: 'flex-start' }}>
+              Try again
+            </button>
+          </div>
+        )}
+        {conn && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'adFadeUp .3s ease both' }}>
-            <GreenCheck label="Ready to go." />
+            <GreenCheck label={p.id === 'ollama' ? 'Ready to go.' : 'Connected — signed in as you.'} />
             <button
               className="ad-btn-primary"
-              onClick={() => obContinue('local')}
+              onClick={() => obContinue(p.id)}
               disabled={ob.committing}
               style={{ alignSelf: 'flex-start', opacity: ob.committing ? 0.6 : 1 }}
             >
-              Continue with local AI →
+              {CONTINUE_LABEL[p.id]}
             </button>
           </div>
         )}

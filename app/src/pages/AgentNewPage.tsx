@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent } from '../types'
-import { BtnPrimary, Eyebrow, GreenCheck, MiniBadge, P, ProgressBar, RadioRing, Spinner, SudoNotice } from '../ui'
+import { BtnPrimary, Eyebrow, GreenCheck, MiniBadge, P, ProgressBar, RadioRing, Spinner } from '../ui'
 
 type HarnessId = 'claude' | 'gemini' | 'codex' | 'opencode' | 'ollama'
 
@@ -14,9 +14,6 @@ let pendingEdit: { agent: Agent; needsFix: boolean } | null = null
 export function openAgentEdit(agent: Agent, needsFix: boolean): void {
   pendingEdit = { agent, needsFix }
 }
-
-// §4.7: only these are selectable for now — the rest render disabled.
-const SUPPORTED = new Set<HarnessId>(['claude', 'ollama'])
 
 const HARNESSES: { id: HarnessId; name: string; desc: string }[] = [
   { id: 'claude', name: 'Claude Code', desc: 'Uses your Claude account. The most capable option — nothing extra to pay.' },
@@ -43,8 +40,6 @@ const SUGGESTED = [
   { id: 'gemma4:e4b', note: 'Good local default', meta: '9.6 GB' },
   { id: 'deepseek-coder:6.7b', note: 'Light and quick', meta: '3.8 GB' },
 ]
-
-type InstState = 'idle' | 'installing' | 'sudo'
 
 /** Amber notice card (§12): pulsless dot + body + amber action button — used for
  * the signed-out reconnect banner and the missing-Ollama install prompt. */
@@ -95,58 +90,39 @@ export default function AgentNewPage() {
   const [st, setSt] = useState<{ ready: boolean; models: string[] } | null>(null)
   const [pulling, setPulling] = useState<string | null>(null)
   const [pullText, setPullText] = useState('')
-  const [inst, setInst] = useState<InstState>('idle')
-  const [instPct, setInstPct] = useState(0)
+  const [inst, setInst] = useState<'idle' | 'installing' | 'failed'>('idle')
+  const [instPct, setInstPct] = useState<number | null>(null)
+  const [instErr, setInstErr] = useState<string | null>(null)
+  const harnessInstall = useStore((s) => s.harnessInstall)
   const pullingRef = useRef<string | null>(null)
   pullingRef.current = pulling
 
-  // Inline Ollama install (§12, "inline install flow, ~1.1 GB") — the same
-  // simulated state machine Onboarding's "Use a free local AI" card drives.
-  const instTimers = useRef<number[]>([])
-  useEffect(() => () => { instTimers.current.forEach((id) => { clearTimeout(id); clearInterval(id) }) }, [])
-
-  const instFinish = () => {
-    const id = window.setInterval(() => {
-      setInstPct((p) => {
-        const n = Math.min(100, p + 5)
-        if (n >= 100) {
-          window.clearInterval(id)
-          // Done — re-poll status so the Ollama-gated options ungate.
-          void api.ollamaStatus()
-            .then((s) => setSt({ ready: true, models: s.models }))
-            .catch(() => setSt({ ready: true, models: [] }))
-        }
-        return n
-      })
-    }, 80)
-    instTimers.current.push(id)
-  }
-  const instSudoWait = (ms: number) => {
-    const id = window.setTimeout(() => {
-      setInst('installing')
-      instFinish()
-    }, ms)
-    instTimers.current.push(id)
-  }
-  const instRise = () => {
-    const id = window.setInterval(() => {
-      setInstPct((p) => {
-        const n = Math.min(60, p + 5)
-        if (n >= 60) {
-          window.clearInterval(id)
-          setInst('sudo')
-          instSudoWait(2400)
-        }
-        return n
-      })
-    }, 80)
-    instTimers.current.push(id)
-  }
+  // Inline Ollama install (§12) — the real §19 backend install; progress
+  // arrives on the `harness.install` WS stream.
   const installOllama = () => {
     setInst('installing')
-    setInstPct(0)
-    instRise()
+    setInstPct(null)
+    setInstErr(null)
+    api.installHarness('ollama').catch((e: Error & { status?: number }) => {
+      // 409 = an install is already running — its stream still lands here.
+      if (e.status !== 409) { setInst('failed'); setInstErr(e.message) }
+    })
   }
+  useEffect(() => {
+    const evt = harnessInstall.ollama
+    if (!evt || inst !== 'installing') return
+    if (!evt.done) {
+      if (evt.pct !== undefined) setInstPct(evt.pct)
+    } else if (evt.ok) {
+      setInst('idle')
+      // Done — re-poll status so the Ollama-gated options ungate.
+      void api.ollamaStatus().then(setSt).catch(() => setSt(null))
+    } else {
+      setInst('failed')
+      setInstErr(evt.error ?? 'install failed')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [harnessInstall])
 
   useEffect(() => {
     api.ollamaStatus().then(setSt).catch(() => setSt({ ready: false, models: [] }))
@@ -336,27 +312,22 @@ export default function AgentNewPage() {
       <Eyebrow style={{ margin: '0 0 10px' }}>HARNESS</Eyebrow>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
         {HARNESSES.map((h) => {
-          const off = !SUPPORTED.has(h.id)
           const on = harness === h.id
-          const hasReq = !off && h.id === 'ollama' && !ready
+          const hasReq = h.id === 'ollama' && !ready
           return (
             <div
               key={h.id}
-              onClick={() => {
-                if (off) { showToast(`${h.name} isn't supported yet.`); return }
-                setHarness(h.id); setMode('default'); setModel(null)
-              }}
+              onClick={() => { setHarness(h.id); setMode('default'); setModel(null) }}
               style={{
                 background: on ? 'var(--bg-card-sel)' : 'var(--bg-card)',
                 border: `1px solid ${on ? 'var(--accent-sel)' : 'var(--border-card)'}`,
-                borderRadius: 12, padding: '16px 18px', cursor: off ? 'default' : 'pointer',
-                display: 'flex', flexDirection: 'column', gap: 7, opacity: off ? 0.55 : 1,
+                borderRadius: 12, padding: '16px 18px', cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', gap: 7,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
                 <RadioRing selected={on} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{h.name}</span>
-                {off && <MiniBadge>Not supported yet</MiniBadge>}
                 {hasReq && <MiniBadge c={P.amber} bg={P.amberBg}>Needs Ollama</MiniBadge>}
               </div>
               <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-2)' }}>{h.desc}</p>
@@ -397,31 +368,35 @@ export default function AgentNewPage() {
           </div>
 
           {needsOllama && st && !ready && (
-            inst === 'idle' ? (
-              <AmberNotice
-                body={olMissingMsg}
-                btn="Install Ollama · 1.1 GB"
-                onBtn={() => installOllama()}
-                style={{ marginBottom: 16 }}
-              />
-            ) : (
+            inst === 'installing' ? (
               <div style={{
                 background: 'oklch(0.8 0.13 85 / .08)', border: '1px solid oklch(0.8 0.13 85 / .25)',
                 borderRadius: 10, padding: '12px 14px', marginBottom: 16, animation: 'adFadeUp .3s ease both',
               }}>
-                {inst === 'installing' && (
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
-                      Installing Ollama…{' '}
-                      <span style={{ font: `500 12px var(--mono)`, color: 'var(--text-muted)' }}>{(instPct / 100 * 1.1).toFixed(1)} GB of 1.1 GB</span>
-                    </div>
-                    <ProgressBar pct={instPct} />
+                <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
+                  Installing Ollama…{' '}
+                  {instPct !== null && (
+                    <span style={{ font: `500 12px var(--mono)`, color: 'var(--text-muted)' }}>{Math.round(instPct)}%</span>
+                  )}
+                </div>
+                {instPct !== null ? (
+                  <ProgressBar pct={instPct} />
+                ) : (
+                  <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,.08)', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', width: '30%', background: 'var(--accent)',
+                      animation: 'adBarSlide 1.2s ease-in-out infinite',
+                    }} />
                   </div>
                 )}
-                {inst === 'sudo' && (
-                  <SudoNotice body="Your Mac shows its own password or Touch ID prompt to finish installing Ollama — Auto Dave never sees your password." />
-                )}
               </div>
+            ) : (
+              <AmberNotice
+                body={inst === 'failed' ? `Install failed — ${instErr ?? 'something went wrong'}` : olMissingMsg}
+                btn={inst === 'failed' ? 'Try again' : 'Install Ollama'}
+                onBtn={() => installOllama()}
+                style={{ marginBottom: 16 }}
+              />
             )
           )}
           {needsOllama && ready && (

@@ -48,6 +48,7 @@ class HarnessError(Exception):
 # normally-installed CLIs (claude installs to ~/.local/bin by default).
 _FALLBACK_BIN_DIRS = (
     os.path.expanduser("~/.local/bin"),
+    os.path.expanduser("~/.opencode/bin"),
     "/opt/homebrew/bin",
     "/usr/local/bin",
 )
@@ -293,39 +294,87 @@ def ollama_model_installed(model: str, installed: list[str]) -> bool:
     return ":" not in model and f"{model}:latest" in installed
 
 
+# Provider ids (§19 install/login/signin endpoints, §10 cards) ↔ harness names.
+PROVIDERS: tuple[tuple[str, str], ...] = (
+    ("claude", "Claude Code"),
+    ("ollama", "Ollama"),
+    ("codex", "Codex"),
+    ("gemini", "Gemini CLI"),
+    ("opencode", "OpenCode"),
+)
+PROVIDER_NAME = dict(PROVIDERS)
+PROVIDER_BIN = {"claude": "claude", "codex": "codex", "gemini": "gemini",
+                "opencode": "opencode", "ollama": "ollama"}
+HARNESS_ID = {name: pid for pid, name in PROVIDERS}
+
+
+def _status_ok(cmd: list[str]) -> bool:
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10,
+                           cwd=_neutral_cwd())
+        return r.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def signed_in(provider_id: str) -> bool | None:
+    """§19 per-harness sign-in rule. None means the provider needs no account
+    (Ollama); False for an account-backed provider that isn't installed."""
+    if provider_id == "ollama":
+        return None
+    if provider_id == "claude":
+        binpath = resolve_bin("claude")
+        return bool(binpath) and _status_ok([binpath, "auth", "status"])
+    if provider_id == "codex":
+        binpath = resolve_bin("codex")
+        return bool(binpath) and _status_ok([binpath, "login", "status"])
+    if provider_id == "gemini":
+        return (os.path.exists(os.path.expanduser("~/.gemini/oauth_creds.json"))
+                or bool(os.environ.get("GEMINI_API_KEY")))
+    if provider_id == "opencode":
+        try:
+            with open(os.path.expanduser("~/.local/share/opencode/auth.json"),
+                      encoding="utf-8") as f:
+                creds = json.load(f)
+            return isinstance(creds, dict) and len(creds) > 0
+        except (OSError, ValueError):
+            return False
+    return False
+
+
+def signin_state(provider_id: str) -> dict:
+    """§19 `GET /agents/signin/{id}` — cheap poll, no version lookups."""
+    if provider_id == "ollama":
+        st = ollama_status()
+        return {"installed": st["installed"], "signedIn": None}
+    binpath = resolve_bin(PROVIDER_BIN[provider_id])
+    return {"installed": binpath is not None, "signedIn": signed_in(provider_id)}
+
+
 def check_ready(harness_name: str, model: str | None = None) -> bool:
-    """The single readiness check behind §19 `/agents/{id}/check`.
+    """The single readiness check behind §19 `/agents/{id}/check` and
+    `/agents/check-harness`.
 
     Ready means the harness can take a prompt right now: the binary resolves
     (Ollama: the server answers and the agent's model is installed — no
-    sign-in, Ollama needs no account), and Claude Code is additionally
-    signed in — `claude auth status` exits 0 only when authenticated.
+    sign-in, Ollama needs no account), and every account-backed harness is
+    additionally signed in by the §19 per-harness rule.
     """
     if harness_name == "Ollama":
         st = ollama_status()
         return st["ready"] and ollama_model_installed(
             model or OLLAMA_DEFAULT_MODEL, st["models"])
-    binname = {"Claude Code": "claude", "Gemini CLI": "gemini",
-               "Codex": "codex", "OpenCode": "opencode"}.get(harness_name)
-    if not binname:
+    pid = HARNESS_ID.get(harness_name)
+    if not pid:
         return False
-    binpath = resolve_bin(binname)
-    if not binpath:
+    if resolve_bin(PROVIDER_BIN[pid]) is None:
         return False
-    if harness_name == "Claude Code":
-        try:
-            r = subprocess.run([binpath, "auth", "status"], capture_output=True,
-                               text=True, timeout=10, cwd=_neutral_cwd())
-            return r.returncode == 0
-        except Exception:  # noqa: BLE001
-            return False
-    return True
+    return signed_in(pid) is True
 
 
 def detect() -> list[dict]:
-    """§10 step 2 — AIs already on this Mac."""
-    found = []
-
+    """§10 step 2 — one entry per provider, all five always present, with real
+    installed and sign-in state (§19)."""
     def version_of(binpath: str) -> str | None:
         try:
             r = subprocess.run([binpath, "--version"], capture_output=True, text=True,
@@ -334,28 +383,24 @@ def detect() -> list[dict]:
         except Exception:  # noqa: BLE001
             return None
 
-    claude = resolve_bin("claude")
-    if claude:
-        v = version_of(claude)
-        found.append({"id": "claude", "name": "Claude Code",
-                      "detail": f"{v or 'installed'} · signed in with your Claude account"})
-    st = ollama_status()
-    if st["ready"] or st.get("installed"):
-        found.append({"id": "ollama", "name": "Ollama",
-                      "detail": "serving locally on this Mac" if st["ready"] else "installed · not serving"})
-    codex = resolve_bin("codex")
-    if codex:
-        v = version_of(codex)
-        found.append({"id": "codex", "name": "Codex",
-                      "detail": f"{v or 'installed'} · signed in with your OpenAI account"})
-    gemini = resolve_bin("gemini")
-    if gemini:
-        v = version_of(gemini)
-        found.append({"id": "gemini", "name": "Gemini CLI",
-                      "detail": f"{v or 'installed'} · signed in with your Google account"})
-    opencode = resolve_bin("opencode")
-    if opencode:
-        v = version_of(opencode)
-        found.append({"id": "opencode", "name": "OpenCode",
-                      "detail": f"{v or 'installed'} · signed in on this Mac"})
-    return found
+    out = []
+    for pid, name in PROVIDERS:
+        if pid == "ollama":
+            st = ollama_status()
+            installed = bool(st["ready"] or st.get("installed"))
+            detail = ("serving locally on this Mac" if st["ready"]
+                      else "installed · not serving" if installed else "")
+            out.append({"id": pid, "name": name, "installed": installed,
+                        "signedIn": None, "detail": detail})
+            continue
+        binpath = resolve_bin(PROVIDER_BIN[pid])
+        if not binpath:
+            out.append({"id": pid, "name": name, "installed": False,
+                        "signedIn": False, "detail": ""})
+            continue
+        s = signed_in(pid) is True
+        v = version_of(binpath)
+        detail = f"{v or 'installed'} · {'signed in' if s else 'not signed in yet'}"
+        out.append({"id": pid, "name": name, "installed": True,
+                    "signedIn": s, "detail": detail})
+    return out

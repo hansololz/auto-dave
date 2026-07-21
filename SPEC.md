@@ -418,8 +418,8 @@ carried into the §8 grants yaml so the drafting agent knows what each enabled a
 means the app never picks or passes a model — the harness uses whatever model it is already
 configured with. Display shows "Default model" when the model is null. One agent is
 the app default; deleting an agent reassigns the default and warns which automations use it.
-Only Claude Code and Ollama are selectable harnesses for now — Gemini CLI, Codex, and OpenCode
-stay in the schema and the picker but are disabled (§12) until they're supported.
+All five harnesses are selectable. The app can install any of them and help the user sign in
+when the harness needs an account (§10 step 2, §19 install/login endpoints).
 
 ### 4.8 Secret
 
@@ -1409,28 +1409,45 @@ done; its label is "Continue →" when prior data exists (going straight to the 
 "Connect your AI →".
 
 **Step 2 — Connect your AI.** A searching spinner ("Looking for an AI already on this Mac…",
-shown ≥1.9 s), then detected apps as "FOUND ON THIS MAC" cards (Claude Code / Ollama /
-Codex / Gemini CLI / OpenCode, each with a version/sign-in detail line — see §20 on the
-prototype's smaller detection set), with suggestion cards for providers not found shown alongside
-(e.g. the free-local card still appears when only Claude was detected). When nothing is detected,
-a note card renders instead of the found list: "No AI app was found on this Mac — here are two
-suggestions for moving forward."
+shown ≥1.9 s), then the §19 `GET /agents/detect` result rendered as cards. Detection reports
+all five providers (Claude Code / Ollama / Codex / Gemini CLI / OpenCode) with real installed
+and signed-in state; installed providers render as "FOUND ON THIS MAC" cards (detail line =
+real version plus sign-in state, e.g. "1.0.24 · signed in" / "1.0.24 · not signed in yet";
+Ollama: "serving locally on this Mac" / "installed · not serving"), and every provider that is
+**not** installed renders as a suggestion card alongside (the app helps install all five). When
+nothing is detected, a note card renders above the suggestions: "No AI app was found on this
+Mac — here are some suggestions for moving forward."
 
 Every card resolves inside itself — there is no page-level Continue button, no radio selection,
 and no multi-ready banner. All step-2 cards use the neutral card border; a card's border turns
 accent-tinted once its provider is connected/ready, harmonizing with the in-card accent
 Continue button (the green check label alone signals success; the accent
 "FOUND ON THIS MAC" eyebrow alone marks the detected section). Each card carries a single
-action slot that advances through its states in place:
-- **Found card** — "Check connection" → inline spinner "Checking connection…" → green
-  "Connected" plus a primary "Continue with `<name>` →" button in the same card.
-- **Use Claude** (suggestion) — state machine: idle ("Set up Claude Code") → installing
-  (labelled progress bar with %) → macOS sudo prompt (amber pulsing dot, "Auto Dave never sees
-  your password") → waiting for browser sign-in (reopen / cancel) → connected ("Connected —
-  signed in as you.") plus "Continue with Claude →".
-- **Use a free local AI** (suggestion) — Ollama + Qwen3 8B, "Download and install · 5.2 GB":
-  install Ollama → download model (two-step progress, continues in background), same sudo
-  handling, ends "Ready to go." plus "Continue with local AI →".
+action slot that advances through its states in place. All machines are real — backend installs,
+real sign-in checks; no simulation in any mode:
+- **Found card, signed in (or Ollama)** — "Check connection" → inline spinner "Checking
+  connection…" (real §19 `POST /agents/check-harness`) → green "Connected" plus a primary
+  "Continue with `<name>` →" button in the same card. A failed check shows amber "Not ready —
+  `<reason>`" and the button returns to "Check connection".
+- **Found card, not signed in** — sign-in help only when necessary: amber "Sign in" button →
+  §19 `POST /agents/login` → waiting state (amber pulsing dot; copy matches the login method
+  the backend reports: browser for Codex — "We opened your browser — sign in there and come
+  back. We'll notice on our own."; Terminal for the others — "We opened Terminal — finish
+  signing in there and come back. We'll notice on our own."), with "Cancel" returning to idle.
+  The UI polls §19 `GET /agents/signin/{id}` every 2 s; once signed in the card runs the
+  connection check automatically and lands on Connected + Continue.
+- **Suggestion card** (one per missing provider) — "Use Claude" ("Set up Claude Code") /
+  "Use Codex" / "Use Gemini" / "Use OpenCode" (each "Set up `<name>`") / "Use a free local AI"
+  (Ollama + Qwen3 8B, "Download and install · 5.2 GB"): install via §19
+  `POST /agents/install` → labelled progress ("Installing `<name>`…"; determinate bar when the
+  `harness.install` stream carries a percent, indeterminate otherwise) → then the sign-in flow
+  above **only if the provider needs an account and isn't signed in** (Ollama instead continues
+  into "Step 2 of 2 — Downloading Qwen3 8B…" via `POST /ollama/pull`, real percent from the
+  pull stream, continues in the background) → connected ("Connected — signed in as you." /
+  Ollama "Ready to go.") plus "Continue with `<name>` →". An install failure shows red
+  "Install failed — `<first error line>`" with "Try again". There is no sudo step: every
+  install lands in user-writable locations (§19 channels), so macOS never prompts for an
+  admin password.
 
 Clicking a card's Continue is what picks the provider: it becomes the default agent, all
 connected/ready providers are committed as agent records, and any existing automations get the
@@ -1441,12 +1458,13 @@ green-dot promises (§1).
 **Step 3 — First automation.** The Create flow (§11) labeled "Step 3 of 3", skippable.
 
 Onboarding state persists across steps: Back from step 3 returns to step 2 with detection
-results, connect states, and the chosen provider intact (no re-search), and any in-flight
-install/download machine resumes where it left off — the model download "finishes in the
-background" as promised. The prototype's denied branch ("Install paused — permission was
-declined", retry) is deliberately not implemented: the install machines are simulated and
-always grant sudo, so the state was unreachable dead UI; it returns when the installs become
-real.
+results, connect states, and the chosen provider intact (no re-search). Installs and model
+downloads run in the backend, so an in-flight install survives the step-3 remount — on return
+the UI reattaches via §19 `GET /agents/install/{id}` and the live `harness.install` /
+`ollama.pull` streams; the model download "finishes in the background" as promised. The
+prototype's sudo states ("Install paused — permission was declined", the amber password
+notice) are deliberately not implemented: real installs need no admin rights, so those states
+are unreachable (§20).
 
 ## 11. Create / edit flow
 
@@ -1772,9 +1790,7 @@ schedule — but you need an agent to create or edit them." + CTA "Add your firs
 
 **New / Edit agent** form (720 px, one form — title and submit label switch to "Edit agent" /
 "Save changes" when editing): pick harness (Claude Code / Gemini CLI / Codex / OpenCode /
-Ollama — but Gemini CLI, Codex, and OpenCode are disabled for now: their cards render dimmed
-with a gray "Not supported yet" badge, and clicking one toasts "`<name>` isn't supported yet.";
-only Claude Code and Ollama are selectable, §4.7), mode (default model vs. local Ollama model),
+Ollama — all five selectable, §4.7), mode (default model vs. local Ollama model),
 model (required for Ollama mode), name
 (required), optional description ("What this agent is for — shown on the Agents page and given
 to the drafting agent"). The
@@ -1785,8 +1801,11 @@ a harness and a model first." Success toasts: "`<name>` added — ready to write
 "Changes saved — `<name>` is ready." When editing a signed-out agent, the form shows a reconnect
 banner: "This agent is signed out — reconnect it to create or edit automations." + Reconnect
 button. Ollama-dependent options (the Ollama harness, local-model mode) gated on Ollama being
-installed and ready. Inline install flow: button "Install Ollama · 1.1 GB", installing label "Installing
-Ollama… X.X GB of 1.1 GB". **LOCAL MODEL** picker: radio list of installed Ollama models with
+installed and ready. Inline install flow: button "Install Ollama" starts a real §19
+`POST /agents/install` for Ollama; the label "Installing Ollama…" renders a determinate bar
+when the `harness.install` stream carries a percent (indeterminate otherwise), and failure
+shows "Install failed — `<first error line>`" with the button returning to "Install Ollama".
+**LOCAL MODEL** picker: radio list of installed Ollama models with
 size metadata, empty state "No local models installed yet — download one below and it will show
 up here." Model pulls: one at a time — the backend streams raw `ollama pull` output over the
 `ollama.pull` WS event and the UI parses the percent out of it (right column shows "N%";
@@ -2137,19 +2156,58 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   filenames only — no path traversal) · `POST /executions/{id}/cancel` ·
   `POST /executions/{id}/retry` (§7 in-place retry; 409 unless failed and not live) ·
   `POST /executions/{id}/skip-step` `{ index }` (§7 skip; 409 unless that step is executing)
-- `GET/POST /agents` · `PATCH/DELETE /agents/{id}` · `POST /agents/{id}/check` (health/badge) —
-  one shared readiness check (`harness.check_ready`) decides ready vs. needs-setup everywhere:
-  the harness binary must resolve (rule below), Ollama's server must answer **and the agent's
-  model must be installed** (the model — or the `qwen3:8b` fallback when null — appears in
-  `/api/tags`; a bare name without a tag matches its `:latest` variant; no sign-in check —
-  Ollama needs no account), and Claude Code must additionally be signed in (`claude auth
-  status` exits 0 only when authenticated) ·
-  `GET /agents/detect` (§10 detection) · Ollama: `GET /ollama/status` → `{ ready, installed,
+- `GET/POST /agents` · `PATCH/DELETE /agents/{id}` · `POST /agents/{id}/check` (health/badge)
+  and `POST /agents/check-harness` `{ harness, model? }` (the same check before an agent record
+  exists — onboarding's found-card "Check connection") — one shared readiness check
+  (`harness.check_ready`) decides ready vs. needs-setup everywhere: the harness binary must
+  resolve (rule below), Ollama's server must answer **and the agent's model must be installed**
+  (the model — or the `qwen3:8b` fallback when null — appears in `/api/tags`; a bare name
+  without a tag matches its `:latest` variant; no sign-in check — Ollama needs no account),
+  and every account-backed harness must additionally be signed in, by the per-harness rule
+  below.
+- **Sign-in state, per harness** (shared by `check_ready`, detection, and the signin poll):
+  Claude Code — `claude auth status` exits 0 · Codex — `codex login status` exits 0 ·
+  Gemini CLI — `~/.gemini/oauth_creds.json` exists (or `GEMINI_API_KEY` is set in the
+  backend's environment) · OpenCode — `~/.local/share/opencode/auth.json` exists and holds a
+  non-empty JSON object · Ollama — no account, sign-in state is `null`.
+- `GET /agents/detect` (§10 detection) → one entry per provider, **all five always present**:
+  `{ id, name, installed, signedIn, detail }` — `signedIn` is `true`/`false` by the rule
+  above, `null` for Ollama; `detail` is the real version/sign-in line rendered on §10 cards
+  (never a fabricated "signed in" claim).
+- **Install** — `POST /agents/install` `{ id }` starts a background install of that provider
+  (409 while one is already running for the same id) and streams `harness.install` WS events
+  `{ id, line, pct?, done, ok?, error? }` (determinate UI bar only when `pct` is present);
+  `GET /agents/install/{id}` → `{ state: idle | running | done | failed, pct?, line?, error? }`
+  lets a remounted UI reattach. Channels, per provider — official vendor channels only, all
+  into user-writable locations (no sudo), never Homebrew:
+  Claude Code — the official installer script (`curl -fsSL https://claude.ai/install.sh |
+  bash`), lands in `~/.local/bin/claude`, indeterminate ·
+  Codex — the latest GitHub release binary tarball for the Mac's architecture
+  (`codex-{aarch64|x86_64}-apple-darwin.tar.gz`) unpacked to `~/.local/bin/codex`, determinate
+  (Content-Length) ·
+  Gemini CLI — `npm install -g --prefix ~/.local @google/gemini-cli` (bin lands in
+  `~/.local/bin`); Gemini ships only through npm, so without `npm` on this Mac the install
+  fails fast with "Gemini CLI needs Node.js — install it from nodejs.org first, then try
+  again."; indeterminate ·
+  OpenCode — the official installer script (`curl -fsSL https://opencode.ai/install | bash`)
+  with `OPENCODE_INSTALL_DIR=~/.local/bin`, indeterminate ·
+  Ollama — the latest GitHub release standalone CLI (`ollama-darwin.tgz`) unpacked to
+  `~/.local/bin/ollama`, determinate; the server then starts via the `/ollama/status`
+  autostart below, and onboarding continues into the `qwen3:8b` pull.
+- **Sign-in help** — `POST /agents/login` `{ id }` → `{ ok, method: browser | terminal }`,
+  only for harnesses that need an account and aren't signed in (409 otherwise): Codex — the
+  backend spawns `codex login` detached (the CLI opens the browser and completes on its OAuth
+  callback), method `browser` · Claude Code / Gemini CLI / OpenCode — their login flows are
+  interactive TUIs, so the backend opens Terminal.app via `osascript` running the harness's
+  login command (`claude /login` / `gemini` / `opencode auth login`), method `terminal`.
+  `GET /agents/signin/{id}` → `{ installed, signedIn }` is the cheap poll (§10 waits on it
+  every 2 s) — it runs only that provider's sign-in rule, never version lookups.
+- Ollama: `GET /ollama/status` → `{ ready, installed,
   models }`, `POST /ollama/pull`. All CLI lookups (detection and harness invocation alike)
   resolve the binary via PATH plus the usual macOS install locations (`~/.local/bin`,
-  `/opt/homebrew/bin`, `/usr/local/bin`; Ollama additionally `Ollama.app`), because a
-  GUI-launched backend gets a minimal PATH — e.g. `claude` installs to `~/.local/bin` by
-  default. Invocation uses the resolved absolute path. If Ollama is installed but its server isn't
+  `~/.opencode/bin`, `/opt/homebrew/bin`, `/usr/local/bin`; Ollama additionally `Ollama.app`),
+  because a GUI-launched backend gets a minimal PATH — e.g. `claude` installs to `~/.local/bin`
+  by default. Invocation uses the resolved absolute path. If Ollama is installed but its server isn't
   answering (and `AUTODAVE_OLLAMA_URL` is local), `/ollama/status` starts `ollama serve`
   once per backend process and waits briefly for it to come up — so an installed Ollama
   reads as found/ready instead of prompting a fresh download.
@@ -2183,9 +2241,18 @@ didn't have to face. Do not "fix" the app to match the prototype on these points
   modal opens with an empty value field — show/hide applies only to what's being typed.
 - **Entity ids are UUIDs.** The prototype uses slugs (`'claude'`, `'ag'+Date.now()`); §4's
   identity rule wins.
-- **Detection covers all five providers.** The prototype's onboarding knobs can only simulate
-  finding Claude Code / Ollama / Codex; the real detector (§19 `GET /agents/detect`) also finds
-  Gemini CLI and OpenCode.
+- **Detection covers all five providers, with real sign-in state.** The prototype's onboarding
+  knobs can only simulate finding Claude Code / Ollama / Codex; the real detector (§19
+  `GET /agents/detect`) also finds Gemini CLI and OpenCode, and its detail lines report the
+  provider's actual sign-in state instead of the prototype's fabricated "signed in with your
+  account" copy.
+- **Install and sign-in machines are real, with no sudo step.** The prototype's step-2
+  suggestion cards simulate installs on timers and include a sudo/password state; the app runs
+  real backend installs (§19 channels, all user-writable — macOS never asks for an admin
+  password), offers a suggestion card for every missing provider (the prototype has only
+  Claude and the free-local card), and runs the sign-in flow only when the provider actually
+  needs it. The prototype's sudo and permission-declined states are unreachable and not
+  implemented.
 - **Seed executions.** The prototype seeds 11 executions including a permanently-`executing`
   one, covers `skipped` only as a step status, and has a `reused` step status that no longer
   exists (§4.6 — in-place retry replaced it). §16 seeds twelve, covers every terminal
