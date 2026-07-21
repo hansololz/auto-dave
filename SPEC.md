@@ -1485,8 +1485,10 @@ real sign-in checks; no simulation in any mode:
 
 Clicking a card's Continue is what picks the provider: it becomes the default agent, all
 connected/ready cards are committed as agent records — a harness card as
-`{ name: <harness>, harness, mode: default, model: null }`, the Free local AI card as
-`{ name: "Qwen3 8B", harness: OpenCode, mode: ollama, model: qwen3:8b }` — and any existing
+`{ name: null, harness, mode: default, model: null }`, the Free local AI card as
+`{ name: null, harness: OpenCode, mode: ollama, model: qwen3:8b }` (a null name always falls
+back to the harness name for display, so agent labels read harness · model, e.g.
+"OpenCode · qwen3:8b" — never the model twice) — and any existing
 automations get the chosen default agent. While committing, all Continue buttons are disabled. "Skip for now" always
 available (commits any connected providers, goes to the app). Persistent footer: the three
 green-dot promises (§1).

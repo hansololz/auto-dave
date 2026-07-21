@@ -437,7 +437,9 @@ export default function Onboarding() {
       .filter((p) => card(p.id).phase === 'connected')
       .map((p) => ({ id: p.id, body: { name: null as string | null, harness: p.name, mode: 'default', model: null as string | null } }))
     if (card(LOCAL_ID).phase === 'connected') {
-      conn.push({ id: LOCAL_ID, body: { name: 'Qwen3 8B', harness: 'OpenCode', mode: 'ollama', model: LOCAL_MODEL } })
+      // Null name → display falls back to the harness, so the agent reads
+      // "OpenCode · qwen3:8b" (§10), never the model name twice.
+      conn.push({ id: LOCAL_ID, body: { name: null, harness: 'OpenCode', mode: 'ollama', model: LOCAL_MODEL } })
     }
     if (conn.length === 0) return
     const existing = useStore.getState().agents
@@ -475,6 +477,9 @@ export default function Onboarding() {
         up((o) => { o.committing = false })
         return
       }
+      // The store only hears about the new agents via the async agents.changed
+      // refresh — pull state now so step 3 mounts seeing the picked default.
+      await useStore.getState().refresh().catch(() => { /* WS refresh still lands */ })
       // Step 3 = the Create flow, labelled by that page. Mark onboarding done first.
       localStorage.setItem('ad-onboarded', '1')
       resumeAtConnect = true
@@ -488,6 +493,7 @@ export default function Onboarding() {
       } catch (e) {
         showToast((e as Error).message)
       }
+      await useStore.getState().refresh().catch(() => { /* WS refresh still lands */ })
       setSurface('app')
     })()
   }
