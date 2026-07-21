@@ -8,6 +8,11 @@ const path = require('path')
 // data dir — both default to ~/Library/Application Support/Auto Dave (§5).
 app.setPath('userData', path.join(app.getPath('userData'), 'electron'))
 
+// Overlay scrollbars: draw on top of content, zero layout space, so content
+// never shifts when a scrollbar appears. Without this, macOS "Automatic"/
+// "Always" system settings force classic space-taking bars (§14).
+app.commandLine.appendSwitch('enable-features', 'OverlayScrollbar')
+
 let win = null
 let panel = null
 let tray = null

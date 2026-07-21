@@ -75,6 +75,8 @@ body {
   font-size: 13px;
   color: var(--text);
   background: var(--bg-window);
+  /* dark so the native overlay scrollbar thumb renders light on this background */
+  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
@@ -234,13 +236,11 @@ textarea:disabled, input:disabled { opacity: .45; }
 @keyframes adBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 @keyframes adBarSlide { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); background-clip: content-box; border: 2px solid transparent; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-corner { background: transparent; }
+/* No ::-webkit-scrollbar styling: any such rule forces classic space-taking
+   scrollbars, which shift centered content when they appear. Native macOS
+   overlay scrollbars draw on top of the content instead. */
 /* keep the textarea resize grip theme-colored — without this it flips to the
-   default light square once a scrollbar appears */
+   default light square */
 ::-webkit-resizer {
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M10.5 5 5 10.5M10.5 8.5l-2 2' stroke='rgba(255,255,255,0.28)' stroke-width='1.2' stroke-linecap='round' fill='none'/%3E%3C/svg%3E") no-repeat bottom right / 12px 12px;
 }

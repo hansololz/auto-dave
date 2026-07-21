@@ -1910,10 +1910,15 @@ which would drop the WebSocket and all renderer state. The footer link sends pla
   pane, etc.) chain to the page — reaching their bottom continues scrolling the page (browser
   default; no `overscroll-behavior: contain`). Only floating surfaces (popovers, dropdowns,
   modals) may contain overscroll.
-- Scroll chrome (`tokens.css`): 10 px WebKit scrollbars, white 10 % thumb (18 % hover),
-  transparent track and corner; textarea resize grip (`::-webkit-resizer`) is an inline-SVG
-  grip icon — two rounded diagonal strokes, white 28 % — so it stays crisp and never flips to
-  WebKit's light default square when a scrollbar appears.
+- Scroll chrome: overlay scrollbars everywhere — they draw on top of the content and take
+  zero layout space, so content never shifts when one appears. Electron main enables
+  Chromium's `OverlayScrollbar` feature (`app.commandLine.appendSwitch('enable-features',
+  'OverlayScrollbar')`) — required because macOS "Automatic"/"Always" system scrollbar
+  settings otherwise force classic space-taking bars. No `::-webkit-scrollbar` styling
+  anywhere (custom rules would force classic bars back). The root declares
+  `color-scheme: dark` so the overlay thumb renders light on the dark background.
+  Textarea resize grip (`::-webkit-resizer`) is an inline-SVG grip icon — two rounded
+  diagonal strokes, white 28 % — so it stays crisp instead of WebKit's light default square.
 
 ## 15. Dev/test knobs
 
