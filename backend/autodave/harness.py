@@ -36,7 +36,6 @@ def _app_log(text: str) -> None:
         pass
 
 OLLAMA_URL = os.environ.get("AUTODAVE_OLLAMA_URL", "http://localhost:11434")
-OLLAMA_DEFAULT_MODEL = "qwen3:8b"
 
 
 class HarnessError(Exception):
@@ -128,7 +127,7 @@ def _claude_stream_line(line: str) -> tuple[str | None, str | None]:
 def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
             proc_holder: dict | None, on_chunk=None) -> str:
     if harness == "Ollama":
-        return _ollama(agent.get("model") or OLLAMA_DEFAULT_MODEL, prompt, timeout, on_chunk)
+        return _ollama(agent.get("model") or _ollama_first_model(), prompt, timeout, on_chunk)
     # §6: query-only runtime calls — invoke each harness with the strongest
     # flags it offers to disable tools/shell/file access beyond the model API.
     cmd_map = {
@@ -287,6 +286,14 @@ def ollama_status() -> dict:
             "models": models or []}
 
 
+def _ollama_first_model() -> str:
+    """§4.7 null-model resolution: the first installed model from /api/tags."""
+    models = _ollama_models()
+    if not models:
+        raise HarnessError("Ollama has no models installed")
+    return models[0]
+
+
 def ollama_model_installed(model: str, installed: list[str]) -> bool:
     """A bare name without a tag matches its `:latest` variant."""
     if model in installed:
@@ -356,14 +363,18 @@ def check_ready(harness_name: str, model: str | None = None) -> bool:
     `/agents/check-harness`.
 
     Ready means the harness can take a prompt right now: the binary resolves
-    (Ollama: the server answers and the agent's model is installed — no
-    sign-in, Ollama needs no account), and every account-backed harness is
+    (Ollama: the server answers and the agent's model is installed — any
+    model counts when the model is null; no sign-in, Ollama needs no
+    account), and every account-backed harness is
     additionally signed in by the §19 per-harness rule.
     """
     if harness_name == "Ollama":
         st = ollama_status()
-        return st["ready"] and ollama_model_installed(
-            model or OLLAMA_DEFAULT_MODEL, st["models"])
+        if not st["ready"]:
+            return False
+        if model is None:
+            return bool(st["models"])
+        return ollama_model_installed(model, st["models"])
     pid = HARNESS_ID.get(harness_name)
     if not pid:
         return False

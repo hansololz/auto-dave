@@ -149,7 +149,11 @@ def test_check_ready_ollama_requires_installed_model(monkeypatch):
     assert harness.check_ready("Ollama", "qwen3:8b")
     assert harness.check_ready("Ollama", "llama3.2")  # bare name → :latest
     assert not harness.check_ready("Ollama", "mistral:7b")
-    assert harness.check_ready("Ollama", None)  # null model → qwen3:8b fallback
+    assert harness.check_ready("Ollama", None)  # null model → any installed model
+
+    monkeypatch.setattr(harness, "ollama_status",
+                        lambda: {"ready": True, "installed": True, "models": []})
+    assert not harness.check_ready("Ollama", None)  # server up, nothing installed
 
     monkeypatch.setattr(harness, "ollama_status",
                         lambda: {"ready": False, "installed": True, "models": []})

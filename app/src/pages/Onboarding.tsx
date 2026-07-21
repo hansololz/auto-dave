@@ -191,7 +191,7 @@ export default function Onboarding() {
         let reason = 'it didn’t answer the readiness check'
         if (!ready && p.id === 'ollama') {
           const st = await api.ollamaStatus().catch(() => null)
-          reason = st?.ready ? 'the Qwen3 8B model isn’t installed yet' : 'the local server isn’t answering'
+          reason = st?.ready ? 'no local models are installed yet' : 'the local server isn’t answering'
         }
         t(() => {
           if (card(p.id).phase !== 'checking') return

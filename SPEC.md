@@ -416,7 +416,9 @@ page and given to the drafting agent"), rendered as the detail line on the agent
 carried into the §8 grants yaml so the drafting agent knows what each enabled agent is for.
 `model` is null unless `mode` is `ollama`, where it names the local Ollama model. A null model
 means the app never picks or passes a model — the harness uses whatever model it is already
-configured with. Display shows "Default model" when the model is null. One agent is
+configured with. Ollama has no configured default of its own, so a null-model Ollama agent
+resolves at invocation time to the first installed model reported by `/api/tags` (the
+invocation fails if none is installed). Display shows "Default model" when the model is null. One agent is
 the app default; deleting an agent reassigns the default and warns which automations use it.
 All five harnesses are selectable. The app can install any of them and help the user sign in
 when the harness needs an account (§10 step 2, §19 install/login endpoints).
@@ -2169,8 +2171,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   exists — onboarding's found-card "Check connection") — one shared readiness check
   (`harness.check_ready`) decides ready vs. needs-setup everywhere: the harness binary must
   resolve (rule below), Ollama's server must answer **and the agent's model must be installed**
-  (the model — or the `qwen3:8b` fallback when null — appears in `/api/tags`; a bare name
-  without a tag matches its `:latest` variant; no sign-in check — Ollama needs no account),
+  (the model appears in `/api/tags`; a bare name without a tag matches its `:latest` variant;
+  a null model is ready when **any** model is installed — never a hardcoded fallback;
+  no sign-in check — Ollama needs no account),
   and every account-backed harness must additionally be signed in, by the per-harness rule
   below.
 - **Sign-in state, per harness** (shared by `check_ready`, detection, and the signin poll):
