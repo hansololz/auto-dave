@@ -72,8 +72,14 @@ interface Ob {
   detStarted: boolean
   provs: Det[]
   // Free local AI card pieces (§10): OpenCode installed, Ollama serving,
-  // qwen3:8b installed — null until detection lands.
+  // a model installed — null until detection lands.
   localSt: { opencode: boolean; ollama: boolean; model: boolean } | null
+  // §10: first model from /ollama/status — the card's model when set;
+  // qwen3:8b is only the download fallback when nothing is installed.
+  localModel: string | null
+  // §10: all three pieces present at detection → the card renders in the
+  // found section. Snapshotted once so the card never moves mid-flow.
+  localFound: boolean
   cards: Record<string, Card>
   chosen: string | null
   committing: boolean
@@ -109,6 +115,8 @@ function freshOb(): Ob {
     detStarted: false,
     provs: [],
     localSt: null,
+    localModel: null,
+    localFound: false,
     cards: {},
     chosen: null,
     committing: false,
@@ -179,14 +187,20 @@ export default function Onboarding() {
       api.detectAgents().catch(() => [] as Det[]),
       api.ollamaStatus().catch(() => null),
     ]).then(([provs, ost]) => {
+      // §10: any installed model counts — the first one becomes the card's
+      // model; qwen3:8b downloads only when none is installed.
+      const localModel = ost?.models[0] ?? null
       const localSt = {
         opencode: provs.some((p) => p.id === 'opencode' && p.installed),
         ollama: ost?.ready ?? false,
-        model: ost?.models.includes(LOCAL_MODEL) ?? false,
+        model: localModel !== null,
       }
       const wait = Math.max(0, 1900 - (Date.now() - started))
       t(() => {
-        up((o) => { o.det = 'cards'; o.provs = provs; o.localSt = localSt })
+        up((o) => {
+          o.det = 'cards'; o.provs = provs; o.localSt = localSt; o.localModel = localModel
+          o.localFound = localSt.opencode && localSt.ollama && localSt.model
+        })
         // §10: connection checks run on their own — signed-out providers
         // skip it (the check would fail) and show Sign in directly.
         provs.filter((p) => p.installed && p.signedIn !== false)
@@ -224,12 +238,13 @@ export default function Onboarding() {
       })
   }
 
-  // Free local AI card check (§10): OpenCode with the local model — the §19
+  // Free local AI card check (§10): OpenCode with the card's model — the §19
   // check needs no sign-in, only the binary + Ollama serving + the model.
   const startLocalCheck = () => {
+    const model = ob.localModel ?? LOCAL_MODEL
     setCard(LOCAL_ID, { phase: 'checking', notReady: null })
     const t0 = Date.now()
-    void api.checkHarness('OpenCode', LOCAL_MODEL)
+    void api.checkHarness('OpenCode', model)
       .then((r) => r.status === 'ready')
       .catch(() => false)
       .then(async (ready) => {
@@ -237,7 +252,7 @@ export default function Onboarding() {
         if (!ready) {
           const st = await api.ollamaStatus().catch(() => null)
           if (st && !st.ready) reason = 'the local server isn’t answering'
-          else if (st && !st.models.includes(LOCAL_MODEL)) reason = 'Qwen3 8B isn’t installed yet'
+          else if (st && !st.models.includes(model)) reason = `${model} isn’t installed yet`
         }
         t(() => {
           if (card(LOCAL_ID).phase !== 'checking') return
@@ -340,6 +355,13 @@ export default function Onboarding() {
     runLocalPiece(missing, 0)
   }
 
+  // §10 recovery: a found model that fails the check (e.g. embedding-only)
+  // gets discarded, and qwen3:8b downloads in its place.
+  const startQwenFallback = () => {
+    up((o) => { o.localModel = null; if (o.localSt) o.localSt = { ...o.localSt, model: false } })
+    runLocalPiece(['model'], 0)
+  }
+
   // Live install progress from the §19 harness.install WS stream — feeds both
   // the harness suggestion cards and the local card's current piece.
   useEffect(() => {
@@ -438,8 +460,8 @@ export default function Onboarding() {
       .map((p) => ({ id: p.id, body: { name: null as string | null, harness: p.name, mode: 'default', model: null as string | null } }))
     if (card(LOCAL_ID).phase === 'connected') {
       // Null name → display falls back to the harness, so the agent reads
-      // "OpenCode · qwen3:8b" (§10), never the model name twice.
-      conn.push({ id: LOCAL_ID, body: { name: null, harness: 'OpenCode', mode: 'ollama', model: LOCAL_MODEL } })
+      // "OpenCode · <model>" (§10), never the model name twice.
+      conn.push({ id: LOCAL_ID, body: { name: null, harness: 'OpenCode', mode: 'ollama', model: ob.localModel ?? LOCAL_MODEL } })
     }
     if (conn.length === 0) return
     const existing = useStore.getState().agents
@@ -607,12 +629,18 @@ export default function Onboarding() {
   // ---------- step 2 ----------
   function renderConnect() {
     const foundList = ob.provs.filter((p) => p.installed)
+    const localDet: Det = { id: LOCAL_ID, name: 'Free local AI', installed: ob.localFound, signedIn: null, detail: '' }
     // Suggestions: every missing harness, then the Free local AI card —
-    // always present regardless of what was detected (§10).
+    // unless every local piece was found, which moves it to the found
+    // section (§10). localFound implies OpenCode installed, so the found
+    // section always exists when the card lands there.
     const sugList = SUG_ORDER
       .map((id) => ob.provs.find((p) => p.id === id && !p.installed))
       .filter((p): p is Det => !!p)
-      .concat([{ id: LOCAL_ID, name: 'Free local AI', installed: false, signedIn: null, detail: '' }])
+      .concat(ob.localFound ? [] : [localDet])
+    // Found-section status line covers the local card too when it sits there.
+    const foundPhases = foundList.map((f) => card(f.id).phase)
+      .concat(ob.localFound ? [card(LOCAL_ID).phase] : [])
 
     return (
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '44px 32px 60px', animation: 'adFadeUp .5s ease both' }}>
@@ -634,8 +662,9 @@ export default function Onboarding() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 26, animation: 'adFadeUp .35s ease both' }}>
                 <Eyebrow style={{ color: 'var(--accent)' }}>FOUND ON THIS MAC</Eyebrow>
                 {foundList.map((f) => renderFoundCard(f))}
-                {foundList.every((f) => card(f.id).phase !== 'checking') && (
-                  foundList.some((f) => card(f.id).phase === 'connected') ? (
+                {ob.localFound && renderSuggestionCard(localDet)}
+                {foundPhases.every((ph) => ph !== 'checking') && (
+                  foundPhases.some((ph) => ph === 'connected') ? (
                     <div style={{ fontSize: 13, color: 'var(--text-2)', animation: 'adFadeUp .3s ease both' }}>
                       You’re ready — continue with a connected AI, or set up another below.
                     </div>
@@ -797,6 +826,14 @@ export default function Onboarding() {
     const c = card(p.id)
     const s = SUG[p.id]
     const isLocal = p.id === LOCAL_ID
+    // §10: a found model replaces the qwen3:8b download pitch — nothing to
+    // download beyond the missing pieces. In the found section (every piece
+    // present) the body drops the setup framing entirely.
+    const found = isLocal ? ob.localModel : null
+    const body = isLocal && ob.localFound
+      ? `OpenCode with Ollama and ${found ?? LOCAL_MODEL} — local to this Mac, works offline.`
+      : found ? `Sets up OpenCode with Ollama and ${found}, already on this Mac. Works offline.` : s.body
+    const btn = found ? 'Set up local AI' : s.btn
     const conn = c.phase === 'connected'
     const busy = c.phase === 'installing' || c.phase === 'pulling' || c.phase === 'signin' || c.phase === 'failed'
     const start = () => { if (isLocal) startLocalSetup(); else startInstall(p) }
@@ -812,22 +849,31 @@ export default function Onboarding() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 600, fontSize: 15 }}>{s.title}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{s.body}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{body}</div>
             {c.phase === 'idle' && c.notReady && (
               <div style={{ fontSize: 12, color: 'var(--amber)', marginTop: 4 }}>{c.notReady}</div>
             )}
           </div>
           {c.phase === 'idle' && (isLocal && c.notReady ? (
-            <button className="ad-btn-ghost" onClick={() => startLocalCheck()} style={{ flex: 'none' }}>
-              Check again
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }}>
+              <button className="ad-btn-ghost" onClick={() => startLocalCheck()}>
+                Check again
+              </button>
+              {found && (
+                // §10 recovery: the found model failed the check — offer the
+                // qwen3:8b download instead.
+                <button className="ad-btn-ghost" onClick={startQwenFallback}>
+                  Download Qwen3 8B · 5.2 GB
+                </button>
+              )}
+            </div>
           ) : (
             <button
               className={s.primary ? 'ad-btn-primary' : 'ad-btn-ghost'}
               onClick={start}
               style={{ flex: 'none' }}
             >
-              {s.btn}
+              {btn}
             </button>
           ))}
           {c.phase === 'checking' && (

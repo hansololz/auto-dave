@@ -1422,7 +1422,8 @@ real version plus sign-in state, e.g. "1.0.24 · signed in" / "1.0.24 · not sig
 and every harness that is
 **not** installed renders as a suggestion card alongside (the app helps install all four).
 Ollama is never a card of its own — the local path lives entirely in the "Free local AI"
-suggestion card below.
+card below (a suggestion card, unless every piece is already present — then it renders in
+the found section).
 Suggestion cards use the same full-width row anatomy as found cards — a single vertical list
 (no tile grid), title plus one-line detail on the left, the action slot on the right; busy
 states (install/pull progress, sign-in wait, install failure) stack full-width below the title
@@ -1467,26 +1468,41 @@ real sign-in checks; no simulation in any mode:
   "Install failed — `<first error line>`" with "Try again". There is no sudo step: every
   install lands in user-writable locations (§19 channels), so macOS never prompts for an
   admin password.
-- **Free local AI card** — always the last suggestion card, shown regardless of what was
-  detected: OpenCode driving Qwen3 8B through Ollama (title "Free local AI", body "Sets up
-  OpenCode with Ollama and Qwen3 8B. Local to this Mac, works offline.", button "Download and
-  install · 5.2 GB"). The card owns three pieces: OpenCode installed (from detection), Ollama
-  serving, and `qwen3:8b` installed (both from §19 `GET /ollama/status`). When every piece is
-  already present as the cards land, the card skips the install button and runs the
-  connection check automatically (§19 `POST /agents/check-harness` with harness OpenCode and
-  model `qwen3:8b`) → "Continue with local AI →"; a failed check shows the amber not-ready
-  line with "Check again". Otherwise the install button runs only the **missing** pieces, in
-  order — OpenCode (§19 install), Ollama (§19 install), the model (`POST /ollama/pull`, real
-  percent from the pull stream, continues in the background) — labelled "Step k of n —
-  Installing OpenCode… / Installing Ollama… / Downloading Qwen3 8B…" where n counts the
-  missing pieces, then lands on the same connection check → connected. A failure at any piece
-  shows red "Install failed — `<first error line>`" with "Try again", which resumes at the
-  still-missing pieces.
+- **Free local AI card** — always shown regardless of what was detected: OpenCode driving a
+  local model through Ollama (title "Free local AI"). The card owns three pieces: OpenCode
+  installed (from detection), Ollama serving, and a model installed (both from §19
+  `GET /ollama/status`) — **any** installed model counts: the first model from
+  `GET /ollama/status` becomes the card's model, and `qwen3:8b` is only the download
+  fallback when none is installed. The card is the last suggestion card — except when all
+  three pieces are already present at detection, in which case it renders as the last
+  "FOUND ON THIS MAC" card instead (same card and machine; the found-section status line
+  counts it like any found card, and its body reads "OpenCode with Ollama and `<model>` —
+  local to this Mac, works offline."). Placement is decided once at detection and never
+  moves mid-flow — the qwen3:8b recovery download below keeps the card in the found
+  section. With no model found the body reads "Sets up
+  OpenCode with Ollama and Qwen3 8B. Local to this Mac, works offline." and the button
+  "Download and install · 5.2 GB"; with a model found the body reads "Sets up OpenCode with
+  Ollama and `<model>`, already on this Mac. Works offline." and the button "Set up local AI"
+  (only the still-missing pieces install — no model download). When every piece is already
+  present as the cards land, the card skips the install button and runs the connection check
+  automatically (§19 `POST /agents/check-harness` with harness OpenCode and the card's
+  model) → "Continue with local AI →". A failed check shows the amber not-ready line (the
+  model-missing reason names the card's model) with "Check again" — plus, when the check ran
+  against a found model, a "Download Qwen3 8B · 5.2 GB" button that discards the found model
+  and pulls `qwen3:8b` instead (recovery for installed models that can't chat, e.g.
+  embedding-only ones). Otherwise the install button runs only the **missing** pieces, in
+  order — OpenCode (§19 install), Ollama (§19 install), the model (`POST /ollama/pull` of
+  `qwen3:8b`, real percent from the pull stream, continues in the background) — labelled
+  "Step k of n — Installing OpenCode… / Installing Ollama… / Downloading Qwen3 8B…" where n
+  counts the missing pieces, then lands on the same connection check → connected. A failure
+  at any piece shows red "Install failed — `<first error line>`" with "Try again", which
+  resumes at the still-missing pieces.
 
 Clicking a card's Continue is what picks the provider: it becomes the default agent, all
 connected/ready cards are committed as agent records — a harness card as
 `{ name: null, harness, mode: default, model: null }`, the Free local AI card as
-`{ name: null, harness: OpenCode, mode: ollama, model: qwen3:8b }` (a null name always falls
+`{ name: null, harness: OpenCode, mode: ollama, model: <the card's model> }` — the found
+model, or `qwen3:8b` after a download (a null name always falls
 back to the harness name for display, so agent labels read harness · model, e.g.
 "OpenCode · qwen3:8b" — never the model twice) — and any existing
 automations get the chosen default agent. While committing, all Continue buttons are disabled. "Skip for now" always
