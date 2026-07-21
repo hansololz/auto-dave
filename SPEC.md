@@ -1418,10 +1418,13 @@ Ollama: "serving locally on this Mac" / "installed · not serving"), and every p
 Suggestion cards use the same full-width row anatomy as found cards — a single vertical list
 (no tile grid), title plus one-line detail on the left, the action slot on the right; busy
 states (install/pull progress, sign-in wait, install failure) stack full-width below the title
-line. When at least one provider was found, the suggestion list carries its own neutral eyebrow
-"OR TRY SOMETHING NEW" (neutral text color — accent stays reserved for the detected section).
-When nothing is detected, that eyebrow is omitted; instead a note card renders above the
-suggestions: "No AI app was found on this Mac — here are some suggestions for moving forward."
+line. When at least one provider was found, the suggestion list sits behind its own neutral
+eyebrow "OR TRY SOMETHING NEW" (neutral text color — accent stays reserved for the detected
+section), which acts as a collapse toggle with a chevron icon: the list starts minimized
+(collapsed) and clicking the eyebrow expands/collapses it. The expanded/collapsed state
+persists across step navigation like the rest of onboarding state. When nothing is detected,
+there is no eyebrow and no collapse — the list is always visible, with a note card above it:
+"No AI app was found on this Mac — here are some suggestions for moving forward."
 
 Every card resolves inside itself — there is no page-level Continue button, no radio selection,
 and no multi-ready banner. All step-2 cards use the neutral card border; a card's border turns
@@ -1441,8 +1444,8 @@ real sign-in checks; no simulation in any mode:
   signing in there and come back. We'll notice on our own."), with "Cancel" returning to idle.
   The UI polls §19 `GET /agents/signin/{id}` every 2 s; once signed in the card runs the
   connection check automatically and lands on Connected + Continue.
-- **Suggestion card** (one per missing provider) — "Use Claude" ("Set up Claude Code") /
-  "Use Codex" / "Use Gemini" / "Use OpenCode" (each "Set up `<name>`") / "Use a free local AI"
+- **Suggestion card** (one per missing provider) — "Claude" ("Set up Claude Code") /
+  "Codex" / "Gemini" / "OpenCode" (each "Set up `<name>`") / "Free local AI"
   (Ollama + Qwen3 8B, "Download and install · 5.2 GB"): install via §19
   `POST /agents/install` → labelled progress ("Installing `<name>`…"; determinate bar when the
   `harness.install` stream carries a percent, indeterminate otherwise) → then the sign-in flow

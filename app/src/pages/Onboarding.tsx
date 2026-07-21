@@ -27,23 +27,23 @@ const LOCAL_MODEL = 'qwen3:8b'
 const SUG_ORDER = ['claude', 'codex', 'gemini', 'opencode', 'ollama']
 const SUG: Record<string, { title: string; body: string; btn: string; primary: boolean }> = {
   claude: {
-    title: 'Use Claude', primary: true, btn: 'Set up Claude Code',
+    title: 'Claude', primary: true, btn: 'Set up Claude Code',
     body: 'You’ll need a Claude account on Pro or higher. The most capable option — nothing extra to pay.',
   },
   codex: {
-    title: 'Use Codex', primary: false, btn: 'Set up Codex',
+    title: 'Codex', primary: false, btn: 'Set up Codex',
     body: 'Signs in with your ChatGPT account.',
   },
   gemini: {
-    title: 'Use Gemini', primary: false, btn: 'Set up Gemini CLI',
+    title: 'Gemini', primary: false, btn: 'Set up Gemini CLI',
     body: 'Signs in with your Google account. Generous free tier. Needs Node.js on this Mac.',
   },
   opencode: {
-    title: 'Use OpenCode', primary: false, btn: 'Set up OpenCode',
+    title: 'OpenCode', primary: false, btn: 'Set up OpenCode',
     body: 'Open-source — works with any provider you’ve already set up.',
   },
   ollama: {
-    title: 'Use a free local AI', primary: false, btn: 'Download and install · 5.2 GB',
+    title: 'Free local AI', primary: false, btn: 'Download and install · 5.2 GB',
     body: 'Sets up Ollama with Qwen3 8B. Local to this Mac, works offline.',
   },
 }
@@ -67,6 +67,7 @@ interface Ob {
   cards: Record<string, Card>
   chosen: string | null
   committing: boolean
+  sugOpen: boolean
 }
 
 // When the Create flow (step 3) navigates back into onboarding, resume at
@@ -99,6 +100,7 @@ function freshOb(): Ob {
     cards: {},
     chosen: null,
     committing: false,
+    sugOpen: false,
   }
 }
 
@@ -535,10 +537,26 @@ export default function Onboarding() {
 
             {missing.length > 0 && (
               <div style={{ animation: 'adFadeUp .35s ease both' }}>
-                {foundList.length > 0 && <Eyebrow style={{ marginBottom: 12 }}>OR TRY SOMETHING NEW</Eyebrow>}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {missing.map((p) => renderSuggestionCard(p))}
-                </div>
+                {foundList.length > 0 && (
+                  <button
+                    onClick={() => up((o) => { o.sugOpen = !o.sugOpen })}
+                    aria-expanded={ob.sugOpen}
+                    style={{
+                      background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 7, marginBottom: ob.sugOpen ? 12 : 0,
+                    }}
+                  >
+                    <Eyebrow>OR TRY SOMETHING NEW</Eyebrow>
+                    <svg width="10" height="10" viewBox="0 0 10 10" style={{ color: 'var(--text-faint)', transform: ob.sugOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
+                      <path d="M2 3.5 L5 6.5 L8 3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                )}
+                {(foundList.length === 0 || ob.sugOpen) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {missing.map((p) => renderSuggestionCard(p))}
+                  </div>
+                )}
               </div>
             )}
 
