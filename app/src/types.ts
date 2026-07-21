@@ -179,7 +179,8 @@ export interface Agent {
   id: string
   name: string | null
   desc?: string
-  harness: 'Claude Code' | 'Gemini CLI' | 'Codex' | 'OpenCode' | 'Ollama'
+  harness: 'Claude Code' | 'Gemini CLI' | 'Codex' | 'OpenCode'
+  // 'ollama' = OpenCode driving a local Ollama model (§4.7) — OpenCode only
   mode: 'default' | 'ollama'
   // null unless mode is 'ollama' — the harness uses its own configured model
   model: string | null

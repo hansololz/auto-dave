@@ -9,12 +9,10 @@ import { openAgentEdit } from './AgentNewPage'
 
 
 function detailOf(ag: Agent, ready: boolean): string {
-  const local = `Serves ${ag.model} on this Mac through Ollama. Private, works offline.`
-  if (ag.model) return local
+  if (ag.model) return `Serves ${ag.model} on this Mac through OpenCode and Ollama. Private, works offline.`
   if (ag.harness === 'OpenCode') return 'Uses whatever OpenCode is already configured with.'
   if (ag.harness === 'Gemini CLI') return 'Uses your Google account through Gemini CLI.'
   if (ag.harness === 'Codex') return 'Uses your ChatGPT account through Codex.'
-  if (ag.harness === 'Ollama') return 'Uses whatever model Ollama is already configured with. Private, works offline.'
   // Claude Code
   if (!ready) return 'Signed out. Reconnect to create or edit automations — existing ones still execute on schedule.'
   return 'Signed in with your Claude account. Uses your existing subscription — nothing extra to pay here.'

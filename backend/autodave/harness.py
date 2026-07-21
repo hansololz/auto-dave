@@ -126,8 +126,11 @@ def _claude_stream_line(line: str) -> tuple[str | None, str | None]:
 
 def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
             proc_holder: dict | None, on_chunk=None) -> str:
-    if harness == "Ollama":
-        return _ollama(agent.get("model") or _ollama_first_model(), prompt, timeout, on_chunk)
+    # §4.7: a local-model agent is OpenCode driving Ollama — the model rides
+    # in as `--model ollama/<model>` after the §19 opencode.json provider sync.
+    model = agent.get("model")
+    if harness == "OpenCode" and model:
+        sync_opencode_ollama(model)
     # §6: query-only runtime calls — invoke each harness with the strongest
     # flags it offers to disable tools/shell/file access beyond the model API.
     cmd_map = {
@@ -148,7 +151,8 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
                   "--skip-git-repo-check", prompt],
         # OpenCode has no documented flag that disables tool use for
         # `opencode run` — left bare.
-        "OpenCode": ["opencode", "run", prompt],
+        "OpenCode": ["opencode", "run",
+                     *(["--model", f"ollama/{model}"] if model else []), prompt],
     }
     cmd = cmd_map.get(harness)
     if not cmd:
@@ -213,27 +217,47 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
     return raw
 
 
-def _ollama(model: str, prompt: str, timeout: int, on_chunk=None) -> str:
-    req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/generate",
-        data=json.dumps({"model": model, "prompt": prompt, "stream": True}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
+_OPENCODE_CONFIG = os.path.expanduser("~/.config/opencode/opencode.json")
+
+
+def sync_opencode_ollama(model: str) -> None:
+    """§19: merge the Ollama provider entry into `~/.config/opencode/opencode.json`
+    so `opencode run --model ollama/<model>` resolves. Merge only — the user's
+    other config keys are never touched, and nothing is written when the entry
+    is already in place."""
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            parts: list[str] = []
-            for line in r:  # §8 live progress: one JSON object per line
-                obj = json.loads(line.decode())
-                piece = obj.get("response", "")
-                if piece:
-                    parts.append(piece)
-                    if on_chunk:
-                        on_chunk(piece)
-                if obj.get("done"):
-                    break
-            return "".join(parts)
-    except Exception as e:  # noqa: BLE001
-        raise HarnessError(f"Ollama request failed: {e}") from e
+        with open(_OPENCODE_CONFIG, encoding="utf-8") as f:
+            cfg = json.load(f)
+        if not isinstance(cfg, dict):
+            cfg = {}
+    except (OSError, ValueError):
+        cfg = {}
+    before = json.dumps(cfg, sort_keys=True)
+    provider = cfg.setdefault("provider", {})
+    if not isinstance(provider, dict):
+        provider = cfg["provider"] = {}
+    entry = provider.setdefault("ollama", {})
+    if not isinstance(entry, dict):
+        entry = provider["ollama"] = {}
+    entry.setdefault("npm", "@ai-sdk/openai-compatible")
+    entry.setdefault("name", "Ollama (local)")
+    options = entry.setdefault("options", {})
+    if not isinstance(options, dict):
+        options = entry["options"] = {}
+    options["baseURL"] = f"{OLLAMA_URL}/v1"
+    models = entry.setdefault("models", {})
+    if not isinstance(models, dict):
+        models = entry["models"] = {}
+    models.setdefault(model, {"name": model})
+    if json.dumps(cfg, sort_keys=True) == before:
+        return
+    try:
+        os.makedirs(os.path.dirname(_OPENCODE_CONFIG), exist_ok=True)
+        with open(_OPENCODE_CONFIG, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+            f.write("\n")
+    except OSError as e:
+        raise HarnessError(f"couldn't update opencode.json: {e}") from e
 
 
 _OLLAMA_APP_BIN = "/Applications/Ollama.app/Contents/Resources/ollama"
@@ -286,14 +310,6 @@ def ollama_status() -> dict:
             "models": models or []}
 
 
-def _ollama_first_model() -> str:
-    """§4.7 null-model resolution: the first installed model from /api/tags."""
-    models = _ollama_models()
-    if not models:
-        raise HarnessError("Ollama has no models installed")
-    return models[0]
-
-
 def ollama_model_installed(model: str, installed: list[str]) -> bool:
     """A bare name without a tag matches its `:latest` variant."""
     if model in installed:
@@ -302,6 +318,8 @@ def ollama_model_installed(model: str, installed: list[str]) -> bool:
 
 
 # Provider ids (§19 install/login/signin endpoints, §10 cards) ↔ harness names.
+# Ollama is an installable provider but never a harness (§4.7) — it's the
+# local-model runtime OpenCode drives.
 PROVIDERS: tuple[tuple[str, str], ...] = (
     ("claude", "Claude Code"),
     ("ollama", "Ollama"),
@@ -312,7 +330,7 @@ PROVIDERS: tuple[tuple[str, str], ...] = (
 PROVIDER_NAME = dict(PROVIDERS)
 PROVIDER_BIN = {"claude": "claude", "codex": "codex", "gemini": "gemini",
                 "opencode": "opencode", "ollama": "ollama"}
-HARNESS_ID = {name: pid for pid, name in PROVIDERS}
+HARNESS_ID = {name: pid for pid, name in PROVIDERS if pid != "ollama"}
 
 
 def _status_ok(cmd: list[str]) -> bool:
@@ -362,30 +380,32 @@ def check_ready(harness_name: str, model: str | None = None) -> bool:
     """The single readiness check behind §19 `/agents/{id}/check` and
     `/agents/check-harness`.
 
-    Ready means the harness can take a prompt right now: the binary resolves
-    (Ollama: the server answers and the agent's model is installed — any
-    model counts when the model is null; no sign-in, Ollama needs no
-    account), and every account-backed harness is
-    additionally signed in by the §19 per-harness rule.
+    Ready means the harness can take a prompt right now: the binary resolves.
+    A local-model agent (OpenCode with a model, §4.7) additionally needs the
+    Ollama server answering and the model installed — and no sign-in, a local
+    model needs no account. Every default-mode check instead requires the
+    harness to be signed in by the §19 per-harness rule.
     """
-    if harness_name == "Ollama":
-        st = ollama_status()
-        if not st["ready"]:
-            return False
-        if model is None:
-            return bool(st["models"])
-        return ollama_model_installed(model, st["models"])
     pid = HARNESS_ID.get(harness_name)
     if not pid:
         return False
     if resolve_bin(PROVIDER_BIN[pid]) is None:
         return False
+    if model is not None:
+        if harness_name != "OpenCode":
+            return False
+        st = ollama_status()
+        if not st["ready"] or not ollama_model_installed(model, st["models"]):
+            return False
+        sync_opencode_ollama(model)
+        return True
     return signed_in(pid) is True
 
 
 def detect() -> list[dict]:
-    """§10 step 2 — one entry per provider, all five always present, with real
-    installed and sign-in state (§19)."""
+    """§10 step 2 — one entry per harness, all four always present, with real
+    installed and sign-in state (§19). Ollama is not part of detection — the
+    §10 Free local AI card reads its state from `/ollama/status`."""
     def version_of(binpath: str) -> str | None:
         try:
             r = subprocess.run([binpath, "--version"], capture_output=True, text=True,
@@ -397,12 +417,6 @@ def detect() -> list[dict]:
     out = []
     for pid, name in PROVIDERS:
         if pid == "ollama":
-            st = ollama_status()
-            installed = bool(st["ready"] or st.get("installed"))
-            detail = ("serving locally on this Mac" if st["ready"]
-                      else "installed · not serving" if installed else "")
-            out.append({"id": pid, "name": name, "installed": installed,
-                        "signedIn": None, "detail": detail})
             continue
         binpath = resolve_bin(PROVIDER_BIN[pid])
         if not binpath:

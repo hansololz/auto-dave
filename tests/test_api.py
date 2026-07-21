@@ -445,7 +445,7 @@ def test_edit_draft_snapshot_carries_triggers(client):
 def test_delete_agent_reassigns_default(client):
     from autodave.storage import store
 
-    r = client.post("/agents", json={"harness": "Ollama", "mode": "ollama",
+    r = client.post("/agents", json={"harness": "OpenCode", "mode": "ollama",
                                      "model": "qwen3:8b", "name": "Local"})
     new_id = r.json()["id"]
     client.patch(f"/agents/{new_id}", json={"default": True})

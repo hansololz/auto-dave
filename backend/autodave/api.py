@@ -589,7 +589,7 @@ def skip_step(exec_id: str, body: dict) -> dict:
 
 
 # ---------- agents ----------
-HARNESSES = ("Claude Code", "Gemini CLI", "Codex", "OpenCode", "Ollama")
+HARNESSES = ("Claude Code", "Gemini CLI", "Codex", "OpenCode")
 
 
 @app.get("/agents", dependencies=[Depends(auth)])
@@ -606,11 +606,14 @@ def add_agent(body: dict) -> dict:
     mode = body.get("mode", "default")
     if mode not in ("default", "ollama"):
         raise HTTPException(422, "mode must be default | ollama")
-    # §4.7: model is null unless mode is ollama — a null model means the
-    # harness uses whatever it is already configured with.
+    # §4.7: mode ollama is OpenCode driving a local Ollama model; model is null
+    # unless mode is ollama — a null model means the harness uses whatever it
+    # is already configured with.
+    if mode == "ollama" and harness_name != "OpenCode":
+        raise HTTPException(422, "local-model mode needs the OpenCode harness")
     model = (body.get("model") or None) if mode == "ollama" else None
     if mode == "ollama" and not model:
-        raise HTTPException(422, "Ollama mode needs a model")
+        raise HTTPException(422, "local-model mode needs a model")
     import uuid
 
     with store.lock:
@@ -633,9 +636,12 @@ def patch_agent(agent_id: str, body: dict) -> dict:
     with store.lock:
         ag = _agent_or_404(agent_id)
         mode = body.get("mode", ag.get("mode", "default"))
+        harness_name = body.get("harness", ag.get("harness"))
+        if mode == "ollama" and harness_name != "OpenCode":
+            raise HTTPException(422, "local-model mode needs the OpenCode harness")
         model = body["model"] if "model" in body else ag.get("model")
         if mode == "ollama" and not model:
-            raise HTTPException(422, "Ollama mode needs a model")
+            raise HTTPException(422, "local-model mode needs a model")
         if body.get("default"):
             for g in store.agents:
                 g["default"] = g["id"] == agent_id

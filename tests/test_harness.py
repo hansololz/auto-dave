@@ -64,6 +64,47 @@ def test_fake_cli_streams_chunks_and_result():
     assert chunks and "".join(chunks) == out
 
 
+def test_opencode_local_model_invoked_with_ollama_model_flag(monkeypatch):
+    # §4.7: a local-model agent rides in as `--model ollama/<model>` after the
+    # §19 opencode.json provider sync.
+    from autodave import harness
+
+    synced = []
+    monkeypatch.setattr(harness, "sync_opencode_ollama", synced.append)
+    cmd = _captured_invoke(monkeypatch, {"harness": "OpenCode", "model": "qwen3:8b"})
+    assert cmd[:2] == ["/usr/local/bin/opencode", "run"]
+    i = cmd.index("--model")
+    assert cmd[i + 1] == "ollama/qwen3:8b"
+    assert cmd[-1] == "question: hi?"
+    assert synced == ["qwen3:8b"]
+
+    cmd = _captured_invoke(monkeypatch, {"harness": "OpenCode"})
+    assert "--model" not in cmd  # default mode: no model is ever passed
+    assert synced == ["qwen3:8b"]  # and no sync either
+
+
+def test_sync_opencode_ollama_merges_config(monkeypatch, tmp_path):
+    import json
+
+    from autodave import harness
+
+    cfg = tmp_path / "opencode.json"
+    cfg.write_text(json.dumps({"theme": "dark", "provider": {"anthropic": {}}}))
+    monkeypatch.setattr(harness, "_OPENCODE_CONFIG", str(cfg))
+    harness.sync_opencode_ollama("qwen3:8b")
+    out = json.loads(cfg.read_text())
+    assert out["theme"] == "dark"                    # untouched keys survive
+    assert "anthropic" in out["provider"]
+    entry = out["provider"]["ollama"]
+    assert entry["npm"] == "@ai-sdk/openai-compatible"
+    assert entry["options"]["baseURL"].endswith("/v1")
+    assert "qwen3:8b" in entry["models"]
+    # idempotent: a second sync writes nothing new
+    before = cfg.read_text()
+    harness.sync_opencode_ollama("qwen3:8b")
+    assert cfg.read_text() == before
+
+
 def test_codex_invoked_with_read_only_sandbox(monkeypatch):
     cmd = _captured_invoke(monkeypatch, {"harness": "Codex"})
     assert cmd[:2] == ["/usr/local/bin/codex", "exec"]
@@ -73,7 +114,7 @@ def test_codex_invoked_with_read_only_sandbox(monkeypatch):
     assert cmd[-1] == "question: hi?"
 
 
-def test_detect_reports_all_five_with_sign_in_state(monkeypatch):
+def test_detect_reports_all_four_with_sign_in_state(monkeypatch):
     from autodave import harness
 
     present = {"gemini", "opencode"}
@@ -86,27 +127,22 @@ def test_detect_reports_all_five_with_sign_in_state(monkeypatch):
         stderr = ""
 
     monkeypatch.setattr(harness.subprocess, "run", lambda *a, **kw: _R())
-    monkeypatch.setattr(harness, "ollama_status",
-                        lambda: {"ready": False, "installed": False, "models": []})
-    monkeypatch.setattr(harness, "signed_in",
-                        lambda pid: None if pid == "ollama" else pid == "gemini")
+    monkeypatch.setattr(harness, "signed_in", lambda pid: pid == "gemini")
     by_id = {f["id"]: f for f in harness.detect()}
-    # §19: one entry per provider, all five always present
-    assert set(by_id) == {"claude", "ollama", "codex", "gemini", "opencode"}
+    # §19: one entry per harness, all four always present — Ollama is not a
+    # harness and never appears in detection
+    assert set(by_id) == {"claude", "codex", "gemini", "opencode"}
     assert by_id["gemini"]["installed"] and by_id["gemini"]["signedIn"] is True
     assert "9.9.9" in by_id["gemini"]["detail"] and "signed in" in by_id["gemini"]["detail"]
     assert by_id["opencode"]["installed"] and by_id["opencode"]["signedIn"] is False
     assert "not signed in yet" in by_id["opencode"]["detail"]
     assert not by_id["claude"]["installed"] and by_id["claude"]["detail"] == ""
-    assert by_id["ollama"]["signedIn"] is None  # no account
 
 
 def test_detect_finds_fake_claude_from_path(monkeypatch):
     """conftest prepends tests/bin, so the real detection path finds the fake CLI."""
     from autodave import harness
 
-    monkeypatch.setattr(harness, "ollama_status",
-                        lambda: {"ready": False, "installed": False, "models": []})
     found = harness.detect()
     by_id = {f["id"]: f for f in found}
     assert by_id["claude"]["installed"]
@@ -140,24 +176,28 @@ def test_signin_state_is_cheap_per_provider(monkeypatch):
     assert harness.signin_state("ollama") == {"installed": False, "signedIn": None}
 
 
-def test_check_ready_ollama_requires_installed_model(monkeypatch):
+def test_check_ready_local_model_requires_installed_model(monkeypatch):
+    """§4.7: a local-model agent is OpenCode + Ollama server + the model —
+    no sign-in needed."""
     from autodave import harness
 
+    monkeypatch.setattr(harness, "resolve_bin", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr(harness, "signed_in", lambda pid: False)
+    monkeypatch.setattr(harness, "sync_opencode_ollama", lambda model: None)
     monkeypatch.setattr(harness, "ollama_status",
                         lambda: {"ready": True, "installed": True,
                                  "models": ["qwen3:8b", "llama3.2:latest"]})
-    assert harness.check_ready("Ollama", "qwen3:8b")
-    assert harness.check_ready("Ollama", "llama3.2")  # bare name → :latest
-    assert not harness.check_ready("Ollama", "mistral:7b")
-    assert harness.check_ready("Ollama", None)  # null model → any installed model
-
-    monkeypatch.setattr(harness, "ollama_status",
-                        lambda: {"ready": True, "installed": True, "models": []})
-    assert not harness.check_ready("Ollama", None)  # server up, nothing installed
+    assert harness.check_ready("OpenCode", "qwen3:8b")  # signed out is fine
+    assert harness.check_ready("OpenCode", "llama3.2")  # bare name → :latest
+    assert not harness.check_ready("OpenCode", "mistral:7b")
+    assert not harness.check_ready("Claude Code", "qwen3:8b")  # OpenCode only
 
     monkeypatch.setattr(harness, "ollama_status",
                         lambda: {"ready": False, "installed": True, "models": []})
-    assert not harness.check_ready("Ollama", "qwen3:8b")
+    assert not harness.check_ready("OpenCode", "qwen3:8b")
+
+    monkeypatch.setattr(harness, "resolve_bin", lambda name: None)
+    assert not harness.check_ready("OpenCode", "qwen3:8b")  # no binary → never ready
 
 
 def test_disallowed_imports_matches_drafting_rule():

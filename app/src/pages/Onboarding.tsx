@@ -3,8 +3,10 @@
 // onboarding done and hand off via setSurface('create', 'onboard').
 //
 // Step 2 is fully real (§10/§19): detection reports installed + sign-in state
-// for all five providers, installs run in the backend (`harness.install` WS
+// for the four harnesses, installs run in the backend (`harness.install` WS
 // stream), and sign-in help opens only when the provider actually needs it.
+// Ollama is never a card of its own — the Free local AI card sets up OpenCode
+// driving Qwen3 8B through Ollama (§4.7).
 import React, { useEffect, useReducer, useRef } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
@@ -13,6 +15,8 @@ import { BtnPrimary, Eyebrow, Logo, MiniBadge, Spinner } from '../ui'
 interface Det { id: string; name: string; installed: boolean; signedIn: boolean | null; detail: string }
 
 type CardPhase = 'idle' | 'installing' | 'pulling' | 'signin' | 'checking' | 'connected' | 'failed'
+// The Free local AI card's three real pieces (§10), installed in this order.
+type LocalPiece = 'opencode' | 'ollama' | 'model'
 interface Card {
   phase: CardPhase
   pct: number | null            // install percent, when the stream carries one
@@ -21,10 +25,13 @@ interface Card {
   method: 'browser' | 'terminal' | null
   error: string | null          // failed-install first error line
   notReady: string | null       // failed connection check, shown on the idle card
+  queue: LocalPiece[]           // local card: missing pieces being installed
+  qi: number                    // local card: index into queue
 }
 
 const LOCAL_MODEL = 'qwen3:8b'
-const SUG_ORDER = ['claude', 'codex', 'gemini', 'opencode', 'ollama']
+const LOCAL_ID = 'local'
+const SUG_ORDER = ['claude', 'codex', 'gemini', 'opencode']
 const SUG: Record<string, { title: string; body: string; btn: string; primary: boolean }> = {
   claude: {
     title: 'Claude', primary: true, btn: 'Set up Claude Code',
@@ -42,9 +49,9 @@ const SUG: Record<string, { title: string; body: string; btn: string; primary: b
     title: 'OpenCode', primary: false, btn: 'Set up OpenCode',
     body: 'Open-source — works with any provider you’ve already set up.',
   },
-  ollama: {
+  [LOCAL_ID]: {
     title: 'Free local AI', primary: false, btn: 'Download and install · 5.2 GB',
-    body: 'Sets up Ollama with Qwen3 8B. Local to this Mac, works offline.',
+    body: 'Sets up OpenCode with Ollama and Qwen3 8B. Local to this Mac, works offline.',
   },
 }
 const CONTINUE_LABEL: Record<string, string> = {
@@ -52,7 +59,7 @@ const CONTINUE_LABEL: Record<string, string> = {
   codex: 'Continue with Codex →',
   gemini: 'Continue with Gemini →',
   opencode: 'Continue with OpenCode →',
-  ollama: 'Continue with local AI →',
+  [LOCAL_ID]: 'Continue with local AI →',
 }
 
 interface Ob {
@@ -64,6 +71,9 @@ interface Ob {
   det: 'searching' | 'cards'
   detStarted: boolean
   provs: Det[]
+  // Free local AI card pieces (§10): OpenCode installed, Ollama serving,
+  // qwen3:8b installed — null until detection lands.
+  localSt: { opencode: boolean; ollama: boolean; model: boolean } | null
   cards: Record<string, Card>
   chosen: string | null
   committing: boolean
@@ -80,6 +90,7 @@ let savedOb: Ob | null = null
 
 const freshCard = (): Card => ({
   phase: 'idle', pct: null, line: '', pullPct: 0, method: null, error: null, notReady: null,
+  queue: [], qi: 0,
 })
 
 function freshOb(): Ob {
@@ -97,6 +108,7 @@ function freshOb(): Ob {
     det: 'searching',
     detStarted: false,
     provs: [],
+    localSt: null,
     cards: {},
     chosen: null,
     committing: false,
@@ -157,22 +169,32 @@ export default function Onboarding() {
   }, [])
 
   // ----- step 2: detection (real api.detectAgents, ≥1.9 s spinner as designed) -----
+  // Detection covers the four harnesses; the Free local AI card's pieces come
+  // from /ollama/status alongside (§10).
   const startDetect = () => {
     if (ob.detStarted) return
     up((o) => { o.detStarted = true; o.det = 'searching' })
     const started = Date.now()
-    void api.detectAgents()
-      .catch(() => [] as Det[])
-      .then((provs) => {
-        const wait = Math.max(0, 1900 - (Date.now() - started))
-        t(() => {
-          up((o) => { o.det = 'cards'; o.provs = provs })
-          // §10: connection checks run on their own — signed-out providers
-          // skip it (the check would fail) and show Sign in directly.
-          provs.filter((p) => p.installed && p.signedIn !== false)
-            .forEach((p) => startCheck(p))
-        }, wait)
-      })
+    void Promise.all([
+      api.detectAgents().catch(() => [] as Det[]),
+      api.ollamaStatus().catch(() => null),
+    ]).then(([provs, ost]) => {
+      const localSt = {
+        opencode: provs.some((p) => p.id === 'opencode' && p.installed),
+        ollama: ost?.ready ?? false,
+        model: ost?.models.includes(LOCAL_MODEL) ?? false,
+      }
+      const wait = Math.max(0, 1900 - (Date.now() - started))
+      t(() => {
+        up((o) => { o.det = 'cards'; o.provs = provs; o.localSt = localSt })
+        // §10: connection checks run on their own — signed-out providers
+        // skip it (the check would fail) and show Sign in directly.
+        provs.filter((p) => p.installed && p.signedIn !== false)
+          .forEach((p) => startCheck(p))
+        // Local card: every piece already present → straight to the check.
+        if (localSt.opencode && localSt.ollama && localSt.model) startLocalCheck()
+      }, wait)
+    })
   }
 
   useEffect(() => {
@@ -193,16 +215,34 @@ export default function Onboarding() {
     void api.checkHarness(p.name, null)
       .then((r) => r.status === 'ready')
       .catch(() => false)
-      .then(async (ready) => {
-        let reason = 'it didn’t answer the readiness check'
-        if (!ready && p.id === 'ollama') {
-          const st = await api.ollamaStatus().catch(() => null)
-          reason = st?.ready ? 'no local models are installed yet' : 'the local server isn’t answering'
-        }
+      .then((ready) => {
         t(() => {
           if (card(p.id).phase !== 'checking') return
           if (ready) setCard(p.id, { phase: 'connected' })
-          else setCard(p.id, { phase: 'idle', notReady: `Not ready — ${reason}.` })
+          else setCard(p.id, { phase: 'idle', notReady: 'Not ready — it didn’t answer the readiness check.' })
+        }, Math.max(0, 900 - (Date.now() - t0)))
+      })
+  }
+
+  // Free local AI card check (§10): OpenCode with the local model — the §19
+  // check needs no sign-in, only the binary + Ollama serving + the model.
+  const startLocalCheck = () => {
+    setCard(LOCAL_ID, { phase: 'checking', notReady: null })
+    const t0 = Date.now()
+    void api.checkHarness('OpenCode', LOCAL_MODEL)
+      .then((r) => r.status === 'ready')
+      .catch(() => false)
+      .then(async (ready) => {
+        let reason = 'it didn’t answer the readiness check'
+        if (!ready) {
+          const st = await api.ollamaStatus().catch(() => null)
+          if (st && !st.ready) reason = 'the local server isn’t answering'
+          else if (st && !st.models.includes(LOCAL_MODEL)) reason = 'Qwen3 8B isn’t installed yet'
+        }
+        t(() => {
+          if (card(LOCAL_ID).phase !== 'checking') return
+          if (ready) setCard(LOCAL_ID, { phase: 'connected' })
+          else setCard(LOCAL_ID, { phase: 'idle', notReady: `Not ready — ${reason}.` })
         }, Math.max(0, 900 - (Date.now() - t0)))
       })
   }
@@ -238,50 +278,96 @@ export default function Onboarding() {
 
   // §10 model download completion: the model appearing in the installed list
   // is the source of truth (percent comes from the ollama.pull effect below).
-  const pollPull = (id: string) => {
+  const pollPull = () => {
     iv(() => {
-      if (card(id).phase !== 'pulling') return
+      if (card(LOCAL_ID).phase !== 'pulling') return
       void api.ollamaStatus().then((s) => {
-        if (s.models.includes(LOCAL_MODEL) && card(id).phase === 'pulling') {
-          setCard(id, { phase: 'connected' })
+        if (s.models.includes(LOCAL_MODEL) && card(LOCAL_ID).phase === 'pulling') {
+          markLocalPiece('model')
+          startLocalCheck()
         }
       }).catch(() => { /* keep polling */ })
     }, 2000)
   }
 
-  // After a finished install: Ollama continues into the model download; the
-  // account-backed providers go through sign-in only if they need it.
+  // After a finished harness install, sign-in help only if it's needed (§10).
   const afterInstall = (id: string) => {
     const p = ob.provs.find((x) => x.id === id)
-    if (!p || !['installing'].includes(card(id).phase)) return
-    if (id === 'ollama') {
-      setCard(id, { phase: 'pulling', pullPct: 0 })
-      // A previous attempt's terminal ollama.pull event may still sit in the
-      // store — clear it or the failure effect would instantly kill this pull.
-      useStore.setState({ ollamaPull: null })
-      void api.ollamaPull(LOCAL_MODEL).catch((e: Error) => setCard(id, { phase: 'failed', error: e.message }))
-      pollPull(id)
-      return
-    }
+    if (!p || card(id).phase !== 'installing') return
     setCard(id, { phase: 'checking' })
     void api.signinStatus(id)
       .then((s) => { if (s.signedIn === false) startSignin(p); else startCheck(p) })
       .catch(() => startCheck(p))
   }
 
-  // Live install progress from the §19 harness.install WS stream.
+  // ----- Free local AI card machine (§10): install the missing pieces in
+  // order — OpenCode, Ollama, the model — then the connection check.
+  const markLocalPiece = (piece: LocalPiece) =>
+    up((o) => { if (o.localSt) o.localSt = { ...o.localSt, [piece]: true } })
+
+  const localMissing = (): LocalPiece[] => {
+    const l = ob.localSt
+    const out: LocalPiece[] = []
+    if (!l?.opencode) out.push('opencode')
+    if (!l?.ollama) out.push('ollama')
+    if (!l?.model) out.push('model')
+    return out
+  }
+
+  const runLocalPiece = (queue: LocalPiece[], qi: number) => {
+    const piece = queue[qi]
+    if (!piece) { startLocalCheck(); return }
+    if (piece === 'model') {
+      setCard(LOCAL_ID, { phase: 'pulling', pullPct: 0, queue, qi })
+      // A previous attempt's terminal ollama.pull event may still sit in the
+      // store — clear it or the failure effect would instantly kill this pull.
+      useStore.setState({ ollamaPull: null })
+      void api.ollamaPull(LOCAL_MODEL).catch((e: Error) => setCard(LOCAL_ID, { phase: 'failed', error: e.message }))
+      pollPull()
+      return
+    }
+    setCard(LOCAL_ID, { phase: 'installing', pct: null, line: '', error: null, queue, qi })
+    api.installHarness(piece).catch((e: Error & { status?: number }) => {
+      // 409 = already running (a resumed machine) — the stream keeps feeding us.
+      if (e.status !== 409) setCard(LOCAL_ID, { phase: 'failed', error: e.message })
+    })
+  }
+
+  // "Try again" resumes here too: only the still-missing pieces re-run (§10).
+  const startLocalSetup = () => {
+    const missing = localMissing()
+    if (missing.length === 0) { startLocalCheck(); return }
+    runLocalPiece(missing, 0)
+  }
+
+  // Live install progress from the §19 harness.install WS stream — feeds both
+  // the harness suggestion cards and the local card's current piece.
   useEffect(() => {
     for (const [id, evt] of Object.entries(harnessInstall)) {
       const c = ob.cards[id]
-      if (!c || c.phase !== 'installing') continue
-      if (!evt.done) {
-        if (evt.line !== undefined || evt.pct !== undefined) {
-          setCard(id, { line: evt.line ?? c.line, pct: evt.pct ?? c.pct })
+      if (c && c.phase === 'installing') {
+        if (!evt.done) {
+          if (evt.line !== undefined || evt.pct !== undefined) {
+            setCard(id, { line: evt.line ?? c.line, pct: evt.pct ?? c.pct })
+          }
+        } else if (evt.ok) {
+          afterInstall(id)
+        } else {
+          setCard(id, { phase: 'failed', error: evt.error ?? 'install failed' })
         }
-      } else if (evt.ok) {
-        afterInstall(id)
-      } else {
-        setCard(id, { phase: 'failed', error: evt.error ?? 'install failed' })
+      }
+      const lc = ob.cards[LOCAL_ID]
+      if (lc && lc.phase === 'installing' && lc.queue[lc.qi] === id) {
+        if (!evt.done) {
+          if (evt.line !== undefined || evt.pct !== undefined) {
+            setCard(LOCAL_ID, { line: evt.line ?? lc.line, pct: evt.pct ?? lc.pct })
+          }
+        } else if (evt.ok) {
+          markLocalPiece(id as LocalPiece)
+          runLocalPiece(lc.queue, lc.qi + 1)
+        } else {
+          setCard(LOCAL_ID, { phase: 'failed', error: evt.error ?? 'install failed' })
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -289,14 +375,14 @@ export default function Onboarding() {
 
   // Live model-download percent / failure from the ollama.pull WS stream.
   useEffect(() => {
-    const c = ob.cards.ollama
+    const c = ob.cards[LOCAL_ID]
     if (!c || c.phase !== 'pulling' || !ollamaPull || ollamaPull.model !== LOCAL_MODEL) return
     if (ollamaPull.done && ollamaPull.ok === false) {
-      setCard('ollama', { phase: 'failed', error: ollamaPull.line || `couldn't pull ${LOCAL_MODEL}` })
+      setCard(LOCAL_ID, { phase: 'failed', error: ollamaPull.line || `couldn't pull ${LOCAL_MODEL}` })
       return
     }
     const m = (ollamaPull.line || '').match(/(\d{1,3})%/)
-    if (m) setCard('ollama', { pullPct: Math.min(100, parseInt(m[1], 10)) })
+    if (m) setCard(LOCAL_ID, { pullPct: Math.min(100, parseInt(m[1], 10)) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ollamaPull])
 
@@ -316,8 +402,20 @@ export default function Onboarding() {
           // running → the live harness.install stream keeps feeding us
         }).catch(() => { /* backend hiccup — the WS stream still lands */ })
       } else if (c.phase === 'signin') pollSignin(p)
-      else if (c.phase === 'pulling') pollPull(p.id)
       else if (c.phase === 'checking') startCheck(p)
+    }
+    const lc = ob.cards[LOCAL_ID]
+    if (lc) {
+      if (lc.phase === 'installing') {
+        const piece = lc.queue[lc.qi]
+        void api.installStatus(piece).then((s) => {
+          if (card(LOCAL_ID).phase !== 'installing') return
+          if (s.state === 'done') { markLocalPiece(piece); runLocalPiece(lc.queue, lc.qi + 1) }
+          else if (s.state === 'failed') setCard(LOCAL_ID, { phase: 'failed', error: s.error ?? 'install failed' })
+          else if (s.state === 'idle') setCard(LOCAL_ID, { phase: 'failed', error: 'the install didn’t start' })
+        }).catch(() => { /* backend hiccup — the WS stream still lands */ })
+      } else if (lc.phase === 'pulling') pollPull()
+      else if (lc.phase === 'checking') startLocalCheck()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -329,27 +427,26 @@ export default function Onboarding() {
   // goes straight to the app instead of step 2.
   const pre = agentPre || autoPre
 
-  // ----- commit connected providers as real agent records -----
-  // `pick` is the provider whose in-card Continue was clicked (null on skip);
-  // it becomes the default agent. All connected providers are committed.
+  // ----- commit connected cards as real agent records -----
+  // `pick` is the card whose in-card Continue was clicked (null on skip);
+  // it becomes the default agent. All connected cards are committed (§10):
+  // a harness card as a default-mode agent, the local card as OpenCode
+  // driving Qwen3 8B through Ollama.
   const commitOnboardAgents = async (pick: string | null): Promise<void> => {
-    const conn = ob.provs.filter((p) => card(p.id).phase === 'connected')
+    const conn = ob.provs
+      .filter((p) => card(p.id).phase === 'connected')
+      .map((p) => ({ id: p.id, body: { name: null as string | null, harness: p.name, mode: 'default', model: null as string | null } }))
+    if (card(LOCAL_ID).phase === 'connected') {
+      conn.push({ id: LOCAL_ID, body: { name: 'Qwen3 8B', harness: 'OpenCode', mode: 'ollama', model: LOCAL_MODEL } })
+    }
     if (conn.length === 0) return
-    // A found Ollama keeps its own configured default; a fresh suggestion
-    // install committed the Qwen3 8B model it just downloaded (§10).
-    const bodyFor = (p: Det) => p.id === 'ollama'
-      ? (p.installed
-        ? { name: 'Ollama', harness: 'Ollama', mode: 'default', model: null }
-        : { name: 'Qwen3 8B', harness: 'Ollama', mode: 'ollama', model: LOCAL_MODEL })
-      : { name: null, harness: p.name, mode: 'default', model: null }
     const existing = useStore.getState().agents
     const defPid = pick ?? conn[0].id
     let defaultId: string | null = null
-    for (const p of conn) {
-      const body = bodyFor(p)
+    for (const { id: cid, body } of conn) {
       const dup = existing.find((a) => a.harness === body.harness && a.model === body.model)
       const id = dup ? dup.id : (await api.addAgent(body)).id
-      if (p.id === defPid) defaultId = id
+      if (cid === defPid) defaultId = id
     }
     if (defaultId) {
       await api.patchAgent(defaultId, { default: true })
@@ -504,9 +601,12 @@ export default function Onboarding() {
   // ---------- step 2 ----------
   function renderConnect() {
     const foundList = ob.provs.filter((p) => p.installed)
-    const missing = SUG_ORDER
+    // Suggestions: every missing harness, then the Free local AI card —
+    // always present regardless of what was detected (§10).
+    const sugList = SUG_ORDER
       .map((id) => ob.provs.find((p) => p.id === id && !p.installed))
       .filter((p): p is Det => !!p)
+      .concat([{ id: LOCAL_ID, name: 'Free local AI', installed: false, signedIn: null, detail: '' }])
 
     return (
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '44px 32px 60px', animation: 'adFadeUp .5s ease both' }}>
@@ -552,7 +652,7 @@ export default function Onboarding() {
               </div>
             )}
 
-            {missing.length > 0 && (
+            {sugList.length > 0 && (
               <div style={{ animation: 'adFadeUp .35s ease both' }}>
                 {foundList.length > 0 && (
                   <button
@@ -571,7 +671,7 @@ export default function Onboarding() {
                 )}
                 {(foundList.length === 0 || ob.sugOpen) && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {missing.map((p) => renderSuggestionCard(p))}
+                    {sugList.map((p) => renderSuggestionCard(p))}
                   </div>
                 )}
               </div>
@@ -690,8 +790,10 @@ export default function Onboarding() {
   function renderSuggestionCard(p: Det) {
     const c = card(p.id)
     const s = SUG[p.id]
+    const isLocal = p.id === LOCAL_ID
     const conn = c.phase === 'connected'
     const busy = c.phase === 'installing' || c.phase === 'pulling' || c.phase === 'signin' || c.phase === 'failed'
+    const start = () => { if (isLocal) startLocalSetup(); else startInstall(p) }
     return (
       <div
         key={p.id}
@@ -705,16 +807,23 @@ export default function Onboarding() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 600, fontSize: 15 }}>{s.title}</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{s.body}</div>
+            {c.phase === 'idle' && c.notReady && (
+              <div style={{ fontSize: 12, color: 'var(--amber)', marginTop: 4 }}>{c.notReady}</div>
+            )}
           </div>
-          {c.phase === 'idle' && (
+          {c.phase === 'idle' && (isLocal && c.notReady ? (
+            <button className="ad-btn-ghost" onClick={() => startLocalCheck()} style={{ flex: 'none' }}>
+              Check again
+            </button>
+          ) : (
             <button
               className={s.primary ? 'ad-btn-primary' : 'ad-btn-ghost'}
-              onClick={() => startInstall(p)}
+              onClick={start}
               style={{ flex: 'none' }}
             >
               {s.btn}
             </button>
-          )}
+          ))}
           {c.phase === 'checking' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 'none' }}>
               <Spinner size={13} style={{ animationDuration: '.8s' }} />
@@ -737,7 +846,9 @@ export default function Onboarding() {
             {c.phase === 'installing' && (
               <div>
                 <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
-                  {p.id === 'ollama' ? 'Step 1 of 2 — Installing Ollama…' : `Installing ${p.name}…`}{' '}
+                  {isLocal
+                    ? `Step ${c.qi + 1} of ${c.queue.length} — Installing ${c.queue[c.qi] === 'opencode' ? 'OpenCode' : 'Ollama'}…`
+                    : `Installing ${p.name}…`}{' '}
                   {c.pct !== null && (
                     <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>{Math.round(c.pct)}%</span>
                   )}
@@ -753,7 +864,7 @@ export default function Onboarding() {
             {c.phase === 'pulling' && (
               <div>
                 <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
-                  Step 2 of 2 — Downloading Qwen3 8B…{' '}
+                  Step {c.qi + 1} of {c.queue.length} — Downloading Qwen3 8B…{' '}
                   <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>
                     {(c.pullPct / 100 * 5.2).toFixed(1)} GB of 5.2 GB
                   </span>
@@ -770,7 +881,7 @@ export default function Onboarding() {
                 <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--red)' }}>
                   Install failed — {c.error ?? 'something went wrong'}
                 </div>
-                <button className="ad-btn-ghost" onClick={() => startInstall(p)} style={{ alignSelf: 'flex-start' }}>
+                <button className="ad-btn-ghost" onClick={start} style={{ alignSelf: 'flex-start' }}>
                   Try again
                 </button>
               </div>

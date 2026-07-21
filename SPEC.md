@@ -24,7 +24,8 @@ prototype is listed in §20 — anything else that differs from the prototype is
 
 Auto Dave is a macOS desktop app for recurring personal automations. The user describes a job in
 plain words ("Check the manga I follow for new chapters every morning at 8"); a connected AI agent
-(Claude Code, Gemini CLI, Codex, OpenCode, or a local Ollama model) writes it as human-readable
+(Claude Code, Gemini CLI, Codex, or OpenCode — the latter optionally driving a local Ollama
+model) writes it as human-readable
 scripts; Auto Dave executes those scripts on a schedule, entirely on the user's Mac, and shows results.
 
 Core promises (exact UI copy, repeated in the onboarding footer):
@@ -408,20 +409,21 @@ the user skipped that step mid-execution (§7).
 ### 4.7 Agent
 
 ```
-{ id: uuid, name, desc, harness: Claude Code | Gemini CLI | Codex | OpenCode | Ollama,
+{ id: uuid, name, desc, harness: Claude Code | Gemini CLI | Codex | OpenCode,
   mode: default | ollama, model }
 ```
 `desc` is an optional free-text description ("What this agent is for — shown on the Agents
 page and given to the drafting agent"), rendered as the detail line on the agent card and
 carried into the §8 grants yaml so the drafting agent knows what each enabled agent is for.
-`model` is null unless `mode` is `ollama`, where it names the local Ollama model. A null model
-means the app never picks or passes a model — the harness uses whatever model it is already
-configured with. Ollama has no configured default of its own, so a null-model Ollama agent
-resolves at invocation time to the first installed model reported by `/api/tags` (the
-invocation fails if none is installed). Display shows "Default model" when the model is null. One agent is
+`model` is null unless `mode` is `ollama`, where it names the local Ollama model. Mode
+`ollama` is valid **only with the OpenCode harness** — Ollama is not a harness of its own; it
+is purely the local-model runtime OpenCode drives (`opencode run --model ollama/<model>`,
+§19). A null model means the app never picks or passes a model — the harness uses whatever
+model it is already configured with. Display shows "Default model" when the model is null. One agent is
 the app default; deleting an agent reassigns the default and warns which automations use it.
-All five harnesses are selectable. The app can install any of them and help the user sign in
-when the harness needs an account (§10 step 2, §19 install/login endpoints).
+All four harnesses are selectable. The app can install any of them (plus Ollama, for the
+local-model mode) and help the user sign in when the harness needs an account (§10 step 2,
+§19 install/login endpoints).
 
 ### 4.8 Secret
 
@@ -741,9 +743,10 @@ never used for lookups.
   function; only step scripts make changes. The engine invokes the harness one-shot and
   non-interactive with the strongest tool-disabling flags each harness supports: Claude Code
   `claude -p --tools "" --strict-mcp-config --no-session-persistence`, Codex
-  `codex exec --sandbox read-only --skip-git-repo-check`, Ollama via its local HTTP API (no
-  tools by nature); Gemini CLI and OpenCode expose no tool-disable flag for one-shot invocations and are
-  invoked bare (documented limitation). Every harness CLI child (drafting and runtime alike)
+  `codex exec --sandbox read-only --skip-git-repo-check`; Gemini CLI and OpenCode expose no
+  tool-disable flag for one-shot invocations and are
+  invoked bare (documented limitation; an OpenCode agent with a local model adds
+  `--model ollama/<model>`). Every harness CLI child (drafting and runtime alike)
   runs with its cwd set to an empty `harness-cwd/` directory under Application Support: CLI
   startup project scans stay inside that empty folder and never enter TCC-protected locations
   (Photos, Music, Desktop, …), so macOS shows no permission prompts attributed to the backend.
@@ -1045,7 +1048,8 @@ then — in a second, independent call — to build the **steps, parameters, and
 that spec. Each mode makes the calls it needs (see Modes below); `edit` stops after the spec
 call and `sync` makes only the steps call. Both calls carry the same two
 instruction files, invoke the chosen agent harness headless through a per-harness adapter
-(`claude -p`, `gemini -p`, `codex exec`, `opencode run`, Ollama via its local HTTP API), and
+(`claude -p`, `gemini -p`, `codex exec`, `opencode run` — with `--model ollama/<model>` for a
+local-model agent), and
 parse one text response each. Everything below is harness-independent; adapters only translate
 "send prompt, receive text." Agents never touch the data directory — the backend writes files
 only after validation passes.
@@ -1235,8 +1239,8 @@ block (never to execution logs) for debugging.
 line — a finer live-progress message under the coarse `stage` — derived from the harness's
 **streamed** partial response. Every adapter streams: Claude Code runs with `--output-format
 stream-json --include-partial-messages --verbose` (text deltas as they generate; the returned
-text still comes from the terminal `result` event, falling back to the joined deltas), the
-other CLIs are read line-by-line from stdout as they print, and Ollama uses `stream: true`.
+text still comes from the terminal `result` event, falling back to the joined deltas), and the
+other CLIs are read line-by-line from stdout as they print.
 The drafting job scans the accumulated partial text for the envelope's `===FILE:` markers and
 sets `detail` accordingly: `Thinking…` before the first marker; `Writing the spec · N lines`
 during call 1; `Writing the manifest — name, triggers, parameters, step list` and then
@@ -1412,11 +1416,13 @@ done; its label is "Continue →" when prior data exists (going straight to the 
 
 **Step 2 — Connect your AI.** A searching spinner ("Looking for an AI already on this Mac…",
 shown ≥1.9 s), then the §19 `GET /agents/detect` result rendered as cards. Detection reports
-all five providers (Claude Code / Ollama / Codex / Gemini CLI / OpenCode) with real installed
-and signed-in state; installed providers render as "FOUND ON THIS MAC" cards (detail line =
-real version plus sign-in state, e.g. "1.0.24 · signed in" / "1.0.24 · not signed in yet";
-Ollama: "serving locally on this Mac" / "installed · not serving"), and every provider that is
-**not** installed renders as a suggestion card alongside (the app helps install all five).
+the four harnesses (Claude Code / Codex / Gemini CLI / OpenCode) with real installed
+and signed-in state; installed harnesses render as "FOUND ON THIS MAC" cards (detail line =
+real version plus sign-in state, e.g. "1.0.24 · signed in" / "1.0.24 · not signed in yet"),
+and every harness that is
+**not** installed renders as a suggestion card alongside (the app helps install all four).
+Ollama is never a card of its own — the local path lives entirely in the "Free local AI"
+suggestion card below.
 Suggestion cards use the same full-width row anatomy as found cards — a single vertical list
 (no tile grid), title plus one-line detail on the left, the action slot on the right; busy
 states (install/pull progress, sign-in wait, install failure) stack full-width below the title
@@ -1434,7 +1440,7 @@ no accent tint and no "Connected" label on connect; the Continue button alone is
 success signal (the accent "FOUND ON THIS MAC" eyebrow alone marks the detected section). Each card carries a single
 action slot that advances through its states in place. All machines are real — backend installs,
 real sign-in checks; no simulation in any mode:
-- **Found card, signed in (or Ollama)** — the connection check runs automatically as soon as
+- **Found card, signed in** — the connection check runs automatically as soon as
   the cards land; the user never has to ask for it. The card starts on an inline spinner
   "Checking connection…" (real §19 `POST /agents/check-harness`) → a primary
   "Continue with `<name>` →" button in the same card. A failed check shows amber
@@ -1452,22 +1458,36 @@ real sign-in checks; no simulation in any mode:
   ready — continue with a connected AI, or set up another below." when at least one found
   card is connected, otherwise amber "More setup needed — finish the steps above before
   continuing."
-- **Suggestion card** (one per missing provider) — "Claude" ("Set up Claude Code") /
-  "Codex" / "Gemini" / "OpenCode" (each "Set up `<name>`") / "Free local AI"
-  (Ollama + Qwen3 8B, "Download and install · 5.2 GB"): install via §19
+- **Suggestion card** (one per missing harness) — "Claude" ("Set up Claude Code") /
+  "Codex" / "Gemini" / "OpenCode" (each "Set up `<name>`"): install via §19
   `POST /agents/install` → labelled progress ("Installing `<name>`…"; determinate bar when the
   `harness.install` stream carries a percent, indeterminate otherwise) → then the sign-in flow
-  above **only if the provider needs an account and isn't signed in** (Ollama instead continues
-  into "Step 2 of 2 — Downloading Qwen3 8B…" via `POST /ollama/pull`, real percent from the
-  pull stream, continues in the background) → connected: "Continue with `<name>` →" alone.
-  An install failure shows red
+  above **only if the provider needs an account and isn't signed in** → connected:
+  "Continue with `<name>` →" alone. An install failure shows red
   "Install failed — `<first error line>`" with "Try again". There is no sudo step: every
   install lands in user-writable locations (§19 channels), so macOS never prompts for an
   admin password.
+- **Free local AI card** — always the last suggestion card, shown regardless of what was
+  detected: OpenCode driving Qwen3 8B through Ollama (title "Free local AI", body "Sets up
+  OpenCode with Ollama and Qwen3 8B. Local to this Mac, works offline.", button "Download and
+  install · 5.2 GB"). The card owns three pieces: OpenCode installed (from detection), Ollama
+  serving, and `qwen3:8b` installed (both from §19 `GET /ollama/status`). When every piece is
+  already present as the cards land, the card skips the install button and runs the
+  connection check automatically (§19 `POST /agents/check-harness` with harness OpenCode and
+  model `qwen3:8b`) → "Continue with local AI →"; a failed check shows the amber not-ready
+  line with "Check again". Otherwise the install button runs only the **missing** pieces, in
+  order — OpenCode (§19 install), Ollama (§19 install), the model (`POST /ollama/pull`, real
+  percent from the pull stream, continues in the background) — labelled "Step k of n —
+  Installing OpenCode… / Installing Ollama… / Downloading Qwen3 8B…" where n counts the
+  missing pieces, then lands on the same connection check → connected. A failure at any piece
+  shows red "Install failed — `<first error line>`" with "Try again", which resumes at the
+  still-missing pieces.
 
 Clicking a card's Continue is what picks the provider: it becomes the default agent, all
-connected/ready providers are committed as agent records, and any existing automations get the
-chosen default agent. While committing, all Continue buttons are disabled. "Skip for now" always
+connected/ready cards are committed as agent records — a harness card as
+`{ name: <harness>, harness, mode: default, model: null }`, the Free local AI card as
+`{ name: "Qwen3 8B", harness: OpenCode, mode: ollama, model: qwen3:8b }` — and any existing
+automations get the chosen default agent. While committing, all Continue buttons are disabled. "Skip for now" always
 available (commits any connected providers, goes to the app). Persistent footer: the three
 green-dot promises (§1).
 
@@ -1805,9 +1825,10 @@ menu row — no chip. Empty state (dashed card): "No agents yet. Existing automa
 schedule — but you need an agent to create or edit them." + CTA "Add your first agent".
 
 **New / Edit agent** form (720 px, one form — title and submit label switch to "Edit agent" /
-"Save changes" when editing): pick harness (Claude Code / Gemini CLI / Codex / OpenCode /
-Ollama — all five selectable, §4.7), mode (default model vs. local Ollama model),
-model (required for Ollama mode), name
+"Save changes" when editing): pick harness (Claude Code / Gemini CLI / Codex / OpenCode —
+all four selectable, §4.7), mode (default model vs. local Ollama model — the local-model
+option renders only when the harness is OpenCode, §4.7),
+model (required for local-model mode), name
 (required), optional description ("What this agent is for — shown on the Agents page and given
 to the drafting agent"). The
 submit button renders disabled-styled until valid but stays clickable: submitting with a missing
@@ -1816,7 +1837,7 @@ input border, clears on typing); missing Ollama toasts "Install Ollama first."; 
 a harness and a model first." Success toasts: "`<name>` added — ready to write automations." /
 "Changes saved — `<name>` is ready." When editing a signed-out agent, the form shows a reconnect
 banner: "This agent is signed out — reconnect it to create or edit automations." + Reconnect
-button. Ollama-dependent options (the Ollama harness, local-model mode) gated on Ollama being
+button. The local-model mode is gated on Ollama being
 installed and ready. Inline install flow: button "Install Ollama" starts a real §19
 `POST /agents/install` for Ollama; the label "Installing Ollama…" renders a determinate bar
 when the `harness.install` stream carries a percent (indeterminate otherwise), and failure
@@ -2181,21 +2202,22 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   and `POST /agents/check-harness` `{ harness, model? }` (the same check before an agent record
   exists — onboarding's found-card auto-check) — one shared readiness check
   (`harness.check_ready`) decides ready vs. needs-setup everywhere: the harness binary must
-  resolve (rule below), Ollama's server must answer **and the agent's model must be installed**
-  (the model appears in `/api/tags`; a bare name without a tag matches its `:latest` variant;
-  a null model is ready when **any** model is installed — never a hardcoded fallback;
-  no sign-in check — Ollama needs no account),
-  and every account-backed harness must additionally be signed in, by the per-harness rule
-  below.
+  resolve (rule below). A local-model agent (OpenCode with mode `ollama`, §4.7) additionally
+  needs Ollama's server answering **and the agent's model installed** (the model appears in
+  `/api/tags`; a bare name without a tag matches its `:latest` variant) — and needs **no**
+  sign-in: a local model needs no account. Every default-mode check instead requires the
+  harness to be signed in, by the per-harness rule below.
 - **Sign-in state, per harness** (shared by `check_ready`, detection, and the signin poll):
   Claude Code — `claude auth status` exits 0 · Codex — `codex login status` exits 0 ·
   Gemini CLI — `~/.gemini/oauth_creds.json` exists (or `GEMINI_API_KEY` is set in the
   backend's environment) · OpenCode — `~/.local/share/opencode/auth.json` exists and holds a
-  non-empty JSON object · Ollama — no account, sign-in state is `null`.
-- `GET /agents/detect` (§10 detection) → one entry per provider, **all five always present**:
+  non-empty JSON object. Ollama is not a sign-in provider (no account; `POST /agents/login`
+  answers 409 for it).
+- `GET /agents/detect` (§10 detection) → one entry per harness, **all four always present**:
   `{ id, name, installed, signedIn, detail }` — `signedIn` is `true`/`false` by the rule
-  above, `null` for Ollama; `detail` is the real version/sign-in line rendered on §10 cards
-  (never a fabricated "signed in" claim).
+  above; `detail` is the real version/sign-in line rendered on §10 cards
+  (never a fabricated "signed in" claim). Ollama state is not part of detection — the §10
+  Free local AI card reads it from `GET /ollama/status`.
 - **Install** — `POST /agents/install` `{ id }` starts a background install of that provider
   (409 while one is already running for the same id) and streams `harness.install` WS events
   `{ id, line, pct?, done, ok?, error? }` (determinate UI bar only when `pct` is present);
@@ -2215,7 +2237,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   with `OPENCODE_INSTALL_DIR=~/.local/bin`, indeterminate ·
   Ollama — the latest GitHub release standalone CLI (`ollama-darwin.tgz`) unpacked to
   `~/.local/bin/ollama`, determinate; the server then starts via the `/ollama/status`
-  autostart below, and onboarding continues into the `qwen3:8b` pull.
+  autostart below. Ollama installs only as a piece of the local-model setup (§10 Free local
+  AI card, §12 local-model mode) — it is never a harness.
 - **Sign-in help** — `POST /agents/login` `{ id }` → `{ ok, method: browser | terminal }`,
   only for harnesses that need an account and aren't signed in (409 otherwise): Codex — the
   backend spawns `codex login` detached (the CLI opens the browser and completes on its OAuth
@@ -2232,7 +2255,11 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   by default. Invocation uses the resolved absolute path. If Ollama is installed but its server isn't
   answering (and `AUTODAVE_OLLAMA_URL` is local), `/ollama/status` starts `ollama serve`
   once per backend process and waits briefly for it to come up — so an installed Ollama
-  reads as found/ready instead of prompting a fresh download.
+  reads as ready instead of prompting a fresh download. Before every OpenCode local-model
+  use (readiness checks and invocations alike), the backend syncs the Ollama provider entry
+  into `~/.config/opencode/opencode.json` (merge, never overwrite: provider `ollama` via npm
+  `@ai-sdk/openai-compatible`, `baseURL` = `AUTODAVE_OLLAMA_URL` + `/v1`, the agent's model
+  listed under `models`) so `opencode run --model ollama/<model>` resolves.
 - `GET /secrets` (names + usedBy only) · `PUT /secrets/{name}` `{ value }` · `DELETE
   /secrets/{name}` — values go straight to the Keychain, never into responses or files
 - `GET /settings` · `PATCH /settings` · `POST /settings/data-path` `{ path }` (sets the
@@ -2263,9 +2290,10 @@ didn't have to face. Do not "fix" the app to match the prototype on these points
   modal opens with an empty value field — show/hide applies only to what's being typed.
 - **Entity ids are UUIDs.** The prototype uses slugs (`'claude'`, `'ag'+Date.now()`); §4's
   identity rule wins.
-- **Detection covers all five providers, with real sign-in state.** The prototype's onboarding
+- **Detection covers the four harnesses, with real sign-in state.** The prototype's onboarding
   knobs can only simulate finding Claude Code / Ollama / Codex; the real detector (§19
-  `GET /agents/detect`) also finds Gemini CLI and OpenCode, and its detail lines report the
+  `GET /agents/detect`) finds the four harnesses (Ollama is not a harness — its state feeds
+  the Free local AI card via `GET /ollama/status`), and its detail lines report the
   provider's actual sign-in state instead of the prototype's fabricated "signed in with your
   account" copy.
 - **Install and sign-in machines are real, with no sudo step.** The prototype's step-2

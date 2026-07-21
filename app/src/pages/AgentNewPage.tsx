@@ -4,9 +4,9 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent } from '../types'
-import { BtnPrimary, Eyebrow, GreenCheck, MiniBadge, P, ProgressBar, RadioRing, Spinner } from '../ui'
+import { BtnPrimary, Eyebrow, GreenCheck, P, ProgressBar, RadioRing, Spinner } from '../ui'
 
-type HarnessId = 'claude' | 'gemini' | 'codex' | 'opencode' | 'ollama'
+type HarnessId = 'claude' | 'gemini' | 'codex' | 'opencode'
 
 // Edit-mode hand-off from AgentsPage: stash the agent (and whether it's signed
 // out) before go('agentNew'); the form consumes it on mount.
@@ -19,12 +19,11 @@ const HARNESSES: { id: HarnessId; name: string; desc: string }[] = [
   { id: 'claude', name: 'Claude Code', desc: 'Uses your Claude account. The most capable option — nothing extra to pay.' },
   { id: 'gemini', name: 'Gemini CLI', desc: 'Uses your Google account. Generous free tier.' },
   { id: 'codex', name: 'Codex', desc: 'Uses your ChatGPT account.' },
-  { id: 'opencode', name: 'OpenCode', desc: 'Open-source — works with any provider you’ve already set up.' },
-  { id: 'ollama', name: 'Ollama', desc: 'Serves models entirely on this Mac — private, works offline.' },
+  { id: 'opencode', name: 'OpenCode', desc: 'Open-source — works with any provider you’ve already set up, or a local model.' },
 ]
 
 const HARNESS_NAME: Record<HarnessId, string> = {
-  claude: 'Claude Code', gemini: 'Gemini CLI', codex: 'Codex', opencode: 'OpenCode', ollama: 'Ollama',
+  claude: 'Claude Code', gemini: 'Gemini CLI', codex: 'Codex', opencode: 'OpenCode',
 }
 
 const DEFAULT_NOTE: Record<HarnessId, string> = {
@@ -32,7 +31,6 @@ const DEFAULT_NOTE: Record<HarnessId, string> = {
   gemini: 'Whatever Gemini CLI is already configured with',
   codex: 'Whatever Codex is already configured with',
   opencode: 'Whatever OpenCode is already configured with',
-  ollama: 'The local model Ollama is already configured with',
 }
 
 const SUGGESTED = [
@@ -68,7 +66,7 @@ function AmberNotice({ body, btn, onBtn, style }: {
 }
 
 const HARNESS_ID: Record<string, HarnessId> = {
-  'Claude Code': 'claude', 'Gemini CLI': 'gemini', 'Codex': 'codex', 'OpenCode': 'opencode', 'Ollama': 'ollama',
+  'Claude Code': 'claude', 'Gemini CLI': 'gemini', 'Codex': 'codex', 'OpenCode': 'opencode',
 }
 
 export default function AgentNewPage() {
@@ -158,7 +156,7 @@ export default function AgentNewPage() {
 
   const ready = st?.ready ?? false
   const models = st?.models ?? []
-  const needsOllama = harness === 'ollama' || mode === 'ollama'
+  const needsOllama = mode === 'ollama'
   const canAdd = !!harness && !!mode
     && (!needsOllama || ready)
     && (mode !== 'ollama' || !!model)
@@ -226,9 +224,7 @@ export default function AgentNewPage() {
     } catch (e) { showToast((e as Error).message) }
   }
 
-  const olMissingMsg = harness === 'ollama'
-    ? 'This agent works through Ollama, which isn’t installed on this Mac yet.'
-    : 'Local models need Ollama, which isn’t installed on this Mac yet.'
+  const olMissingMsg = 'Local models need Ollama, which isn’t installed on this Mac yet.'
 
   const sugRows = SUGGESTED.filter((sg) => !models.includes(sg.id) && pulling !== sg.id)
 
@@ -313,7 +309,6 @@ export default function AgentNewPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
         {HARNESSES.map((h) => {
           const on = harness === h.id
-          const hasReq = h.id === 'ollama' && !ready
           return (
             <div
               key={h.id}
@@ -328,7 +323,6 @@ export default function AgentNewPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
                 <RadioRing selected={on} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{h.name}</span>
-                {hasReq && <MiniBadge c={P.amber} bg={P.amberBg}>Needs Ollama</MiniBadge>}
               </div>
               <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-2)' }}>{h.desc}</p>
             </div>
@@ -345,7 +339,10 @@ export default function AgentNewPage() {
           }}>
             {([
               { id: 'default' as const, name: 'Default model', note: DEFAULT_NOTE[harness] },
-              { id: 'ollama' as const, name: 'A local model', note: 'Pick a model served on this Mac through Ollama' },
+              // §4.7: local models run only through OpenCode (Ollama behind it)
+              ...(harness === 'opencode'
+                ? [{ id: 'ollama' as const, name: 'A local model', note: 'Pick a model served on this Mac through Ollama' }]
+                : []),
             ]).map((md) => {
               const on = mode === md.id
               return (
