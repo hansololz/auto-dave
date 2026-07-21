@@ -534,8 +534,11 @@ export default function Onboarding() {
             )}
 
             {missing.length > 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16, alignItems: 'start', animation: 'adFadeUp .35s ease both' }}>
-                {missing.map((p) => renderSuggestionCard(p))}
+              <div style={{ animation: 'adFadeUp .35s ease both' }}>
+                {foundList.length > 0 && <Eyebrow style={{ marginBottom: 12 }}>OR TRY SOMETHING NEW</Eyebrow>}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {missing.map((p) => renderSuggestionCard(p))}
+                </div>
               </div>
             )}
 
@@ -656,85 +659,93 @@ export default function Onboarding() {
     const c = card(p.id)
     const s = SUG[p.id]
     const conn = c.phase === 'connected'
+    const busy = c.phase === 'installing' || c.phase === 'pulling' || c.phase === 'signin' || c.phase === 'failed'
     return (
       <div
         key={p.id}
         style={{
           background: 'var(--bg-card-sel)',
           border: `1px solid ${conn ? 'oklch(0.74 0.155 52 / .4)' : 'rgba(255,255,255,.09)'}`,
-          borderRadius: 12, padding: 22, display: 'flex', flexDirection: 'column', gap: 10,
-          transition: 'border-color .2s',
+          borderRadius: 12, padding: '17px 22px', transition: 'border-color .2s',
         }}
       >
-        <div style={{ fontWeight: 600, fontSize: 15 }}>{s.title}</div>
-        <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)', flex: 1 }}>{s.body}</p>
-        {c.phase === 'idle' && (
-          <button
-            className={s.primary ? 'ad-btn-primary' : 'ad-btn-ghost'}
-            onClick={() => startInstall(p)}
-            style={{ alignSelf: 'flex-start' }}
-          >
-            {s.btn}
-          </button>
-        )}
-        {c.phase === 'installing' && (
-          <div>
-            <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
-              {p.id === 'ollama' ? 'Step 1 of 2 — Installing Ollama…' : `Installing ${p.name}…`}{' '}
-              {c.pct !== null && (
-                <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>{Math.round(c.pct)}%</span>
-              )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>{s.title}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{s.body}</div>
+          </div>
+          {c.phase === 'idle' && (
+            <button
+              className={s.primary ? 'ad-btn-primary' : 'ad-btn-ghost'}
+              onClick={() => startInstall(p)}
+              style={{ flex: 'none' }}
+            >
+              {s.btn}
+            </button>
+          )}
+          {c.phase === 'checking' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 'none' }}>
+              <Spinner size={13} style={{ animationDuration: '.8s' }} />
+              <span style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2)' }}>Checking connection…</span>
             </div>
-            {renderBar(c.pct)}
-            {c.line && c.pct === null && (
-              <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text-faint)', marginTop: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {c.line}
+          )}
+          {conn && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 'none', animation: 'adFadeUp .3s ease both' }}>
+              <GreenCheck label={p.id === 'ollama' ? 'Ready to go.' : 'Connected — signed in as you.'} />
+              <button
+                className="ad-btn-primary"
+                onClick={() => obContinue(p.id)}
+                disabled={ob.committing}
+                style={{ opacity: ob.committing ? 0.6 : 1 }}
+              >
+                {CONTINUE_LABEL[p.id]}
+              </button>
+            </div>
+          )}
+        </div>
+        {busy && (
+          <div style={{ marginTop: 14 }}>
+            {c.phase === 'installing' && (
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
+                  {p.id === 'ollama' ? 'Step 1 of 2 — Installing Ollama…' : `Installing ${p.name}…`}{' '}
+                  {c.pct !== null && (
+                    <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>{Math.round(c.pct)}%</span>
+                  )}
+                </div>
+                {renderBar(c.pct)}
+                {c.line && c.pct === null && (
+                  <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text-faint)', marginTop: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {c.line}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
-        {c.phase === 'pulling' && (
-          <div>
-            <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
-              Step 2 of 2 — Downloading Qwen3 8B…{' '}
-              <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>
-                {(c.pullPct / 100 * 5.2).toFixed(1)} GB of 5.2 GB
-              </span>
-            </div>
-            {renderBar(c.pullPct)}
-            <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 8 }}>
-              Ollama is installed. You can keep using your Mac — this finishes in the background.
-            </div>
-          </div>
-        )}
-        {c.phase === 'checking' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <Spinner size={13} style={{ animationDuration: '.8s' }} />
-            <span style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2)' }}>Checking connection…</span>
-          </div>
-        )}
-        {c.phase === 'signin' && renderSigninWait(p)}
-        {c.phase === 'failed' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--red)' }}>
-              Install failed — {c.error ?? 'something went wrong'}
-            </div>
-            <button className="ad-btn-ghost" onClick={() => startInstall(p)} style={{ alignSelf: 'flex-start' }}>
-              Try again
-            </button>
-          </div>
-        )}
-        {conn && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'adFadeUp .3s ease both' }}>
-            <GreenCheck label={p.id === 'ollama' ? 'Ready to go.' : 'Connected — signed in as you.'} />
-            <button
-              className="ad-btn-primary"
-              onClick={() => obContinue(p.id)}
-              disabled={ob.committing}
-              style={{ alignSelf: 'flex-start', opacity: ob.committing ? 0.6 : 1 }}
-            >
-              {CONTINUE_LABEL[p.id]}
-            </button>
+            {c.phase === 'pulling' && (
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2em)', marginBottom: 8 }}>
+                  Step 2 of 2 — Downloading Qwen3 8B…{' '}
+                  <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)' }}>
+                    {(c.pullPct / 100 * 5.2).toFixed(1)} GB of 5.2 GB
+                  </span>
+                </div>
+                {renderBar(c.pullPct)}
+                <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 8 }}>
+                  Ollama is installed. You can keep using your Mac — this finishes in the background.
+                </div>
+              </div>
+            )}
+            {c.phase === 'signin' && renderSigninWait(p)}
+            {c.phase === 'failed' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--red)' }}>
+                  Install failed — {c.error ?? 'something went wrong'}
+                </div>
+                <button className="ad-btn-ghost" onClick={() => startInstall(p)} style={{ alignSelf: 'flex-start' }}>
+                  Try again
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

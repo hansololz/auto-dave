@@ -1414,9 +1414,14 @@ all five providers (Claude Code / Ollama / Codex / Gemini CLI / OpenCode) with r
 and signed-in state; installed providers render as "FOUND ON THIS MAC" cards (detail line =
 real version plus sign-in state, e.g. "1.0.24 · signed in" / "1.0.24 · not signed in yet";
 Ollama: "serving locally on this Mac" / "installed · not serving"), and every provider that is
-**not** installed renders as a suggestion card alongside (the app helps install all five). When
-nothing is detected, a note card renders above the suggestions: "No AI app was found on this
-Mac — here are some suggestions for moving forward."
+**not** installed renders as a suggestion card alongside (the app helps install all five).
+Suggestion cards use the same full-width row anatomy as found cards — a single vertical list
+(no tile grid), title plus one-line detail on the left, the action slot on the right; busy
+states (install/pull progress, sign-in wait, install failure) stack full-width below the title
+line. When at least one provider was found, the suggestion list carries its own neutral eyebrow
+"OR TRY SOMETHING NEW" (neutral text color — accent stays reserved for the detected section).
+When nothing is detected, that eyebrow is omitted; instead a note card renders above the
+suggestions: "No AI app was found on this Mac — here are some suggestions for moving forward."
 
 Every card resolves inside itself — there is no page-level Continue button, no radio selection,
 and no multi-ready banner. All step-2 cards use the neutral card border; a card's border turns
