@@ -86,10 +86,14 @@ def login(provider_id: str) -> str:
     if provider_id == "codex":
         subprocess.Popen([binpath, "login"], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                         start_new_session=True, cwd=harness._neutral_cwd())
+                         start_new_session=True, env=harness.spawn_env(binpath),
+                         cwd=harness._neutral_cwd())
         return "browser"
     args = {"claude": ["/login"], "gemini": [], "opencode": ["auth", "login"]}[provider_id]
-    cmd = " ".join(shlex.quote(p) for p in [binpath, *args])
+    # §6/§19: Terminal shells start in ~ — cd into the empty harness-cwd first
+    # so the CLI's startup scan never walks the home folder.
+    cmd = (f"cd {shlex.quote(harness._neutral_cwd())} && "
+           + " ".join(shlex.quote(p) for p in [binpath, *args]))
     osa = cmd.replace("\\", "\\\\").replace('"', '\\"')
     subprocess.run(["osascript", "-e", 'tell application "Terminal" to activate',
                     "-e", f'tell application "Terminal" to do script "{osa}"'],
@@ -102,7 +106,7 @@ def login(provider_id: str) -> str:
 def _stream_shell(cmd: list[str], emit, env_extra: dict | None = None) -> None:
     """Run an installer child, forwarding each output line; raise on failure
     with the last decisive line as the message."""
-    env = dict(os.environ)
+    env = harness.spawn_env(cmd[0])
     env.setdefault("HOME", os.path.expanduser("~"))
     if env_extra:
         env.update(env_extra)

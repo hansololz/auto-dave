@@ -2253,7 +2253,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   Gemini CLI — `npm install -g --prefix ~/.local @google/gemini-cli` (bin lands in
   `~/.local/bin`); Gemini ships only through npm, so without `npm` on this Mac the install
   fails fast with "Gemini CLI needs Node.js — install it from nodejs.org first, then try
-  again."; indeterminate ·
+  again."; npm runs with the augmented PATH below so its `#!/usr/bin/env node` shebang
+  resolves; indeterminate ·
   OpenCode — the official installer script (`curl -fsSL https://opencode.ai/install | bash`)
   with `OPENCODE_INSTALL_DIR=~/.local/bin`, indeterminate ·
   Ollama — the latest GitHub release standalone CLI (`ollama-darwin.tgz`) unpacked to
@@ -2266,6 +2267,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   callback), method `browser` · Claude Code / Gemini CLI / OpenCode — their login flows are
   interactive TUIs, so the backend opens Terminal.app via `osascript` running the harness's
   login command (`claude /login` / `gemini` / `opencode auth login`), method `terminal`.
+  The Terminal command `cd`s into the empty `harness-cwd/` dir (§6) first — Terminal shells
+  otherwise start in `~`, and the CLI's startup scan must not walk the home folder.
   `GET /agents/signin/{id}` → `{ installed, signedIn }` is the cheap poll (§10 waits on it
   every 2 s) — it runs only that provider's sign-in rule, never version lookups.
 - Ollama: `GET /ollama/status` → `{ ready, installed,
@@ -2273,7 +2276,12 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   resolve the binary via PATH plus the usual macOS install locations (`~/.local/bin`,
   `~/.opencode/bin`, `/opt/homebrew/bin`, `/usr/local/bin`; Ollama additionally `Ollama.app`),
   because a GUI-launched backend gets a minimal PATH — e.g. `claude` installs to `~/.local/bin`
-  by default. Invocation uses the resolved absolute path. If Ollama is installed but its server isn't
+  by default. Invocation uses the resolved absolute path, and every provider child the backend
+  spawns (harness invocations, installs, version/status probes, login helpers, `ollama` pulls)
+  runs with PATH prepended with those same install locations plus the resolved binary's own
+  directory — otherwise `#!/usr/bin/env node` launchers (`npm`, `gemini`) fail with
+  `env: node: No such file or directory` under the GUI minimal PATH even when Node is
+  installed. If Ollama is installed but its server isn't
   answering (and `AUTODAVE_OLLAMA_URL` is local), `/ollama/status` starts `ollama serve`
   once per backend process and waits briefly for it to come up — so an installed Ollama
   reads as ready instead of prompting a fresh download. Before every OpenCode local-model

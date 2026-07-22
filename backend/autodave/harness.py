@@ -73,6 +73,19 @@ def resolve_bin(binname: str) -> str | None:
     return None
 
 
+def spawn_env(binpath: str | None = None) -> dict:
+    """os.environ with the fallback bin dirs (and `binpath`'s own dir)
+    prepended to PATH. Every provider child spawns with this (§19):
+    `#!/usr/bin/env node` launchers like npm and gemini can't find `node`
+    under the GUI minimal PATH otherwise, even when Node is installed."""
+    env = dict(os.environ)
+    bindir = os.path.dirname(binpath) if binpath else ""
+    dirs = ([bindir] if bindir else []) + list(_FALLBACK_BIN_DIRS)
+    current = env.get("PATH", "").split(":") if env.get("PATH") else []
+    env["PATH"] = ":".join(dict.fromkeys(dirs + current))
+    return env
+
+
 def invoke(agent: dict, prompt: str, timeout: int = 300,
            proc_holder: dict | None = None, on_chunk=None) -> str:
     """Invoke the harness once with `prompt`, return its text reply.
@@ -163,7 +176,7 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
     cmd[0] = binpath
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             stdin=subprocess.DEVNULL, text=True, errors="replace",
-                            cwd=_neutral_cwd())
+                            env=spawn_env(binpath), cwd=_neutral_cwd())
     if proc_holder is not None:
         proc_holder["proc"] = proc
     # §8 live progress: read stdout as it streams instead of communicate();
@@ -296,7 +309,7 @@ def ollama_status() -> dict:
         try:
             subprocess.Popen([binpath, "serve"], stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True,
-                             cwd=_neutral_cwd())
+                             env=spawn_env(binpath), cwd=_neutral_cwd())
         except Exception:  # noqa: BLE001
             pass
         else:
@@ -336,7 +349,7 @@ HARNESS_ID = {name: pid for pid, name in PROVIDERS if pid != "ollama"}
 def _status_ok(cmd: list[str]) -> bool:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=10,
-                           cwd=_neutral_cwd())
+                           env=spawn_env(cmd[0]), cwd=_neutral_cwd())
         return r.returncode == 0
     except Exception:  # noqa: BLE001
         return False
@@ -409,7 +422,7 @@ def detect() -> list[dict]:
     def version_of(binpath: str) -> str | None:
         try:
             r = subprocess.run([binpath, "--version"], capture_output=True, text=True,
-                               timeout=5, cwd=_neutral_cwd())
+                               timeout=5, env=spawn_env(binpath), cwd=_neutral_cwd())
             return (r.stdout or r.stderr).strip().splitlines()[0][:40] if r.returncode == 0 else None
         except Exception:  # noqa: BLE001
             return None

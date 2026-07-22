@@ -762,8 +762,10 @@ def ollama_pull(body: dict) -> dict:
 
     def pull() -> None:
         try:
-            proc = subprocess.Popen([harness.ollama_bin() or "ollama", "pull", model], stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, text=True)
+            binpath = harness.ollama_bin() or "ollama"
+            proc = subprocess.Popen([binpath, "pull", model], stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    env=harness.spawn_env(binpath))
             for line in proc.stdout:  # type: ignore[union-attr]
                 hub.publish("ollama.pull", model=model, line=line.strip(), done=False)
             proc.wait()
