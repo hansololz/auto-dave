@@ -60,6 +60,14 @@ export interface ExecResult {
   when?: string
 }
 
+// §11 last-test summary — persisted in the draft container (`test.yaml`, §5),
+// rides the draft payload so a resumed draft's Test card shows the last outcome.
+export interface DraftTest {
+  status: 'succeeded' | 'failed'
+  when: string
+  result?: ExecResult | null
+}
+
 export interface VersionInfo {
   v: number
   when: string
@@ -73,6 +81,7 @@ export interface VersionInfo {
   stepAgents?: string[]
   allowedSecrets?: string[]
   triggers?: DraftTrigger[]
+  test?: DraftTest  // §11 draft-only: last-test summary
 }
 
 // §4.3 trigger — cron, one-shot time, or app start; discord/imessage/pubsub
@@ -217,6 +226,7 @@ export interface DraftPayload {
   // §4.4: grant selections carried by the draft snapshot
   stepAgents?: string[]
   allowedSecrets?: string[]
+  test?: DraftTest  // §11: last-test summary, GET responses only — never sent back
 }
 
 // §8 blocker envelope entry — a `blocked` job's payload.

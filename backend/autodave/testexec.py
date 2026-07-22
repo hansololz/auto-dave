@@ -76,6 +76,19 @@ class TestExecutions:
         redactions: dict[str, str] = {}
         step_logs: list[list[str]] = [[] for _ in draft.get("steps", [])]
         cur = {"i": None}
+        # §11: the draft container — automations/<uuid>/draft/ in edit
+        # mode, the §4.4 pending slot <root>/draft/ in create mode.
+        dbase = (store.auto_dir(auto) / "draft") if auto is not None \
+            else paths.pending_draft_dir()
+
+        def save_summary(status: str, res: dict | None = None) -> None:
+            # §5 test.yaml — the last-test summary a resumed draft's Test card
+            # shows; wiped at each test start, deleted with the draft.
+            body: dict = {"status": status,
+                          "when": datetime.now().isoformat(timespec="seconds")}
+            if res is not None:
+                body["result"] = res
+            save_yaml(dbase / "test.yaml", body)
 
         def log(k: str, text: str) -> None:
             for val, _name in redactions.items():
@@ -97,10 +110,6 @@ class TestExecutions:
 
             # Scratch dirs — memory copies the draft's own memory when it exists
             # (§4.4 Draft executions iterate on it), else the automation's (§11).
-            # §11: the draft container — automations/<uuid>/draft/ in edit
-            # mode, the §4.4 pending slot <root>/draft/ in create mode.
-            dbase = (store.auto_dir(auto) / "draft") if auto is not None \
-                else paths.pending_draft_dir()
             mem_dir = root / "memory"
             if auto is not None:
                 src = dbase / "memory"
@@ -118,6 +127,7 @@ class TestExecutions:
             for d in (ws_dir, res_dir):
                 shutil.rmtree(d, ignore_errors=True)
                 d.mkdir(parents=True, exist_ok=True)
+            (dbase / "test.yaml").unlink(missing_ok=True)
             steps_dir = root / "steps"
             steps_dir.mkdir(parents=True, exist_ok=True)
             for s in steps:
@@ -133,12 +143,14 @@ class TestExecutions:
                 if name not in allowed_secrets:
                     msg = f"secret {name} isn't allowed for this automation — the test can't start"
                     fix = "Allow the secret in the Secrets card, or drop the reference from the step."
+                    save_summary("failed")
                     self._prestep_fail(test_id, state, log, msg, fix)
                     return
                 v = keychain.get_secret(name)
                 if v is None:
                     msg = f"secret {name} isn't in your Keychain — the test can't start"
                     fix = "Add the secret on the Secrets page, then test again."
+                    save_summary("failed")
                     self._prestep_fail(test_id, state, log, msg, fix)
                     return
                 secret_values[name] = v
@@ -149,6 +161,7 @@ class TestExecutions:
             msg = ensure_declared_packages(draft.get("packages") or [], log)
             if msg:
                 fix = "Check your connection, then retry from the Packages card or test again."
+                save_summary("failed")
                 self._prestep_fail(test_id, state, log, f"package install failed — {msg}", fix)
                 return
 
@@ -243,11 +256,13 @@ class TestExecutions:
                            "chipStatus": result["status"] if result["chip"] else None,
                            "chips": result["chips"], "values": result["values"],
                            "files": files, "path": str(res_dir)}
+                save_summary("succeeded", res)
                 hub.publish("test.done", testId=test_id, status="succeeded", result=res)
                 self._notify_end(draft, auto, params, "succeeded",
                                  result if result_touched else None, notify_text)
                 return
 
+            save_summary("failed")
             hub.publish("test.done", testId=test_id, status="failed")
             self._notify_end(draft, auto, params, "failed",
                              result if result_touched else None, notify_text)
@@ -263,6 +278,7 @@ class TestExecutions:
         except Exception as e:  # noqa: BLE001
             if not state["cancel"]:
                 log("err", f"test error: {e}")
+                save_summary("failed")
                 hub.publish("test.done", testId=test_id, status="failed")
                 hub.publish("test.issue", testId=test_id,
                             blockers=[{"reason": f"test error: {e}", "fix": "", "details": ""}])

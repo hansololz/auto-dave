@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { Agent, Auto, Blocker, DraftPayload, DraftTrigger, PackageDep, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
+import type { Agent, Auto, Blocker, DraftPayload, DraftTest, DraftTrigger, PackageDep, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
 import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Eyebrow, Modal, PyCode, Spinner, Toggle, agName, dispModel, logColor, menuStyle, paramSummary, resultChipColors, usePopover, validUrl } from '../ui'
 import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown, SpecMarkdown } from '../result'
@@ -246,6 +246,9 @@ interface Rev {
   resolved: string[]
   askBlockers: Blocker[] | null
   stepOpen: number | null
+  // §11: the draft's persisted last-test summary (test.yaml) — shown in the
+  // Test card when no live test is in the store; replaced by the next test.
+  lastTest: DraftTest | null
   viewing: 'draft' | number
   specSecOpen: boolean | null
   agSecOpen: boolean | null
@@ -266,6 +269,7 @@ const revDefaults = {
   specBlockers: null as Rev['specBlockers'], specErr: null as Rev['specErr'], stepsErr: null as Rev['stepsErr'],
   repair: null as Rev['repair'], resolved: [] as string[], askBlockers: null as Rev['askBlockers'],
   stepOpen: null as number | null,
+  lastTest: null as DraftTest | null,
   viewing: 'draft' as Rev['viewing'],
   specSecOpen: null as boolean | null, agSecOpen: null as boolean | null, secSecOpen: null as boolean | null, pkgSecOpen: null as boolean | null, instrSecOpen: null as boolean | null, fwOpen: false,
 }
@@ -300,6 +304,7 @@ function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
       ? d.stepAgents.filter((id) => agents.some((g) => g.id === id))
       : agents.map((g) => g.id),
     allowedSecrets: d.allowedSecrets ?? [],
+    lastTest: d.test ?? null,
   }
 }
 
@@ -330,6 +335,7 @@ function seedFromAuto(a: Auto, agents: Agent[], secretNames: string[]): Rev {
         ? g.filter((n) => secretNames.includes(n))
         : refs.filter((r) => secretNames.includes(r.name)).map((r) => r.name)
     })(),
+    lastTest: a.draft?.test ?? null,
     touched: !!a.draft,
   }
 }
@@ -383,6 +389,44 @@ function serializeDraft(r: Rev): DraftPayload {
     stepAgents: r.enabledAgents,
     allowedSecrets: r.allowedSecrets,
   }
+}
+
+// §11 Test card result summary — chip + values + files + Show in Finder;
+// shared by the live succeeded state and the persisted last-test block.
+function TestResultBits({ result }: { result: NonNullable<DraftTest['result']> | null }) {
+  if (!result) return null
+  return (
+    <>
+      {result.chip && (
+        <Chip {...resultChipColors(result.chipStatus)} style={{ marginTop: 7 }}>{result.chip}</Chip>
+      )}
+      {(result.values ?? []).map((v) => (
+        <div key={v.name} style={{ color: 'var(--code-text)', marginTop: 4 }}>
+          <span style={{ color: 'var(--text-faint)' }}>{v.name}: </span>
+          {Array.isArray(v.value) ? v.value.join(' · ') : v.value}
+        </div>
+      ))}
+      {(result.files ?? []).length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          {(result.files ?? []).map((f) => (
+            <div key={f.name} style={{ color: 'var(--code-text)' }}>
+              <i className="fa-solid fa-file-lines" style={{ fontSize: 10, color: 'var(--text-faint)', marginRight: 6 }} />
+              {f.name} <span style={{ color: 'var(--text-faintest)' }}>{f.size}</span>
+            </div>
+          ))}
+          {result.path && (
+            <button
+              className="ad-btn-ghost"
+              onClick={() => { void window.autodave?.revealPath(result.path!) }}
+              style={{ fontSize: 11.5, marginTop: 4 }}
+            >
+              <i className="fa-solid fa-folder-open" style={{ fontSize: 10 }} /> Show in Finder
+            </button>
+          )}
+        </div>
+      )}
+    </>
+  )
 }
 
 // ---------- step row (read-only agent + secret tags) ----------
@@ -2405,7 +2449,7 @@ export default function CreateFlow() {
                           className="ad-btn-soft" disabled={rev.steps.length === 0 || busyRewrite}
                           onClick={() => void runTest()}
                         >
-                          {test ? 'Test again' : 'Test the draft'}
+                          {test || rev.lastTest ? 'Test again' : 'Test the draft'}
                         </button>
                       )}
                     </div>
@@ -2468,34 +2512,7 @@ export default function CreateFlow() {
                               <div style={{ color: 'var(--green)' }}>
                                 <i className="fa-solid fa-check" style={{ fontSize: 11 }} /> Test finished — the memory copy was discarded.
                               </div>
-                              {test.result?.chip && (
-                                <Chip {...resultChipColors(test.result.chipStatus)} style={{ marginTop: 7 }}>{test.result.chip}</Chip>
-                              )}
-                              {(test.result?.values ?? []).map((v) => (
-                                <div key={v.name} style={{ color: 'var(--code-text)', marginTop: 4 }}>
-                                  <span style={{ color: 'var(--text-faint)' }}>{v.name}: </span>
-                                  {Array.isArray(v.value) ? v.value.join(' · ') : v.value}
-                                </div>
-                              ))}
-                              {(test.result?.files ?? []).length > 0 && (
-                                <div style={{ marginTop: 6 }}>
-                                  {(test.result?.files ?? []).map((f) => (
-                                    <div key={f.name} style={{ color: 'var(--code-text)' }}>
-                                      <i className="fa-solid fa-file-lines" style={{ fontSize: 10, color: 'var(--text-faint)', marginRight: 6 }} />
-                                      {f.name} <span style={{ color: 'var(--text-faintest)' }}>{f.size}</span>
-                                    </div>
-                                  ))}
-                                  {test.result?.path && (
-                                    <button
-                                      className="ad-btn-ghost"
-                                      onClick={() => { void window.autodave?.revealPath(test.result!.path!) }}
-                                      style={{ fontSize: 11.5, marginTop: 4 }}
-                                    >
-                                      <i className="fa-solid fa-folder-open" style={{ fontSize: 10 }} /> Show in Finder
-                                    </button>
-                                  )}
-                                </div>
-                              )}
+                              <TestResultBits result={test.result} />
                             </div>
                           )}
                           {test.status === 'failed' && test.analyzing && (
@@ -2516,6 +2533,23 @@ export default function CreateFlow() {
                           )}
                         </div>
                       </>
+                    ) : rev.lastTest ? (
+                      /* §11: persisted last-test summary (test.yaml) — a resumed
+                         draft shows the outcome instead of throwing it away */
+                      <div style={{ padding: '10px 20px 12px', font: "400 11.5px/1.8 var(--mono)", background: 'var(--bg-code)' }}>
+                        {rev.lastTest.status === 'succeeded' ? (
+                          <>
+                            <div style={{ color: 'var(--green)' }}>
+                              <i className="fa-solid fa-check" style={{ fontSize: 11 }} /> Last test succeeded — {rev.lastTest.when}.
+                            </div>
+                            <TestResultBits result={rev.lastTest.result ?? null} />
+                          </>
+                        ) : (
+                          <div style={{ color: 'var(--amber)' }}>
+                            <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} /> Last test failed — {rev.lastTest.when}.
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div style={{ padding: '12px 20px', font: "400 11.5px/1.6 var(--mono)", color: 'var(--text-faintest)' }}>
                         Executes the draft's real steps on this Mac — emails send, files move. Memory is a scratch copy; real executions aren't affected.

@@ -533,6 +533,11 @@ automations/<uuid>/
     result/                    # the §11 test result dir (output files + result.yaml,
                                # same shape as an execution's result/, §4.5): wiped at
                                # each test start, deleted with the draft
+    test.yaml                  # §11 last-test summary: status (succeeded | failed),
+                               # finished-at ISO timestamp, and on success the result
+                               # summary object — written when a test ends, wiped at each
+                               # test start, deleted with the draft; lets a resumed draft's
+                               # Test card show the last outcome instead of throwing it away
   versions/vN/                 # one folder per version — immutable once written
     automation.yaml            # when, note, desc, param definitions (§4.2: name, kind,
                                # label, help, default, …) + ordered steps manifest:
@@ -1810,7 +1815,17 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   is non-empty) into `draft/result/`, and step scripts write output files there via
   `result.path` (§6.1). A succeeded test shows green plus its result summary in the card —
   chip + values, and the §4.5 files listing with the Show in Finder path (the draft
-  container's `result/`) — with no agent call. On failure the card
+  container's `result/`) — with no agent call. **The outcome is never thrown away with the
+  editing session:** a finished test writes the last-test summary `test.yaml` (§5 — status
+  succeeded | failed, finished-at, and on success the result summary object) into the draft
+  container, wiped at the next test start and deleted with the draft. It rides the draft
+  payload as `test` ({ status, when: §4.1 started-label, result? }) — on the automation's
+  `draft` object and on `GET /draft` — and a resumed draft's Test card renders it in place
+  of the empty hint: a status line ("Last test succeeded — <when>" green / "Last test
+  failed — <when>" amber) plus, on success, the same chip + values + files listing and
+  Show in Finder button; the header button reads "Test again". A live test always takes
+  over the card; the persisted summary is display-only (no logs, no step list, no issue
+  panel — those are session-ephemeral). On failure the card
   shows "Analyzing the failure…" (agent label) while the backend makes the §8 issue-analysis
   call, then opens the **Issue panel** — the same cards, fields, and editing as the Blocker
   modal, headline "The test hit an issue"; its primary button **"Apply to the spec & sync
@@ -2183,7 +2198,10 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   (else the draft's defaults), with `paramValues` (name → value, §5 matching rules) overriding
   on top for this test only — never stored; progress via the `test.*` WS events; on failure the
   backend makes the §8 issue-analysis call with `agentId` (default-agent fallback) and emits its
-  blockers in `test.issue`. `DELETE /tests/{testId}` cancels (kills the live step subprocess or
+  blockers in `test.issue`. A finished test writes the §11 last-test summary (`test.yaml`, §5)
+  into the draft container; it rides the draft payload as `test` ({ status: succeeded | failed,
+  when, result? }) on the automation's `draft` object and on `GET /draft`.
+  `DELETE /tests/{testId}` cancels (kills the live step subprocess or
   the analysis harness process)
 - `POST /packages/check` `{ packages: [{ pip, import }] }` → `{ packages: [{ pip, import,
   status: installed | missing, version? }] }` — the fast §6.2 installed-check, never runs

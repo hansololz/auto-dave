@@ -469,6 +469,7 @@ class Store:
             "triggers": d.get("triggers", []),
             **({"stepAgents": d["step_agents"]} if d.get("step_agents") is not None else {}),
             **({"allowedSecrets": d["allowed_secrets"]} if d.get("allowed_secrets") is not None else {}),
+            **({"test": t} if (t := self.draft_test_json(paths.pending_draft_dir())) else {}),
         }, "agentId": d.get("agent_id")}
 
     def delete_draft(self, a: dict) -> None:
@@ -917,6 +918,29 @@ class Store:
             out["why"] = s.get("why", "")
         return out
 
+    def draft_json(self, a: dict) -> dict:
+        """The automation's §4.4 draft object: the version-shaped working copy
+        plus the §11 last-test summary when one exists."""
+        out = self.version_json(a, a["current_version"], a["draft"])
+        t = self.draft_test_json(self.auto_dir(a) / "draft")
+        if t:
+            out["test"] = t
+        return out
+
+    def draft_test_json(self, container: Path) -> dict | None:
+        """§11 last-test summary (`test.yaml` in the draft container, §5) —
+        rides the draft payload as `test`; None when no test has finished."""
+        t = load_yaml(container / "test.yaml", None)
+        if not t or not t.get("status"):
+            return None
+        when = ""
+        if t.get("when"):
+            when = timefmt.started_label(datetime.fromisoformat(t["when"]))
+        out: dict[str, Any] = {"status": t["status"], "when": when}
+        if t.get("result") is not None:
+            out["result"] = t["result"]
+        return out
+
     def latest_result_json(self, a: dict) -> dict | None:
         hs = [h for h in self.execs.values() if h["auto_id"] == a["id"] and h["status"] != "executing"]
         for h in sorted(hs, key=lambda x: x["started_at"] or "", reverse=True):
@@ -981,7 +1005,7 @@ class Store:
                 "versions": [self.version_json(a, n, v)
                              for n, v in sorted(a["versions"].items(), reverse=True)
                              if n != a["current_version"]],
-                "draft": self.version_json(a, a["current_version"], a["draft"]) if a["draft"] else None,
+                "draft": self.draft_json(a) if a["draft"] else None,
             })
         return out
 

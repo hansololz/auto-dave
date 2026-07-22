@@ -745,6 +745,13 @@ def test_draft_test_executes_in_draft_dirs(store, monkeypatch):
     assert {f["name"] for f in res["files"]} == {"out.md", "result.yaml"}
     assert res["path"] == str(dd / "result")
 
+    # §11: the last-test summary persists in the container and rides draft.test
+    assert (dd / "test.yaml").exists()
+    dj = store.auto_json(a)["draft"]
+    assert dj["test"]["status"] == "succeeded"
+    assert dj["test"]["when"]
+    assert dj["test"]["result"]["chip"] == "Made it"
+
 
 def test_create_mode_test_uses_pending_slot(store, monkeypatch):
     """§11 create mode: no automation yet — the test executes in the §4.4
@@ -786,3 +793,10 @@ def test_create_mode_test_uses_pending_slot(store, monkeypatch):
     res = done["result"]
     assert {f["name"] for f in res["files"]} == {"out.md", "result.yaml"}
     assert res["path"] == str(slot / "result")
+
+    # §11: the summary persists in the slot and rides the pending payload
+    assert (slot / "test.yaml").exists()
+    store.save_pending_draft(ver, "Pending Tester", None, None)
+    pj = store.pending_draft_json()
+    assert pj["draft"]["test"]["status"] == "succeeded"
+    assert pj["draft"]["test"]["result"]["path"] == str(slot / "result")
