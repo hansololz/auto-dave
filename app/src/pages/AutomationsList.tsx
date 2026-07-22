@@ -36,18 +36,16 @@ function AutoCard({ a }: { a: Auto }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
         <div style={{ flex: 1, fontSize: 14, fontWeight: 600, minWidth: 0 }}>{a.name}</div>
         <button
-          className="ad-btn-link"
+          className="ad-btn-exec"
           onClick={execute}
           disabled={executing}
           title={executing ? 'Executing…' : 'Execute now'}
-          style={{
-            width: 28, height: 28, borderRadius: 7, fontSize: 10, fontWeight: 500, flex: 'none',
-            ...(executing ? {
-              background: 'oklch(0.74 0.155 52 / .16)', color: 'oklch(0.74 0.155 52 / .55)', cursor: 'default',
-            } : null),
-          }}
         >
-          <i className={executing ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play'} style={{ fontSize: 9 }} />
+          {/* play glyph sits 1px right of center optically */}
+          <i
+            className={executing ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play'}
+            style={{ fontSize: 9, marginLeft: executing ? 0 : 1 }}
+          />
         </button>
       </div>
       <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-muted)', minHeight: 37 }}>{a.desc}</p>

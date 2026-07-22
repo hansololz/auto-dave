@@ -167,6 +167,17 @@ textarea:disabled, input:disabled { opacity: .45; }
 }
 .ad-btn-accent-ghost:hover:not(:disabled) { background: oklch(0.74 0.155 52 / 0.18); border-color: oklch(0.74 0.155 52 / 0.45); }
 
+/* square accent-filled icon button (per-card Execute now on the automations list) */
+.ad-btn-exec {
+  width: 28px; height: 28px; border-radius: 7px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: var(--on-accent);
+  transition: background .15s ease, transform .1s ease;
+}
+.ad-btn-exec:hover:not(:disabled) { background: var(--accent-hover); }
+.ad-btn-exec:active:not(:disabled) { transform: scale(0.94); }
+.ad-btn-exec:disabled { background: oklch(0.74 0.155 52 / 0.35); color: oklch(0.2 0.02 52 / 0.7); }
+
 /* red-tinted confirm (destructive confirms, cancel-execution) */
 .ad-btn-danger-ghost {
   background: oklch(0.7 0.19 25 / 0.16); border: 1px solid oklch(0.7 0.19 25 / 0.4);

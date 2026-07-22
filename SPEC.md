@@ -1308,8 +1308,10 @@ pending draft, the single New automation button opens the create flow directly. 
 status badge, trigger chip (`triggerChip`, plus an OFF tag when `triggersOff`), result-summary chip when
 the last execution set one (tinted by `resultStatus` with the §7 chip colors — same tint as the detail
 and execution pages), and
-an **inline execute button** per card (disabled while that automation is executing, tooltip explains
-why). The card carries no last-execution label — `lastExecLabel` appears on the detail page and in the
+a square accent-filled **inline execute button** per card (rounded square, solid accent/orange
+background with a dark play icon — same fill treatment as the primary button; hover brightens;
+while that automation is executing it swaps to a spinner, dims, and is disabled — tooltip
+explains why). The card carries no last-execution label — `lastExecLabel` appears on the detail page and in the
 menu bar. Empty state (dashed card):
 "No automations yet. Describe a job in plain words — your AI writes it as scripts you can read,
 and Auto Dave executes them on your schedule." with accent CTA "Create your first automation".
