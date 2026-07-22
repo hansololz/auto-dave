@@ -43,13 +43,46 @@ function AgentCard({ ag, check, onDelete }: {
   }
 
   return (
-    <div style={{
-      background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12,
-      padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 10,
-    }}>
+    // §12: whole card opens the edit form — needs-setup opens with the reconnect banner.
+    <div
+      className="ad-card-click"
+      onClick={() => { openAgentEdit(ag, !checking && !connecting && !ready); go('agentNew') }}
+      style={{ borderRadius: 12, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 600, fontSize: 15 }}>{ag.name || ag.harness}</span>
         <MiniBadge c={badge.c} bg={badge.bg}>{badge.label}</MiniBadge>
+        {/* Overflow menu at the card's top right (§12) — visible in every badge state. */}
+        <div ref={menuRef} onClick={(e) => e.stopPropagation()} style={{ position: 'relative', marginLeft: 'auto' }}>
+          <button
+            className="ad-btn-ghost"
+            onClick={() => setMenuOpen(!menuOpen)}
+            title="More actions"
+            style={{ padding: '8px 10px' }}
+          >
+            <i className="fa-solid fa-ellipsis" style={{ fontSize: 12 }} />
+          </button>
+          {menuOpen && (
+            <div style={{ ...menuStyle, top: 'calc(100% + 6px)', right: 0, minWidth: 190 }}>
+              {ready && (
+                <MenuRow onClick={() => { setMenuOpen(false); void recheck() }}>
+                  <i className="fa-solid fa-plug" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
+                  Check connection
+                </MenuRow>
+              )}
+              {ready && !ag.default && (
+                <MenuRow onClick={() => { setMenuOpen(false); void makeDefault() }}>
+                  <i className="fa-solid fa-star" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
+                  Make default
+                </MenuRow>
+              )}
+              <MenuRow danger onClick={() => { setMenuOpen(false); onDelete(ag) }}>
+                <i className="fa-solid fa-trash-can" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
+                Remove agent…
+              </MenuRow>
+            </div>
+          )}
+        </div>
       </div>
       <div style={{ font: `500 11.5px var(--mono)`, color: 'var(--text-faint)', marginTop: -5 }}>
         {ag.harness} · {dispModel(ag)}
@@ -67,7 +100,7 @@ function AgentCard({ ag, check, onDelete }: {
               <button
                 key={u}
                 className="ad-chip-btn"
-                onClick={() => { if (auto) go('automation', { autoId: auto.id }) }}
+                onClick={(e) => { e.stopPropagation(); if (auto) go('automation', { autoId: auto.id }) }}
                 style={{ cursor: auto ? 'pointer' : 'default' }}
               >
                 {u}
@@ -78,56 +111,12 @@ function AgentCard({ ag, check, onDelete }: {
       ) : (
         <div style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>Not used by any automation yet.</div>
       )}
-      {checking || connecting ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+      {(checking || connecting) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 'auto' }}>
           <Spinner size={13} />
           <span style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--text-2)' }}>
             {connecting ? 'Reconnecting…' : 'Checking locally…'}
           </span>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {!ready && (
-            // Needs setup — accent-primary Edit opens the form with the reconnect banner (§12).
-            <BtnPrimary onClick={() => { openAgentEdit(ag, true); go('agentNew') }} style={{ flex: 'none' }}>
-              Edit
-            </BtnPrimary>
-          )}
-          {ready && (
-            <BtnGhost onClick={() => { openAgentEdit(ag, false); go('agentNew') }}>
-              Edit
-            </BtnGhost>
-          )}
-          <div ref={menuRef} style={{ position: 'relative' }}>
-            <button
-              className="ad-btn-ghost"
-              onClick={() => setMenuOpen(!menuOpen)}
-              title="More actions"
-              style={{ padding: '8px 10px' }}
-            >
-              <i className="fa-solid fa-ellipsis" style={{ fontSize: 12 }} />
-            </button>
-            {menuOpen && (
-              <div style={{ ...menuStyle, top: 'calc(100% + 6px)', left: 0, minWidth: 190 }}>
-                {ready && (
-                  <MenuRow onClick={() => { setMenuOpen(false); void recheck() }}>
-                    <i className="fa-solid fa-plug" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
-                    Check connection
-                  </MenuRow>
-                )}
-                {ready && !ag.default && (
-                  <MenuRow onClick={() => { setMenuOpen(false); void makeDefault() }}>
-                    <i className="fa-solid fa-star" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
-                    Make default
-                  </MenuRow>
-                )}
-                <MenuRow danger onClick={() => { setMenuOpen(false); onDelete(ag) }}>
-                  <i className="fa-solid fa-trash-can" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
-                  Remove agent…
-                </MenuRow>
-              </div>
-            )}
-          </div>
         </div>
       )}
     </div>
@@ -180,7 +169,7 @@ export default function AgentsPage() {
         The AI that writes your automations. It never executes anything — Auto Dave does that. New automations use your default agent.
       </p>
       {agents.length > 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
           {agents.map((ag) => (
             <AgentCard key={ag.id} ag={ag} check={agentChecks[ag.id]} onDelete={setDelAgent} />
           ))}

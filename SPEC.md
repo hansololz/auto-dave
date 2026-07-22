@@ -1841,7 +1841,9 @@ executed yet. Press Execute now when you're ready." Save (edit) → §4.4.
 
 ## 12. Agents & Secrets pages
 
-**Agents.** List of agent cards with badge states Checking (cyan) / Connecting / Ready (green) /
+**Agents.** Tile grid of agent cards — same grid as the Automations list (§9.1,
+`repeat(auto-fill, minmax(310px, 1fr))`), not a vertical list; each card's action row sticks to
+the card bottom so tiles in a row align. Badge states Checking (cyan) / Connecting / Ready (green) /
 Needs setup (amber). Statuses are cached in the renderer for the app session: each agent is
 checked once, staggered, on the first Agents page visit that sees it (new agents get checked on
 the next visit); later visits render the cached badge with no re-check. The cache entry for an
@@ -1852,8 +1854,13 @@ generated marketing copy (the desc is drafting input, §8 grants yaml); when the
 the line reads "No description yet — add one in Edit to tell the drafting AI what this agent
 is for." —
 and a **USED BY** row of clickable automation chips (fallback "Not used by any automation yet.").
-Ready agents get an inline "Edit" button;
-Needs-setup rows use an accent-primary "Edit" button instead. The row overflow menu holds, for
+There is no Edit button —
+the whole card is clickable (same hover treatment as the Automations list tiles) and opens the
+§12 edit form; a Needs-setup card opens it with the reconnect banner. Clicks on the overflow
+menu and on USED BY chips do not navigate. The card's overflow (ellipsis) menu
+button sits at the card's top right, on the title row, visible in every badge state (while a
+check is in flight only "Remove agent…" is offered); its popover opens right-aligned. The
+overflow menu holds, for
 ready agents, "Check connection" — a real §19 `/agents/{id}/check` call timed by the
 renderer: the badge returns to Checking while it runs, success toasts "`<name>` answered in
 X.X s — ready.", failure flips the badge to Needs setup and toasts "`<name>` didn't answer —
