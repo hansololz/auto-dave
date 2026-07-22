@@ -103,7 +103,7 @@ List of connected agents (harness, model — shows "Default model" when using th
 640px single column, grouped sections with toggles (36×21px track, 15px knob travel, accent when on).
 
 ### 11. Menu bar surface
-Full-screen macOS desktop mock: 30px translucent menu bar (Desktop / File / Edit…, clock), an Autowright circle-play icon button with red alert dot when something failed. Clicking opens a 334px translucent panel (blur 30px): "AUTO DAVE" eyebrow + aggregate status, one row per automation (status dot — pulsing when running, name, mono sub-line, hover-revealed run button, relative time), footer with "Open Autowright" link + version. Click-outside closes.
+Full-screen macOS desktop mock: 30px translucent menu bar (Desktop / File / Edit…, clock), an Autowright circle-play icon button with red alert dot when something failed. Clicking opens a 334px translucent panel (blur 30px): "AUTOWRIGHT" eyebrow + aggregate status, one row per automation (status dot — pulsing when running, name, mono sub-line, hover-revealed run button, relative time), footer with "Open Autowright" link + version. Click-outside closes.
 
 ## Interactions & Behavior
 - **Navigation** is state-driven (surface → page → detail ids). Back buttons and browser/OS back both work; once past onboarding, back never returns into it.
