@@ -2531,7 +2531,7 @@ export default function CreateFlow() {
       {/* onboarding trust footer */}
       {isOnboard && (
         <div style={{ flex: 'none', borderTop: '1px solid var(--hairline)', padding: '13px 28px', display: 'flex', justifyContent: 'center', gap: 26, flexWrap: 'wrap' }}>
-          {['Everything executes on this Mac', 'Nothing executes until you review it', 'Passwords stay in your Keychain'].map((t) => (
+          {['Your automations execute only on this Mac', 'Nothing executes until you review it', 'Passwords never leave your Keychain'].map((t) => (
             <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--green)' }} />
               <span style={{ font: "400 12px var(--sans)", color: 'var(--text-muted)' }}>{t}</span>

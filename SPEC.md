@@ -29,9 +29,9 @@ model) writes it as human-readable
 scripts; Auto Dave executes those scripts on a schedule, entirely on the user's Mac, and shows results.
 
 Core promises (exact UI copy, repeated in the onboarding footer):
-- "Everything executes on this Mac"
+- "Your automations execute only on this Mac"
 - "Nothing executes until you review it"
-- "Passwords stay in your Keychain"
+- "Passwords never leave your Keychain"
 
 ## 2. Architecture
 
