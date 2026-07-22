@@ -2077,9 +2077,15 @@ failing step carries two attempts.
 ## 18. Commands
 
 Everything under `scripts/` is developer-only: run by hand in a terminal, never by an agent.
-`.claude/settings.json` enforces this with a PreToolUse hook that blocks any Claude Code Bash
-command referencing the `scripts/` directory (deterministic harness-level block, independent of
-model compliance; agents may still read/edit the files via the non-Bash tools). Agents verify
+`.claude/settings.json` enforces this with PreToolUse hooks (commands in
+`.claude/hooks/guard_bash.py` + `guard_paths.py`): the Bash hook blocks any command referencing
+the repo's `scripts/` directory (bare `scripts/`, `./scripts/`, `cd scripts`, or the
+`$CLAUDE_PROJECT_DIR` absolute path) or the repo-root `knowledge.md`; the path hook
+(`Read|Edit|Write|Grep|Glob`) blocks tool calls targeting the repo-root `knowledge.md`.
+Both are scoped to exactly those repo-root paths — same-named files or `scripts/` directories
+anywhere else (other repos, `node_modules`, subdirectories) are unaffected. Deterministic
+harness-level block, independent of model compliance; agents may still read/edit the `scripts/`
+files via the non-Bash tools. Agents verify
 changes by launching the app pieces directly (backend module, `npm run build`, Electron via
 playwright — see `.claude/skills/verify`).
 
@@ -2169,7 +2175,9 @@ Dev workflow:
   read-only Bash: `ls`/`tree`/`git ls-files`/`git log`/`wc`/`head`/`cat`) to explore the repo
   (SPEC.md as primary source, verified against code), prepends a generated-at header, and
   writes atomically (temp file + `mv`). Purely for developer reading — never read by agents,
-  never used to build the app; no other file references it.
+  never used to build the app; no other file references it. The §18 PreToolUse hooks reject
+  any Bash command or `Read|Edit|Write|Grep|Glob` call targeting the repo-root `knowledge.md`
+  (only that exact path — same-named files elsewhere are unaffected).
 - **`./scripts/commit`** — stages all uncommitted changes (`git add -A`), asks Claude
   (Opus 4.8, `claude --model claude-opus-4-8 -p`) for a commit message based on the staged diff
   (≤72-char imperative summary, whole message capped at 2-3 sentences), prints it, and commits. Exits 0 with no commit if

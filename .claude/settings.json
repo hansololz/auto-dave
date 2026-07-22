@@ -6,7 +6,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); if printf '%s' \"$input\" | grep -qE 'scripts/|cd[[:space:]]+\\.?/?scripts'; then echo 'Blocked: the scripts/ directory is developer-only — agents must never run these scripts. The developer runs them by hand in a terminal.' >&2; exit 2; fi; exit 0"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_bash.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_paths.py\""
           }
         ]
       }
