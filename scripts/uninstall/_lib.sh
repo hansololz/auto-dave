@@ -1,7 +1,7 @@
 # Shared guard + helpers for the developer-only uninstall scripts.
 # Sourced by every scripts/uninstall/<tool>.sh — not runnable on its own.
 #
-# DEVELOPER-ONLY. Agents (Claude Code, Codex, Gemini, OpenCode, or any Auto Dave
+# DEVELOPER-ONLY. Agents (Claude Code, Codex, Gemini, OpenCode, or any Autowright
 # automation) must NEVER execute these scripts. guard() enforces that:
 #   1. refuses when agent environment markers are present (CLAUDECODE),
 #   2. refuses without an interactive TTY on stdin and stdout

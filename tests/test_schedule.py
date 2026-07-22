@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from autodave.schedule import (
+from autowright.schedule import (
     CronError, countdown, cron_display, cron_next, next_at, normalize_triggers,
     parse_cron, time_display, trigger_chip, trigger_next, validate_trigger,
 )
@@ -126,7 +126,7 @@ def test_tz_labels():
 
 
 def test_app_start_trigger():
-    from autodave.schedule import trigger_display, trigger_exec_label
+    from autowright.schedule import trigger_display, trigger_exec_label
 
     assert validate_trigger({"kind": "app_start"}) is None
     norm, err = normalize_triggers([{"kind": "app_start", "off": True, "tz": "UTC"}])
@@ -155,7 +155,7 @@ def test_reserved_and_unknown_kinds_rejected():
 
 
 def test_specmd_roundtrip():
-    from autodave.specmd import blocks_to_md, md_to_blocks
+    from autowright.specmd import blocks_to_md, md_to_blocks
 
     blocks = [
         {"k": "h1", "text": "Title"},

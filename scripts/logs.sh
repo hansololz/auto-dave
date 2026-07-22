@@ -1,5 +1,5 @@
 #!/bin/bash
-# Follow every Auto Dave log stream in one terminal (§5, §18).
+# Follow every Autowright log stream in one terminal (§5, §18).
 #
 # The backend is managed by launchd, so its console output lands in files, not
 # the terminal. Note backend.err.log is NOT errors-only: it is the backend's
@@ -8,7 +8,7 @@
 # (normally quiet), app.log the backend application log, vite.log the dev
 # server (dev.sh sessions only).
 #
-#   ./scripts/logs.sh            follow all logs; honors AUTODAVE_HOME (§15)
+#   ./scripts/logs.sh            follow all logs; honors AUTOWRIGHT_HOME (§15)
 #   ./scripts/logs.sh --clear    truncate existing logs first, then follow
 set -euo pipefail
 
@@ -16,9 +16,9 @@ CLEAR=0
 [[ "${1:-}" == "--clear" ]] && CLEAR=1
 
 # same resolution as dev.sh: ~/Library/Logs, or <home>/logs when isolated
-DATA="${AUTODAVE_HOME:-$HOME/Library/Application Support/Auto Dave}"
-LOGS="${AUTODAVE_HOME:+$DATA/logs}"
-LOGS="${LOGS:-$HOME/Library/Logs/Auto Dave}"
+DATA="${AUTOWRIGHT_HOME:-$HOME/Library/Application Support/Autowright}"
+LOGS="${AUTOWRIGHT_HOME:+$DATA/logs}"
+LOGS="${LOGS:-$HOME/Library/Logs/Autowright}"
 
 mkdir -p "$LOGS"
 cd "$LOGS"

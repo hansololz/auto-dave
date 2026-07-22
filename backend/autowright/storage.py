@@ -25,7 +25,7 @@ from .yamlio import atomic_write_text, load_yaml, save_yaml
 
 SECRET_REF_RE = re.compile(r"\bsecrets\.([A-Z][A-Z0-9_]*)")
 
-log = logging.getLogger("autodave.storage")
+log = logging.getLogger("autowright.storage")
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "login": True,

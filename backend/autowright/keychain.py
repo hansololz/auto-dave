@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import keyring
 
-SERVICE = "Auto Dave"
+SERVICE = "Autowright"
 
 
 def get_secret(name: str) -> str | None:

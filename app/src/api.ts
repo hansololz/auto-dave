@@ -3,7 +3,7 @@ import type { DraftJob, StateSnapshot } from './types'
 
 declare global {
   interface Window {
-    autodave?: {
+    autowright?: {
       backendInfo(): Promise<{ port: number; token: string } | null>
       openApp(hash: string): Promise<void>
       pickFolder(defaultPath?: string): Promise<string | null>
@@ -20,7 +20,7 @@ let base = ''
 let token = ''
 
 export async function connectInfo(): Promise<boolean> {
-  const info = await window.autodave?.backendInfo()
+  const info = await window.autowright?.backendInfo()
   if (!info) return false
   base = `http://127.0.0.1:${info.port}`
   token = info.token

@@ -2,7 +2,7 @@ from conftest import make_version
 
 
 def test_create_and_reload_roundtrip(store, home):
-    from autodave.storage import Store
+    from autowright.storage import Store
 
     trig = {"id": "t-1", "kind": "cron", "off": False, "expr": "30 7 * * *"}
     a = store.create_automation(make_version(), "My Test Job", "agent-1", triggers=[trig])
@@ -22,7 +22,7 @@ def test_create_and_reload_roundtrip(store, home):
 
 
 def test_no_triggers_roundtrip(store, home):
-    from autodave.storage import Store
+    from autowright.storage import Store
 
     # No triggers given -> manual / menu bar only.
     a = store.create_automation(make_version(), "No Trigger Job", "agent-1")
@@ -77,7 +77,7 @@ def test_rename_keeps_directory(store):
 
 
 def test_param_value_resolution(store):
-    from autodave.storage import resolve_param_value
+    from autowright.storage import resolve_param_value
 
     d = {"name": "count", "kind": "number", "min": 1, "default": 3}
     assert resolve_param_value(d, {}) == 3
@@ -117,7 +117,7 @@ def test_retention_cleanup(store):
 
 
 def test_packages_persist_as_bare_names(store):
-    from autodave.storage import Store
+    from autowright.storage import Store
 
     # §6.2: manifests carry bare distribution names — no version anywhere.
     pkgs = [{"pip": "pandas", "import": "pandas"}]
@@ -189,7 +189,7 @@ def test_snapshot_rename_and_delete(store):
 
 
 def test_snapshot_toggles_gate_automatic_reasons(store):
-    from autodave.storage import Store
+    from autowright.storage import Store
 
     a = store.create_automation(make_version(), "Toggler", None)
     # defaults: every automatic reason on
@@ -219,8 +219,8 @@ def test_snapshot_toggles_gate_automatic_reasons(store):
 
 
 def test_snapshot_toggles_absent_keys_default_on(store):
-    from autodave.storage import Store
-    from autodave.yamlio import load_yaml, save_yaml
+    from autowright.storage import Store
+    from autowright.yamlio import load_yaml, save_yaml
 
     a = store.create_automation(make_version(), "Legacyless", None)
     # hand-edited automation.yaml without the memory_snapshots key → all on
@@ -259,7 +259,7 @@ def test_snapshot_orphan_dirs_skipped_and_swept(store):
 
 def test_pending_draft_slot_roundtrip(store):
     """§4.4 pending create-mode slot: save → load/json → delete."""
-    from autodave import paths
+    from autowright import paths
     from conftest import make_version
 
     assert store.pending_draft_json() == {"draft": None, "agentId": None}
@@ -291,7 +291,7 @@ def test_pending_draft_slot_roundtrip(store):
 def test_open_pending_draft_makes_container(store):
     """§4.4: opening the create flow makes the slot's container dirs exist,
     without touching contents already there."""
-    from autodave import paths
+    from autowright import paths
     from conftest import make_version
 
     store.open_pending_draft()

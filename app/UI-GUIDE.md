@@ -1,6 +1,6 @@
 # UI port conventions (for page implementers)
 
-Recreate the design prototype (`design/Auto Dave.dc.html`) pixel-faithfully in React.
+Recreate the design prototype (`design/Autowright.dc.html`) pixel-faithfully in React.
 The prototype's markup uses inline styles — port them as JSX `style={{…}}` objects, keeping the
 exact values. Dark theme only. All tokens exist as CSS vars (see `src/tokens.css`): use
 `var(--accent)`, `var(--bg-card)`, `var(--text-2)`, `var(--mono)` etc. instead of raw hex where a

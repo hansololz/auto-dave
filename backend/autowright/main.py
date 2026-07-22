@@ -32,7 +32,7 @@ def free_port() -> int:
 def main() -> None:
     paths.ensure_dirs()
     store.load_all()
-    port = int(os.environ.get("AUTODAVE_PORT", 0)) or free_port()
+    port = int(os.environ.get("AUTOWRIGHT_PORT", 0)) or free_port()
     # §3 discovery: port + auth token, 0600.
     atomic_write_text(paths.backend_json(), json.dumps({
         "port": port, "token": api.AUTH_TOKEN, "version": __version__, "pid": os.getpid(),
@@ -40,7 +40,7 @@ def main() -> None:
     scheduler = Scheduler(store, api.engine)
     scheduler.start()
     # §4.9 devMode: request logging (every HTTP request via the uvicorn access
-    # log, every agent request via autodave.harness) prints only while the
+    # log, every agent request via autowright.harness) prints only while the
     # Settings toggle is on. The filter reads the live setting, so flipping the
     # toggle applies immediately — no restart. WARNING+ always prints.
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")

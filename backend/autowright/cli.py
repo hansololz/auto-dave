@@ -1,4 +1,4 @@
-"""`autodave` CLI (§2, §3): a second client of the backend API — full headless coverage."""
+"""`autowright` CLI (§2, §3): a second client of the backend API — full headless coverage."""
 from __future__ import annotations
 
 import argparse
@@ -16,7 +16,7 @@ class Client:
         bj = paths.backend_json()
         if not bj.exists():
             sys.exit("backend isn't up (no backend.json) — start it with "
-                     "`autodave service install` or `autodave-backend`")
+                     "`autowright service install` or `autowright-backend`")
         info = json.loads(bj.read_text())
         self.base = f"http://127.0.0.1:{info['port']}"
         self.token = info["token"]
@@ -142,7 +142,7 @@ def cmd_service(_c, args) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(prog="autodave", description="Auto Dave from the command line")
+    ap = argparse.ArgumentParser(prog="autowright", description="Autowright from the command line")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list", help="list automations")

@@ -1,7 +1,7 @@
 [project]
-name = "autodave"
+name = "autowright"
 version = "0.1.0"
-description = "Auto Dave backend — local automation service, engine, and CLI"
+description = "Autowright backend — local automation service, engine, and CLI"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.111",
@@ -23,18 +23,18 @@ dependencies = [
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx>=0.27"]
 
 [project.scripts]
-autodave = "autodave.cli:main"
-autodave-backend = "autodave.main:main"
+autowright = "autowright.cli:main"
+autowright-backend = "autowright.main:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["autodave*"]
+include = ["autowright*"]
 
 [tool.setuptools.package-data]
-autodave = ["instructions/*.md"]
+autowright = ["instructions/*.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

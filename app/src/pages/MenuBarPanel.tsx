@@ -22,10 +22,10 @@ export default function MenuBarPanel() {
     : `All good · ${autos.length} automation${autos.length === 1 ? '' : 's'}`
 
   useEffect(() => {
-    if (ref.current) void window.autodave?.resizePanel(ref.current.scrollHeight)
+    if (ref.current) void window.autowright?.resizePanel(ref.current.scrollHeight)
   }, [autos.length])
 
-  const openAuto = (id: string) => { void window.autodave?.openApp(`/app?auto=${id}`) }
+  const openAuto = (id: string) => { void window.autowright?.openApp(`/app?auto=${id}`) }
 
   return (
     <div
@@ -37,7 +37,7 @@ export default function MenuBarPanel() {
       }}
     >
       <div style={{ padding: '11px 14px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Eyebrow>Auto Dave</Eyebrow>
+        <Eyebrow>Autowright</Eyebrow>
         <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500, color: failed ? 'var(--red-hover)' : 'var(--text-faint)' }}>{aggregate}</div>
       </div>
       <div>
@@ -95,7 +95,7 @@ export default function MenuBarPanel() {
         })}
         {autos.length === 0 && (
           <div style={{ padding: '14px 12px', fontSize: 12, color: 'var(--text-faint)' }}>
-            No automations yet — open Auto Dave to create one.
+            No automations yet — open Autowright to create one.
           </div>
         )}
       </div>
@@ -105,10 +105,10 @@ export default function MenuBarPanel() {
       }}>
         <button
           className="ad-btn-link"
-          onClick={() => void window.autodave?.openApp('/app')}
+          onClick={() => void window.autowright?.openApp('/app')}
           style={{ fontSize: 12 }}
         >
-          Open Auto Dave
+          Open Autowright
         </button>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-faintest)' }}>v{version || '0.1.0'}</span>
       </div>

@@ -185,7 +185,7 @@ function AgentPick({ agents, selected, onPick, disabled }: {
             )
           })}
           <div style={{ padding: '9px 14px', font: "400 11px/1.5 var(--sans)", color: 'var(--text-faintest)' }}>
-            Writes the spec and generates the steps for this automation. Auto Dave still executes everything.
+            Writes the spec and generates the steps for this automation. Autowright still executes everything.
           </div>
         </div>
       )}
@@ -417,7 +417,7 @@ function TestResultBits({ result }: { result: NonNullable<DraftTest['result']> |
           {result.path && (
             <button
               className="ad-btn-ghost"
-              onClick={() => { void window.autodave?.revealPath(result.path!) }}
+              onClick={() => { void window.autowright?.revealPath(result.path!) }}
               style={{ fontSize: 11.5, marginTop: 4 }}
             >
               <i className="fa-solid fa-folder-open" style={{ fontSize: 10 }} /> Show in Finder
@@ -1477,7 +1477,7 @@ export default function CreateFlow() {
         {phase === 'ask' && (
           <div style={{ maxWidth: 620, margin: '0 auto', padding: '44px 32px 60px', animation: 'adFadeUp .4s ease' }}>
             <h1 style={{ font: "600 26px/1.25 var(--sans)", letterSpacing: '-.02em', margin: '0 0 10px' }}>
-              What should Auto Dave do for you?
+              What should Autowright do for you?
             </h1>
             <p style={{ font: "400 14.5px/1.6 var(--sans)", color: 'var(--text-2)', margin: '0 0 22px' }}>
               Describe the job in plain words. Your AI writes it as scripts — you review everything before it executes.

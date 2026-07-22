@@ -9,8 +9,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
-from autodave import keychain
-from autodave.storage import Store, new_id
+from autowright import keychain
+from autowright.storage import Store, new_id
 
 
 def _mk_ver(desc, params, steps, spec, instr=None, note=None):

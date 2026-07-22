@@ -43,7 +43,7 @@ export default function SettingsPage() {
   // execution-data location — nothing is moved (§4.9).
   const changeDataPath = async () => {
     try {
-      const p = await window.autodave?.pickFolder(settings.dataPath)
+      const p = await window.autowright?.pickFolder(settings.dataPath)
       if (!p) return
       await api.setDataPath(p)
       showToast('Execution data location changed.')
@@ -63,11 +63,11 @@ export default function SettingsPage() {
           <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid var(--hairline-dim)' }}>
             <div style={{ flex: 1 }}>
               <div style={rowTitle}>Launch at login</div>
-              <div style={rowSub}>Auto Dave starts quietly in the menu bar.</div>
+              <div style={rowSub}>Autowright starts quietly in the menu bar.</div>
             </div>
             <Toggle
               on={settings.login}
-              onChange={(v) => { patch({ login: v }); void window.autodave?.setLoginItem(v) }}
+              onChange={(v) => { patch({ login: v }); void window.autowright?.setLoginItem(v) }}
             />
           </div>
           <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid var(--hairline-dim)' }}>
@@ -154,13 +154,13 @@ export default function SettingsPage() {
               </div>
               <button
                 className="ad-btn-soft"
-                onClick={() => { void window.autodave?.revealPath(settings.appPath ?? '~/Library/Application Support/Auto Dave') }}
+                onClick={() => { void window.autowright?.revealPath(settings.appPath ?? '~/Library/Application Support/Autowright') }}
                 style={{ flex: 'none' }}
               >
                 Show in Finder
               </button>
             </div>
-            <div style={pathBox}>{settings.appPath ?? '~/Library/Application Support/Auto Dave'}</div>
+            <div style={pathBox}>{settings.appPath ?? '~/Library/Application Support/Autowright'}</div>
           </div>
           <div style={{ padding: '15px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
@@ -175,7 +175,7 @@ export default function SettingsPage() {
                 <button className="ad-btn-soft" onClick={() => { void changeDataPath() }}>Change</button>
                 <button
                   className="ad-btn-soft"
-                  onClick={() => { void window.autodave?.revealPath(settings.dataPath) }}
+                  onClick={() => { void window.autowright?.revealPath(settings.dataPath) }}
                 >
                   Show in Finder
                 </button>

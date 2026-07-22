@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Auto Dave from the repo. Touches no processes and no data dir.
+# Build Autowright from the repo. Touches no processes and no data dir.
 #
 #   ./scripts/build.sh          fast build: deps (below) + typecheck + bundle the
 #                               renderer (npm run build → app/dist, the bundle

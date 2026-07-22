@@ -72,7 +72,7 @@ class TestExecutions:
     def _execute(self, test_id: str, state: dict, draft: dict, auto: dict | None,
              agent: dict | None, enabled_agents: list, allowed_secrets: list,
              param_values: dict) -> None:
-        root = Path(tempfile.mkdtemp(prefix="autodave-test-"))
+        root = Path(tempfile.mkdtemp(prefix="autowright-test-"))
         redactions: dict[str, str] = {}
         step_logs: list[list[str]] = [[] for _ in draft.get("steps", [])]
         cur = {"i": None}
@@ -349,7 +349,7 @@ class TestExecutions:
         body = notify_text or (result or {}).get("chip") or \
             ("Test failed" if status == "failed" else "Test finished")
         title = params.get("notification_title") or \
-            (auto["name"] if auto else draft.get("name")) or "Auto Dave test"
+            (auto["name"] if auto else draft.get("name")) or "Autowright test"
         notify.post(str(title), body)
 
 

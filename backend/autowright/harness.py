@@ -17,11 +17,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 # Top-level import (not lazy): the executor subprocess replaces
-# sys.modules["autodave"] with the step SDK shim, which breaks late
+# sys.modules["autowright"] with the step SDK shim, which breaks late
 # `from . import paths` resolution inside _app_log.
 from . import paths
 
-log = logging.getLogger("autodave.harness")
+log = logging.getLogger("autowright.harness")
 
 
 def _stamp() -> str:
@@ -35,7 +35,7 @@ def _app_log(text: str) -> None:
     except OSError:
         pass
 
-OLLAMA_URL = os.environ.get("AUTODAVE_OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = os.environ.get("AUTOWRIGHT_OLLAMA_URL", "http://localhost:11434")
 
 
 class HarnessError(Exception):

@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('autodave', {
+contextBridge.exposeInMainWorld('autowright', {
   backendInfo: () => ipcRenderer.invoke('backend-info'),
   openApp: (hash) => ipcRenderer.invoke('open-app', hash),
   pickFolder: (defaultPath) => ipcRenderer.invoke('pick-folder', defaultPath),

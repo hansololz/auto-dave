@@ -33,7 +33,7 @@ def auth(cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> None:
         raise HTTPException(401, "bad token")
 
 
-app = FastAPI(title="Auto Dave backend", version=__version__)
+app = FastAPI(title="Autowright backend", version=__version__)
 
 # The Electron renderer (vite dev server or file://) calls us cross-origin; the
 # bearer token is the actual gate — the service binds to 127.0.0.1 only.
@@ -130,7 +130,7 @@ def _secret_grant(name: str) -> dict:
 # ---------- health / state ----------
 @app.get("/health")
 def health() -> dict:
-    return {"version": __version__, "app": "Auto Dave"}
+    return {"version": __version__, "app": "Autowright"}
 
 
 @app.get("/instructions", dependencies=[Depends(auth)])

@@ -1,6 +1,6 @@
 import pytest
 
-from autodave.drafting import (build_spec_prompt, build_steps_prompt, parse_blockers,
+from autowright.drafting import (build_spec_prompt, build_steps_prompt, parse_blockers,
                                parse_envelope, spec_as_md, validate_spec, validate_steps)
 
 GOOD_SPEC = """prose the parser must ignore
@@ -205,7 +205,7 @@ def test_truncated_blocker_rejected():
 
 def test_spec_prompt_carries_framework_instructions_and_request():
     p = build_spec_prompt("create", "Watch a product price", None, GRANTS)
-    assert "automation writer inside Auto Dave" in p   # framework-instructions.md
+    assert "automation writer inside Autowright" in p   # framework-instructions.md
     assert "=== TASK ===\nUpdate the SPEC" in p
     assert "=== USER REQUEST ===\nWatch a product price" in p
     assert "# Track new manga chapters" in p    # the example spec in SPEC_TASK
@@ -262,7 +262,7 @@ def test_spec_prompt_edit_embeds_current_spec_but_no_step_code():
 
 def test_steps_prompt_embeds_spec_and_framework():
     p = build_steps_prompt("create", "# Raw\n\nString spec body.", None, GRANTS)
-    assert "automation writer inside Auto Dave" in p
+    assert "automation writer inside Autowright" in p
     assert "=== TASK ===\nBuild the automation" in p
     assert "String spec body." in p
     # §8 call 2 ends with the envelope reminder, after the SPEC
@@ -305,7 +305,7 @@ def test_no_instructions_section_when_absent():
 # ---------- fake claude CLI (tests/bin) drives the full pipeline ----------
 
 def test_fake_cli_two_phase_validates():
-    from autodave import harness
+    from autowright import harness
 
     spec_raw = harness.invoke({"harness": "Claude Code"},
                               build_spec_prompt("create", "Track my packages", None, GRANTS))
@@ -324,8 +324,8 @@ def test_create_job_payload_carries_spec_mid_job(monkeypatch):
     # it while the steps are still generating.
     import time
 
-    from autodave import harness
-    from autodave.drafting import DraftJobs
+    from autowright import harness
+    from autowright.drafting import DraftJobs
 
     jobs = DraftJobs()
     seen = {}
@@ -350,7 +350,7 @@ def test_create_job_payload_carries_spec_mid_job(monkeypatch):
 def test_progress_detail_from_streamed_markers():
     # §8 live progress: the job's `detail` line tracks the streamed response's
     # ===FILE: markers — Thinking… → manifest → "step i of n" with line counts.
-    from autodave.drafting import DraftJobs
+    from autowright.drafting import DraftJobs
 
     jobs = DraftJobs()
     job = {"id": "j1", "status": "building", "stage": "Generating the steps",
@@ -369,7 +369,7 @@ def test_progress_detail_from_streamed_markers():
 
 
 def test_progress_detail_spec_call_and_repair_prefix():
-    from autodave.drafting import DraftJobs
+    from autowright.drafting import DraftJobs
 
     jobs = DraftJobs()
     job = {"id": "j2", "status": "building", "stage": "Writing the spec",

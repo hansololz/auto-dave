@@ -137,7 +137,7 @@ export default function AutomationsList() {
           gap: 12, textAlign: 'center',
         }}>
           <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', maxWidth: 420 }}>
-            No automations yet. Describe a job in plain words — your AI writes it as scripts you can read, and Auto Dave executes them on your schedule.
+            No automations yet. Describe a job in plain words — your AI writes it as scripts you can read, and Autowright executes them on your schedule.
           </p>
           <BtnPrimary onClick={() => setSurface('create', 'app')}>Create your first automation</BtnPrimary>
         </div>

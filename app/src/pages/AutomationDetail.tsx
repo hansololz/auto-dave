@@ -558,8 +558,8 @@ export default function AutomationDetail() {
   const revealMemory = () => {
     const p = auto.memory?.path
     if (!p) return
-    void window.autodave?.revealPath(p)
-    showToast(`Shown in Finder — Auto Dave › Memory › ${auto.name}`)
+    void window.autowright?.revealPath(p)
+    showToast(`Shown in Finder — Autowright › Memory › ${auto.name}`)
   }
 
   const doClearMemory = () => {

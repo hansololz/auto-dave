@@ -1,7 +1,7 @@
-# Auto Dave — SPEC
+# Autowright — SPEC
 
 Source of truth. Holds enough detail to rebuild the app from scratch. The interactive design
-prototype lives in `design/` (`Auto Dave.dc.html` + `design/README.md`); this spec captures its
+prototype lives in `design/` (`Autowright.dc.html` + `design/README.md`); this spec captures its
 behavior and data model as requirements. Where pixel-exact values matter (colors, spacing,
 typography), `design/README.md` is the authoritative token sheet — the summary in §14 is a digest.
 The spec follows the prototype as closely as possible; every place it deliberately overrides the
@@ -22,11 +22,11 @@ prototype is listed in §20 — anything else that differs from the prototype is
 
 ## 1. Product overview
 
-Auto Dave is a macOS desktop app for recurring personal automations. The user describes a job in
+Autowright is a macOS desktop app for recurring personal automations. The user describes a job in
 plain words ("Check the manga I follow for new chapters every morning at 8"); a connected AI agent
 (Claude Code, Gemini CLI, Codex, or OpenCode — the latter optionally driving a local Ollama
 model) writes it as human-readable
-scripts; Auto Dave executes those scripts on a schedule, entirely on the user's Mac, and shows results.
+scripts; Autowright executes those scripts on a schedule, entirely on the user's Mac, and shows results.
 
 Core promises (exact UI copy, repeated in the onboarding footer):
 - "Your automations execute only on this Mac"
@@ -61,11 +61,11 @@ open.
 
 **Implementation status:** the launchd/CLI/discovery half is implemented (`service.py`, `cli.py`,
 `backend.json`). The distributable build is implemented (`./scripts/prod.sh`, §18):
-`Auto Dave.app` with the bundled relocatable Python in `Contents/Resources/python/` plus a DMG,
+`Autowright.app` with the bundled relocatable Python in `Contents/Resources/python/` plus a DMG,
 Developer-ID-signed with hardened runtime when `CODESIGN_IDENTITY` is set (ad-hoc otherwise).
 Still not implemented: notarization submission, `SMAppService` registration from the app, and the
 launch-time version-compare/re-register flow — today the only registration path is
-`autodave service install`, whose plist points at the current interpreter (`sys.executable`), so
+`autowright service install`, whose plist points at the current interpreter (`sys.executable`), so
 the packaged app does not yet register its bundled backend itself.
 
 - The backend binary ships inside the Electron `.app` bundle; the app registers it as a
@@ -84,7 +84,7 @@ the packaged app does not yet register its bundled backend itself.
   running. The §4.9 `login` setting controls only whether the UI starts at login — the backend
   service stays registered regardless once onboarding completes.
 - Discovery: the backend listens on localhost and writes its port + auth token to
-  `~/Library/Application Support/Auto Dave/backend.json` (0600); UI and CLI read it to connect.
+  `~/Library/Application Support/Autowright/backend.json` (0600); UI and CLI read it to connect.
   Every backend start binds a fresh port and token, so the renderer re-reads `backend.json`
   (via the preload bridge) before each WebSocket reconnect attempt — a backend restart never
   strands the UI on a dead address.
@@ -99,7 +99,7 @@ the packaged app does not yet register its bundled backend itself.
   forced sleep — lid close, low battery — can still suspend an execution); outside executions, normal macOS energy settings
   apply and missed occurrences follow the §6 missed-execution policy. For the always-on use case, the
   Mac's energy settings (or a "Prevent sleep" note in Settings docs) keep the machine awake —
-  Auto Dave does not hold a permanent assertion.
+  Autowright does not hold a permanent assertion.
 
 **Headless mode (decided; CLI implementation may land later).** The backend and CLI must work with
 no GUI ever launched:
@@ -107,7 +107,7 @@ no GUI ever launched:
 - **API parity** — every operation the UI performs goes through the backend API; the UI holds no
   private logic. The CLI is a second client of the same API and can reach full coverage without
   backend changes.
-- **Bootstrap** — `autodave service install` registers the backend by writing a launchd plist to
+- **Bootstrap** — `autowright service install` registers the backend by writing a launchd plist to
   `~/Library/LaunchAgents/` directly (same service the app registers via `SMAppService`; the two
   paths are equivalent and mutually exclusive — install detects and adopts an existing
   registration). `service uninstall`, `service status`, and `service restart` accompany it.
@@ -446,24 +446,24 @@ working."
 ### 4.9 Settings
 
 ```
-login: bool        — "Launch at login" ("Auto Dave starts quietly in the menu bar.")
+login: bool        — "Launch at login" ("Autowright starts quietly in the menu bar.")
 mbIcon: bool       — "Show in the menu bar" ("The quickest way to execute an automation.")
 notif: attention | all — "Only when something needs attention" / "After every execution"
 days: int ≥ 1 (default 90) — history retention; keepForever: bool disables cleanup
 devMode: bool (default false) — "Developer mode" ("Logs every backend request and every AI
   request — including the full prompt — to the backend log.") — gates request logging (§5)
-dataPath (default ~/Library/Application Support/Auto Dave/executions), dataSize
+dataPath (default ~/Library/Application Support/Autowright/executions), dataSize
 ```
 Show in Finder (everywhere it appears) opens the target directory itself in Finder when the
 path is an existing directory (e.g. Execution data opens the executions dir, not its parent), and
 falls back to selecting the item in its parent folder otherwise.
 Execution-data section: Change then Show in Finder; Change opens the native macOS folder picker and the chosen
 directory simply becomes the execution-data location — no move/cancel UI and no data migration: all
-execution state lives inside the executions dir, so changing the path just points Auto Dave at
+execution state lives inside the executions dir, so changing the path just points Autowright at
 the new location (the old dir stays where it was).
 The "Keep executions for" days row is hidden (not just disabled) while "Keep execution history forever" is
 on. One **ON THIS MAC** card holds two rows: **"Automations & settings"** (the fixed path
-`~/Library/Application Support/Auto Dave` with its own Show in Finder button — this location
+`~/Library/Application Support/Autowright` with its own Show in Finder button — this location
 is not changeable) above the **Execution data** row. A **DEVELOPER** card sits last on the page with
 the single **Developer mode** toggle row (devMode above).
 
@@ -476,7 +476,7 @@ self-contained (record + logs + workspace + result). A SQLite database
 headers; the yaml is authoritative. All derived state lives in memory and is rebuilt from disk
 at every startup.**
 
-On-disk layout under `~/Library/Application Support/Auto Dave/`:
+On-disk layout under `~/Library/Application Support/Autowright/`:
 
 ```
 settings.yaml
@@ -551,9 +551,9 @@ automations/<uuid>/
                                # agent- and human-editable
 ```
 
-**Logs live outside the data dir**, at `~/Library/Logs/Auto Dave/` (macOS convention;
+**Logs live outside the data dir**, at `~/Library/Logs/Autowright/` (macOS convention;
 Console.app picks them up): `app.log` (backend application log), `backend.out.log` /
-`backend.err.log` (launchd stdout/stderr), and dev.sh's `vite.log`. With `AUTODAVE_HOME` set
+`backend.err.log` (launchd stdout/stderr), and dev.sh's `vite.log`. With `AUTOWRIGHT_HOME` set
 (§15) logs go to `<home>/logs/` instead, keeping dev/test sessions fully isolated.
 
 **Agent-request framing in `app.log`:** every agent request (each `harness.invoke()` call —
@@ -569,14 +569,14 @@ can miss it.
 
 **Request logging (behind the §4.9 `devMode` setting):** while Developer mode is on, the
 backend logs to its console every HTTP request it serves (uvicorn access log at `info` level —
-stdout, so `backend.out.log` under launchd) and every agent request — one `autodave.harness`
+stdout, so `backend.out.log` under launchd) and every agent request — one `autowright.harness`
 INFO line per `harness.invoke()` with the harness, the model (agent's, else the literal
 "configured default"), and the full prompt (stderr, so `backend.err.log`). `./scripts/logs.sh` (§18)
 follows both plus `app.log`/`vite.log`. Implemented as a logging filter that reads the live setting on
 every record, so flipping the toggle applies immediately with no backend restart; while off,
 only WARNING+ prints. The filter rides in on uvicorn's `log_config` handlers (uvicorn's own
 dictConfig would wipe a filter attached to its loggers beforehand) and on the root handler for
-`autodave.*` logs.
+`autowright.*` logs.
 
 A version folder holds **what the agent wrote** (spec, instructions, steps + scripts, param
 definitions, desc); the top-level `automation.yaml` holds **what the user owns and operates**
@@ -727,7 +727,7 @@ never used for lookups.
   startup; the next occurrence proceeds normally. At most one catch-up execution fires per wake
   regardless of how many occurrences — across all triggers — were slept through.
 - **Reading web pages** — 10 s timeout; ≥ 2 s between requests to the same site; retry twice;
-  respect robots.txt; user agent "AutoDave/1.0".
+  respect robots.txt; user agent "Autowright/1.0".
 - **Workspace per execution** — every step executes with its cwd set to the execution's `workspace/`
   directory; scripts are executed in place from their version folder (or `draft/automation/`), never
   copied. All steps of an execution share the one workspace; it is disposable scratch space,
@@ -764,10 +764,10 @@ never used for lookups.
   Worst-case prompt injection from fetched content is therefore a wrong answer in a result, never
   an action.
 
-### 6.1 The `autodave` step SDK (decided)
+### 6.1 The `autowright` step SDK (decided)
 
 Each step executes in its own subprocess (the bundled interpreter, cwd = the execution `workspace/`).
-The engine's executor injects these globals — scripts may also `import autodave` for the same names:
+The engine's executor injects these globals — scripts may also `import autowright` for the same names:
 
 - `params` — dict-like, values by param name (definitions merged with §5 value-resolution rules).
 - `secrets` — attribute access by name (`secrets.SMTP_PASSWORD`); reading a missing/un-allowed
@@ -801,9 +801,9 @@ Executor↔engine protocol: stdout/stderr are captured line-by-line as `out`/`er
 (log/result/notify) emit `@@AD@@{json}` control lines on stdout. Context (param values, secret
 values, paths, agent config, execution metadata) arrives as JSON on stdin — never argv, never the
 environment. The executor does export the non-secret pieces back out as env vars so child
-processes a step spawns can self-identify: `AUTODAVE_AUTOMATION_ID`, `AUTODAVE_AUTOMATION_NAME`,
-`AUTODAVE_EXECUTION_ID`, `AUTODAVE_STEP_INDEX`, `AUTODAVE_STEP_NAME`, `AUTODAVE_TRIGGER`,
-`AUTODAVE_WORKSPACE`, `AUTODAVE_MEMORY_DIR`, `AUTODAVE_RESULT_DIR`. Param values, secret values,
+processes a step spawns can self-identify: `AUTOWRIGHT_AUTOMATION_ID`, `AUTOWRIGHT_AUTOMATION_NAME`,
+`AUTOWRIGHT_EXECUTION_ID`, `AUTOWRIGHT_STEP_INDEX`, `AUTOWRIGHT_STEP_NAME`, `AUTOWRIGHT_TRIGGER`,
+`AUTOWRIGHT_WORKSPACE`, `AUTOWRIGHT_MEMORY_DIR`, `AUTOWRIGHT_RESULT_DIR`. Param values, secret values,
 and agent config never enter the environment; the executor never reads env as input.
 `sys.exit()` in a step follows the CPython convention: no code / `0` is an ordinary early exit
 (the step succeeds), an integer fails the step with that exit code, and `sys.exit("message")`
@@ -811,7 +811,7 @@ fails it with the author's message preserved as the error (`SystemExit: message`
 
 ### 6.2 Curated & declared packages (decided)
 
-Step scripts may import: Python stdlib, `autodave`, and the curated packages: `requests`, `httpx`,
+Step scripts may import: Python stdlib, `autowright`, and the curated packages: `requests`, `httpx`,
 `beautifulsoup4` (`bs4`), `lxml`, `feedparser`, `python-dateutil` (`dateutil`), `PyYAML` (`yaml`).
 The curated list ships with the app (installed in the bundled interpreter) and is included
 verbatim in the §8 contract preamble.
@@ -828,7 +828,7 @@ extras and binary-bundling wheels (e.g. yt-dlp merging streams needs ffmpeg → 
 `imageio-ffmpeg` alongside it and wire its path in the step). The §8 contract instructs the
 drafting agent to declare the complete set a task needs, so an execution never discovers a
 missing companion at runtime. Declared packages extend the import allowlist for that version's steps only:
-§8 validation and the executor's runtime re-check both accept stdlib + curated + `autodave` +
+§8 validation and the executor's runtime re-check both accept stdlib + curated + `autowright` +
 the version's declared imports (shared module `imports_check.py`, which takes the declared
 names as an extra allowlist) and fail the step on anything else — the allowlist holds even for
 hand-edited step files that never went through drafting.
@@ -1062,14 +1062,14 @@ only after validation passes.
 **Instruction files** (markdown next to the code, loaded at import — never inline in Python;
 also served to the create/edit page via §19 `GET /instructions`):
 
-- `backend/autodave/instructions/framework-instructions.md` — the contract preamble that travels
+- `backend/autowright/instructions/framework-instructions.md` — the contract preamble that travels
   with **every** call, written as structured markdown (headings, fenced code blocks for the
   envelopes and SDK reference, a table for parameter kinds): the agent's role, the generic
   file-block envelope (the per-call TASK directive
   names the exact files), the blocker envelope and when to use it, the task-solving ladder
   (deterministic code with curated libraries first; an agent step only when judgment is truly
   needed, its prompt kept small enough for a local model — narrow question, strict output
-  format, reply validated in code), the `autodave` SDK reference with worked examples (a typical
+  format, reply validated in code), the `autowright` SDK reference with worked examples (a typical
   memory-diff last step; a validated `agent.ask` call), the curated package list, the parameter
   kinds table (§4.2), trigger- and step-design duties, the **failure-diagnostics duty** (a step
   that can't proceed raises an exception whose message names what it was doing, the exact input
@@ -1078,7 +1078,7 @@ also served to the create/edit page via §19 `GET /instructions`):
   swallow exceptions or exit silently — the engine records the exception and shows it to the
   user, §7), and all five §6 policy sections. The §11
   Framework-instructions card renders this file as markdown.
-- `backend/autodave/instructions/default-build-instructions.md` — the default best-practice
+- `backend/autowright/instructions/default-build-instructions.md` — the default best-practice
   build instructions, written as a markdown bullet list (never delete files, write only to
   memory/workspace, small single-purpose steps, prefer existing libraries over hand-written
   code, prefer deterministic code over agent steps, fail loudly naming what was expected and
@@ -1178,7 +1178,7 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    call 2 is a validation error (the spec is already settled).
 3. `manifest.yaml` is schema-valid: kinds from §4.2 only, every param carries a default, steps
    nonempty, `steps[].file` ↔ file blocks match 1:1, filenames follow `NN-name.py` ordering.
-4. Every step file passes `ast.parse`; imports ⊆ stdlib + curated packages + `autodave` + the
+4. Every step file passes `ast.parse`; imports ⊆ stdlib + curated packages + `autowright` + the
    manifest's declared package imports (§6.2).
 5. `packages` is optional: a list of `{ pip, import }` entries — `pip` a bare distribution
    name (PEP 503 name only, no version specifier, ranges, or extras), `import` a valid module
@@ -1275,7 +1275,7 @@ One 100 vh dark window with macOS traffic lights. The window drags from its top 
 Music-style: a fixed 18 px full-width drag strip spans the whole window top (above sidebar and
 content, z-index 100), the sidebar's top 44 px is also draggable, and shell-less surfaces keep
 their own 40 px sticky drag strip. Interactive controls inside drag regions stay clickable
-(`no-drag` on buttons/links/inputs). 212 px fixed sidebar: logo + "Auto Dave", nav
+(`no-drag` on buttons/links/inputs). 212 px fixed sidebar: logo + "Autowright", nav
 (Automations, Executions, Agents, Secrets, Settings) with live count pills; content pane scrolls
 independently. Navigation is state-driven (`surface` → `page` → detail ids); browser/OS back works,
 but once past onboarding back never re-enters it. Page navigation (`go()`) always lands in the app
@@ -1298,7 +1298,7 @@ windows); text fields get Cut/Copy/Paste/Select All. There are no in-UI copy but
 
 Boot gate: until the renderer connects to the backend and loads the state snapshot, only the
 plain window background renders. If boot is still pending after 300 ms, a centered logo +
-spinner appears with "Connecting…" (or "Waiting for the Auto Dave backend…" once a connection
+spinner appears with "Connecting…" (or "Waiting for the Autowright backend…" once a connection
 attempt has failed; boot retries every 1.2 s). Fast boots therefore show no splash flash.
 
 ### 9.1 Automations list
@@ -1319,7 +1319,7 @@ while that automation is executing it swaps to a spinner, dims, and is disabled 
 explains why). The card carries no last-execution label — `lastExecLabel` appears on the detail page and in the
 menu bar. Empty state (dashed card):
 "No automations yet. Describe a job in plain words — your AI writes it as scripts you can read,
-and Auto Dave executes them on your schedule." with accent CTA "Create your first automation".
+and Autowright executes them on your schedule." with accent CTA "Create your first automation".
 
 ### 9.2 Automation detail
 
@@ -1414,7 +1414,7 @@ bypass it: step 1 always renders. When prior data exists (any agent or any autom
 Continue goes straight to the app shell instead of step 2.
 
 **Step 1 — Welcome.** Logo, headline "Recurring jobs, done exactly the same way every time.",
-then a live self-check card "Getting Auto Dave ready" with three steps (Checking your settings,
+then a live self-check card "Getting Autowright ready" with three steps (Checking your settings,
 Loading your automations, Starting the execution engine) with pulsing dots and durations, ending in a "READY / All set"
 well with chips (Settings created, Folders in place, plus "Agent found" if an agent is already
 configured and "Automations found" if automations already exist). Continue appears only when
@@ -1533,12 +1533,12 @@ Entry: New button, onboarding step 3, or Edit on a detail page. If no agents exi
 onboarding), redirect to Agents with toast "No agent yet — add one here first. Creating and
 editing automations needs an AI."
 
-**Ask.** 620 px column, "What should Auto Dave do for you?", 4-row textarea, then an
+**Ask.** 620 px column, "What should Autowright do for you?", 4-row textarea, then an
 "OR START FROM AN EXAMPLE" eyebrow over icon-led example chips (fa icon + label; accent-tinted
 border/background on hover, 1 px press-down on :active): Track manga chapters (fa-book-open) /
 Back up a folder every night (fa-box-archive) / Email me a weekly report (fa-envelope) / Watch a
 product's price (fa-tag) / Tidy my screenshots folder (fa-broom). "Written by `<agent>`" dropdown
-(footer: "Auto Dave still executes everything"), CTA "Draft the automation". Empty text blocks with
+(footer: "Autowright still executes everything"), CTA "Draft the automation". Empty text blocks with
 "Describe the job first — one sentence is enough."
 
 **Drafting on Review — no separate building screen.** "Draft the automation" starts the §8
@@ -1929,7 +1929,7 @@ non-template icon variant (`trayAlert.png`, mid-gray glyph + red dot, generated 
 pulsing while executing, name, mono sub-line colored by state: cyan "Executing now…" / red when failed
 / accent for a result chip / faint otherwise, bordered execute button at 35 % opacity that goes fully
 opaque on hover (accent hover border), relative time right-aligned in a 56 px column). Row click opens the app on that automation; execute
-button triggers a "Menu bar" execution. Footer: accent "Open Auto Dave" link + version. Click-outside
+button triggers a "Menu bar" execution. Footer: accent "Open Autowright" link + version. Click-outside
 closes.
 
 **Deep-link mechanism:** a row click sends the target `'/app?auto=<id>'` to the main process.
@@ -1996,7 +1996,7 @@ which would drop the WebSocket and all renderer state. The footer link sends pla
 no alternate backends, no dev-only branches in app code. The only knobs that exist are pure
 configuration (they relocate or re-tune the same behavior, never select different behavior).
 Every knob defaults to the release value and is developer opt-in; the single knob dev.sh sets
-itself is `AUTODAVE_RENDERER_URL` (below — same renderer source, served with HMR instead of
+itself is `AUTOWRIGHT_RENDERER_URL` (below — same renderer source, served with HMR instead of
 pre-bundled). Dev sessions use the real app-support dir, real Keychain, real agent CLIs, random
 port, request logging via the §4.9 devMode setting (§5), and the real launchd service (§18
 dev.sh).
@@ -2009,15 +2009,15 @@ fallback.
 
 Backend env knobs (configuration only):
 
-- `AUTODAVE_HOME` — overrides the app-support root (isolated dev/test homes); logs move to
+- `AUTOWRIGHT_HOME` — overrides the app-support root (isolated dev/test homes); logs move to
   `<home>/logs/` (§5).
-- `AUTODAVE_PORT` — fixed port instead of a random free one.
-- `AUTODAVE_OLLAMA_URL` — Ollama HTTP endpoint override (default `http://localhost:11434`).
-- `AUTODAVE_STEP_TIMEOUT` — per-step timeout in seconds (default 900).
+- `AUTOWRIGHT_PORT` — fixed port instead of a random free one.
+- `AUTOWRIGHT_OLLAMA_URL` — Ollama HTTP endpoint override (default `http://localhost:11434`).
+- `AUTOWRIGHT_STEP_TIMEOUT` — per-step timeout in seconds (default 900).
 
 Electron env knob (configuration only):
 
-- `AUTODAVE_RENDERER_URL` — when set, Electron `loadURL`s the renderer from this origin (with
+- `AUTOWRIGHT_RENDERER_URL` — when set, Electron `loadURL`s the renderer from this origin (with
   the same `#/app` / `#/menubar` hashes) instead of `loadFile`-ing `app/dist/index.html`. It
   points at a Vite dev server serving the identical `app/src` source — HMR delivery of the same
   code, not a different code path (the preload bridge, `backend.json` discovery, and backend
@@ -2027,8 +2027,8 @@ Electron env knob (configuration only):
 Test doubles live in `tests/` only: a fake `claude` CLI at `tests/bin/claude` (conftest prepends
 `tests/bin` to `PATH`, so the real detect/invoke/subprocess path is exercised against it) and conftest
 fixtures that monkeypatch `keychain` (in-memory dict) and `notify.post` (no-op). Removed knobs —
-do not reintroduce: `AUTODAVE_MOCK_AGENT`, `AUTODAVE_KEYRING`, `AUTODAVE_NO_NOTIFY`,
-`ad-sudo-denied`, `?port=&token=` (the renderer dev server returned as `AUTODAVE_RENDERER_URL`,
+do not reintroduce: `AUTOWRIGHT_MOCK_AGENT`, `AUTOWRIGHT_KEYRING`, `AUTOWRIGHT_NO_NOTIFY`,
+`ad-sudo-denied`, `?port=&token=` (the renderer dev server returned as `AUTOWRIGHT_RENDERER_URL`,
 above — `VITE_DEV`/`npm run dev:app` themselves stay gone).
 
 ## 16. Seed / demo data (tests only)
@@ -2051,13 +2051,13 @@ failing step carries two attempts.
 ## 17. Repository structure
 
 - `design/` — high-fidelity HTML prototype + design handoff README (authoritative tokens).
-- `backend/` — Python package `autodave`: storage, engine (+`executor.py` step SDK,
+- `backend/` — Python package `autowright`: storage, engine (+`executor.py` step SDK,
   `imports_check.py` shared §6.2 import allowlist), scheduler, drafting, harness adapters,
   FastAPI API (`api.py`), launchd service (`service.py`), CLI (`cli.py`).
-  `autodave/instructions/` holds the §8 prompt texts as markdown (packaged via
+  `autowright/instructions/` holds the §8 prompt texts as markdown (packaged via
   `[tool.setuptools.package-data]`): `framework-instructions.md` (contract preamble) and
   `default-build-instructions.md` (default build instructions seeded into new automations).
-  `pyproject.toml` defines the `autodave` / `autodave-backend` entry points.
+  `pyproject.toml` defines the `autowright` / `autowright-backend` entry points.
 - `app/` — Electron app: `electron/main.cjs` + `preload.cjs` (window, tray panel, backend.json
   bridge), Vite + React + TS renderer under `src/` (`store.ts` central model, `api.ts` client,
   `ui.tsx` shared primitives, `tokens.css` design tokens, `pages/` one file per screen).
@@ -2100,61 +2100,61 @@ Dev workflow:
 - **`./scripts/prod.sh`** — the production distribution (§3), under `build/` (gitignored).
   Invokes `build.sh` (full), then: downloads the pinned relocatable CPython
   (python-build-standalone `20260623` / CPython `3.14.6`, arch from `uname -m`, tarball
-  cached in `build/cache/`, URL overridable via `AUTODAVE_PBS_URL`), pip-installs the backend
+  cached in `build/cache/`, URL overridable via `AUTOWRIGHT_PBS_URL`), pip-installs the backend
   + curated packages into it (inside the bundle the backend/CLI execute as
-  `python3 -m autodave.main` / `-m autodave.cli` — pip's `bin/` entry scripts carry absolute
+  `python3 -m autowright.main` / `-m autowright.cli` — pip's `bin/` entry scripts carry absolute
   staging-path shebangs), renders `appIcon.icns` from `app/electron/appIcon.png`
-  (sips + iconutil), packages `Auto Dave.app` with `@electron/packager` (bundle id
-  `com.autodave.app`; ships only `electron/`, `dist/`, and `package.json` — the renderer is
+  (sips + iconutil), packages `Autowright.app` with `@electron/packager` (bundle id
+  `com.autowright.app`; ships only `electron/`, `dist/`, and `package.json` — the renderer is
   fully bundled and main/preload use Electron builtins only, so no `node_modules`), copies
   the interpreter to `Contents/Resources/python/`, codesigns (Developer ID + hardened runtime
   on every Mach-O when `CODESIGN_IDENTITY` is set — notarization itself not performed; ad-hoc
-  otherwise, local use only), smoke-checks that the bundled interpreter imports `autodave` +
+  otherwise, local use only), smoke-checks that the bundled interpreter imports `autowright` +
   every curated package from inside the bundle, and produces
-  `build/Auto Dave-<version>-<arch>.dmg` (hdiutil UDZO).
+  `build/Autowright-<version>-<arch>.dmg` (hdiutil UDZO).
 - **`./scripts/dev.sh`** — fastest dev loop, with hot reloading: invokes `build.sh --deps` only
   (no renderer bundle); shuts down lingering processes from previous sessions — backend by
-  command-line pattern (`[Pp]ython -m autodave` — ps shows the venv python's resolved binary,
+  command-line pattern (`[Pp]ython -m autowright` — ps shows the venv python's resolved binary,
   never the `.venv/bin/python` path; SIGTERM, 5 s grace, then SIGKILL — backends can hang in
   graceful shutdown while uvicorn waits on open WebSockets), stale Electron, and stale Vite;
-  then (re)installs the real launchd LaunchAgent (`autodave service uninstall` +
-  `service install`, `com.autodave.backend`, §3) so the backend behaves exactly as in release:
+  then (re)installs the real launchd LaunchAgent (`autowright service uninstall` +
+  `service install`, `com.autowright.backend`, §3) so the backend behaves exactly as in release:
   launchd-managed, RunAtLoad/KeepAlive, cwd `/`, minimal launchd PATH, random free port,
   macOS Keychain, devMode-gated request logging (§5) to `backend.out.log`/`backend.err.log`
   under the logs
-  dir (§5), data in `~/Library/Application Support/Auto Dave` (starts empty on a fresh
+  dir (§5), data in `~/Library/Application Support/Autowright` (starts empty on a fresh
   machine); starts a Vite dev server on a random free port (`npx vite --strictPort`, log
   `vite.log` under the logs dir, killed on script exit); waits for a fresh `backend.json`
   (rewritten with new pid/token
   each start) plus `/health` and for Vite to answer, then launches Electron in the foreground
-  with `AUTODAVE_RENDERER_URL=http://127.0.0.1:<vite port>` (§15) — renderer edits under
+  with `AUTOWRIGHT_RENDERER_URL=http://127.0.0.1:<vite port>` (§15) — renderer edits under
   `app/src` hot-reload live; backend edits need a dev.sh restart. Quitting Electron normally
   (Cmd+Q) leaves the backend running (release semantics — automations keep firing; stop it with
-  `.venv/bin/autodave service uninstall`). Ctrl+C in the dev.sh terminal instead shuts the
+  `.venv/bin/autowright service uninstall`). Ctrl+C in the dev.sh terminal instead shuts the
   whole app down: Electron dies with the terminal's SIGINT, the exit trap kills Vite, and an
-  INT/TERM trap stops the backend — `autodave service uninstall` first (launchd KeepAlive
+  INT/TERM trap stops the backend — `autowright service uninstall` first (launchd KeepAlive
   would otherwise respawn it), then the same SIGTERM → 5 s grace → SIGKILL escalation as the
   startup stale-process sweep (a plain SIGTERM leaves uvicorn hanging in graceful shutdown);
   the script exits 130. The SIGKILL path leaves a stale `backend.json` behind, which the next
   startup already tolerates (fresh-file compare).
-  Isolated mode: setting any `AUTODAVE_*` knob (§15) switches dev.sh to spawning the backend
+  Isolated mode: setting any `AUTOWRIGHT_*` knob (§15) switches dev.sh to spawning the backend
   directly with that env instead of via launchd (the plist carries no env) — detached, cwd `/`,
   launchd PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), same log filenames under the chosen home.
-  `--fresh` wipes the data dir first and is refused unless `AUTODAVE_HOME` is set (never wipes
+  `--fresh` wipes the data dir first and is refused unless `AUTOWRIGHT_HOME` is set (never wipes
   the real app data).
 - **`./scripts/logs.sh`** — follows all log streams in one terminal (`tail -n 25 -F`):
   `backend.err.log`, `backend.out.log`, `app.log`, plus `vite.log` when present. Resolves the
-  logs dir exactly like dev.sh (`~/Library/Logs/Auto Dave`, or `<home>/logs` when
-  `AUTODAVE_HOME` is set, §5); creates missing backend logs so `tail` starts clean.
+  logs dir exactly like dev.sh (`~/Library/Logs/Autowright`, or `<home>/logs` when
+  `AUTOWRIGHT_HOME` is set, §5); creates missing backend logs so `tail` starts clean.
   **`--clear`** truncates the logs in place first (`: >` — writers keep their open
   append-mode handles), then follows.
 - Backend: `python3.14 -m venv .venv && .venv/bin/pip install -e "backend[dev]"`; test with
-  `.venv/bin/python -m pytest tests/`; dev.sh launches the backend via `python -m autodave.main`
-  (equivalent to the `autodave-backend` entry point); start an isolated backend (real agent CLIs,
-  real Keychain, empty home) with `AUTODAVE_HOME=<dir> AUTODAVE_PORT=8799 .venv/bin/autodave-backend`.
+  `.venv/bin/python -m pytest tests/`; dev.sh launches the backend via `python -m autowright.main`
+  (equivalent to the `autowright-backend` entry point); start an isolated backend (real agent CLIs,
+  real Keychain, empty home) with `AUTOWRIGHT_HOME=<dir> AUTOWRIGHT_PORT=8799 .venv/bin/autowright-backend`.
 - App: `cd app && npm install`; typecheck+bundle with `npm run build`; `npm run app` launches
   Electron against the built bundle (release delivery; dev.sh instead serves the same source
-  via Vite + `AUTODAVE_RENDERER_URL`, §15).
+  via Vite + `AUTOWRIGHT_RENDERER_URL`, §15).
 - **`./scripts/uninstall/<tool>.sh`** (`claude-code.sh`, `codex.sh`, `gemini.sh`,
   `opencode.sh`, `ollama.sh`) — developer-only reversal of the §19 installers, run manually by a
   developer in a terminal. Default removes the tool's binary from `~/.local/bin` (Gemini via
@@ -2351,12 +2351,12 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   directory — otherwise `#!/usr/bin/env node` launchers (`npm`, `gemini`) fail with
   `env: node: No such file or directory` under the GUI minimal PATH even when Node is
   installed. If Ollama is installed but its server isn't
-  answering (and `AUTODAVE_OLLAMA_URL` is local), `/ollama/status` starts `ollama serve`
+  answering (and `AUTOWRIGHT_OLLAMA_URL` is local), `/ollama/status` starts `ollama serve`
   once per backend process and waits briefly for it to come up — so an installed Ollama
   reads as ready instead of prompting a fresh download. Before every OpenCode local-model
   use (readiness checks and invocations alike), the backend syncs the Ollama provider entry
   into `~/.config/opencode/opencode.json` (merge, never overwrite: provider `ollama` via npm
-  `@ai-sdk/openai-compatible`, `baseURL` = `AUTODAVE_OLLAMA_URL` + `/v1`, the agent's model
+  `@ai-sdk/openai-compatible`, `baseURL` = `AUTOWRIGHT_OLLAMA_URL` + `/v1`, the agent's model
   listed under `models`) so `opencode run --model ollama/<model>` resolves.
 - `GET /secrets` (names + usedBy only) · `PUT /secrets/{name}` `{ value }` · `DELETE
   /secrets/{name}` — values go straight to the Keychain, never into responses or files
@@ -2378,7 +2378,7 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 
 ## 20. Deliberate divergences from the design prototype
 
-The spec follows `design/Auto Dave.dc.html` as closely as possible. These are the only places it
+The spec follows `design/Autowright.dc.html` as closely as possible. These are the only places it
 knowingly overrides the prototype — each for a reason the prototype (a simulation with fake data)
 didn't have to face. Do not "fix" the app to match the prototype on these points:
 

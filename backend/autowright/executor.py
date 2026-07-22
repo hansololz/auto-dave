@@ -1,6 +1,6 @@
-"""Per-step subprocess executor + the `autodave` step SDK (§6.1).
+"""Per-step subprocess executor + the `autowright` step SDK (§6.1).
 
-Invoked as `python -m autodave.executor <script.py>` with a JSON context on
+Invoked as `python -m autowright.executor <script.py>` with a JSON context on
 stdin (never argv/env — secrets travel on the pipe). Injects the SDK globals,
 executes the script, and reports structured events as `@@AD@@{json}` control
 lines on stdout. Plain stdout/stderr lines become out/err log lines.
@@ -17,12 +17,12 @@ import urllib.robotparser
 import urllib.request
 from pathlib import Path
 
-# Import before main() replaces sys.modules["autodave"] with the SDK shim.
+# Import before main() replaces sys.modules["autowright"] with the SDK shim.
 from . import harness as _harness
 from .imports_check import disallowed_imports
 
 CTRL = "@@AD@@"
-USER_AGENT = "AutoDave/1.0"
+USER_AGENT = "Autowright/1.0"
 
 _real_stdout = sys.stdout
 
@@ -280,15 +280,15 @@ def main() -> int:
     # executor itself never reads these back — stdin JSON stays the only input.
     exec_meta = ctx.get("execution", {})
     for key, value in {
-        "AUTODAVE_AUTOMATION_ID": exec_meta.get("automation_id"),
-        "AUTODAVE_AUTOMATION_NAME": exec_meta.get("automation_name"),
-        "AUTODAVE_EXECUTION_ID": exec_meta.get("id"),
-        "AUTODAVE_STEP_INDEX": exec_meta.get("step_index"),
-        "AUTODAVE_STEP_NAME": exec_meta.get("step_name"),
-        "AUTODAVE_TRIGGER": exec_meta.get("trigger"),
-        "AUTODAVE_WORKSPACE": str(workspace),
-        "AUTODAVE_MEMORY_DIR": ctx["memory_dir"],
-        "AUTODAVE_RESULT_DIR": ctx["result_dir"],
+        "AUTOWRIGHT_AUTOMATION_ID": exec_meta.get("automation_id"),
+        "AUTOWRIGHT_AUTOMATION_NAME": exec_meta.get("automation_name"),
+        "AUTOWRIGHT_EXECUTION_ID": exec_meta.get("id"),
+        "AUTOWRIGHT_STEP_INDEX": exec_meta.get("step_index"),
+        "AUTOWRIGHT_STEP_NAME": exec_meta.get("step_name"),
+        "AUTOWRIGHT_TRIGGER": exec_meta.get("trigger"),
+        "AUTOWRIGHT_WORKSPACE": str(workspace),
+        "AUTOWRIGHT_MEMORY_DIR": ctx["memory_dir"],
+        "AUTOWRIGHT_RESULT_DIR": ctx["result_dir"],
     }.items():
         if value is not None:
             os.environ[key] = str(value)
@@ -310,14 +310,14 @@ def main() -> int:
         "agent": Agent(ctx),
         "fetch_page": fetch_page,
     }
-    # `import autodave` inside a step resolves to this same SDK surface.
+    # `import autowright` inside a step resolves to this same SDK surface.
     import types
 
-    sdk_mod = types.ModuleType("autodave")
+    sdk_mod = types.ModuleType("autowright")
     for k, v in g.items():
         if not k.startswith("__"):
             setattr(sdk_mod, k, v)
-    sys.modules["autodave"] = sdk_mod
+    sys.modules["autowright"] = sdk_mod
 
     sys.stdout = _LineWriter("out")  # type: ignore[assignment]
     sys.stderr = _LineWriter("err")  # type: ignore[assignment]

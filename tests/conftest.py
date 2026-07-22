@@ -16,7 +16,7 @@ os.environ["PATH"] = f"{REPO / 'tests' / 'bin'}{os.pathsep}{os.environ['PATH']}"
 @pytest.fixture(autouse=True)
 def fake_keychain(monkeypatch):
     """In-memory stand-in for the macOS Keychain (backend-process only calls)."""
-    from autodave import keychain
+    from autowright import keychain
 
     mem: dict[str, str] = {}
     monkeypatch.setattr(keychain, "get_secret", mem.get)
@@ -26,16 +26,16 @@ def fake_keychain(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_notifications(monkeypatch):
-    from autodave import notify
+    from autowright import notify
 
     monkeypatch.setattr(notify, "post", lambda title, body: None)
 
 
 @pytest.fixture()
 def home(tmp_path, monkeypatch):
-    """Isolated Auto Dave home per test."""
-    monkeypatch.setenv("AUTODAVE_HOME", str(tmp_path))
-    from autodave import paths
+    """Isolated Autowright home per test."""
+    monkeypatch.setenv("AUTOWRIGHT_HOME", str(tmp_path))
+    from autowright import paths
 
     paths.ensure_dirs()
     return tmp_path
@@ -43,7 +43,7 @@ def home(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def store(home):
-    from autodave.storage import Store
+    from autowright.storage import Store
 
     s = Store()
     s.load_all()

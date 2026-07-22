@@ -5,7 +5,7 @@ const os = require('os')
 const path = require('path')
 
 // Keep Chromium's profile (Cache, Cookies, Local Storage, …) out of the backend's
-// data dir — both default to ~/Library/Application Support/Auto Dave (§5).
+// data dir — both default to ~/Library/Application Support/Autowright (§5).
 app.setPath('userData', path.join(app.getPath('userData'), 'electron'))
 
 // Overlay scrollbars: draw on top of content, zero layout space, so content
@@ -24,9 +24,9 @@ if (!gotLock) app.quit()
 app.on('second-instance', () => showApp())
 
 function backendInfo() {
-  const home = process.env.AUTODAVE_HOME
-    ? process.env.AUTODAVE_HOME
-    : path.join(os.homedir(), 'Library', 'Application Support', 'Auto Dave')
+  const home = process.env.AUTOWRIGHT_HOME
+    ? process.env.AUTOWRIGHT_HOME
+    : path.join(os.homedir(), 'Library', 'Application Support', 'Autowright')
   try {
     return JSON.parse(fs.readFileSync(path.join(home, 'backend.json'), 'utf-8'))
   } catch {
@@ -54,9 +54,9 @@ async function notifyAppStarted() {
 }
 
 function load(w, hash) {
-  // AUTODAVE_RENDERER_URL (§15): serve the same renderer source from a dev
+  // AUTOWRIGHT_RENDERER_URL (§15): serve the same renderer source from a dev
   // server (HMR) instead of the built bundle. Configuration only — same code.
-  const devUrl = process.env.AUTODAVE_RENDERER_URL
+  const devUrl = process.env.AUTOWRIGHT_RENDERER_URL
   if (devUrl) {
     const u = new URL(devUrl)
     u.hash = hash
@@ -125,7 +125,7 @@ function trayIcon(alert) {
 
 function createTray() {
   tray = new Tray(trayIcon(false))
-  tray.setToolTip('Auto Dave')
+  tray.setToolTip('Autowright')
   tray.on('click', () => togglePanel())
 }
 

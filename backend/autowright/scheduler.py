@@ -13,7 +13,7 @@ from .engine import Engine
 from .events import hub
 from .storage import Store
 
-log = logging.getLogger("autodave.scheduler")
+log = logging.getLogger("autowright.scheduler")
 
 TICK_S = 15
 RETRY_AFTER = timedelta(minutes=5)

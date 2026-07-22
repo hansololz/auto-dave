@@ -365,7 +365,7 @@ export function logKey(step: number | null, attempt: number | null) {
 }
 
 function updateTrayAlert(autos: Auto[]) {
-  void window.autodave?.trayAlert(autos.some((a) => a.lastStatus === 'failed'))
+  void window.autowright?.trayAlert(autos.some((a) => a.lastStatus === 'failed'))
 }
 
 // ---------- history (§9: back works, never re-enters onboarding) ----------
@@ -405,7 +405,7 @@ window.addEventListener('popstate', (e) => {
 
 // §13: main pushes the menu-bar row's target here when the window already
 // exists (a reload would drop the WS); fresh windows carry it in the hash.
-window.autodave?.onOpenTarget?.((hash) => {
+window.autowright?.onOpenTarget?.((hash) => {
   const m = useStore.getState()
   if (m.surface === 'onboard' || m.surface === 'menubar') return
   const autoId = autoIdFromHash(hash)

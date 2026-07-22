@@ -22,7 +22,7 @@ class _FakeProc:
 
 
 def _captured_invoke(monkeypatch, agent):
-    from autodave import harness
+    from autowright import harness
 
     monkeypatch.setattr(harness, "resolve_bin", lambda name: f"/usr/local/bin/{name}")
     captured = {}
@@ -55,7 +55,7 @@ def test_claude_invoked_with_no_tools_flags(monkeypatch):
 def test_fake_cli_streams_chunks_and_result():
     # §8 live progress: the fake CLI answers stream-json — on_chunk sees each
     # text delta and the returned text comes from the terminal result event.
-    from autodave import harness
+    from autowright import harness
 
     chunks = []
     out = harness.invoke({"harness": "Claude Code"}, "question: hi?",
@@ -67,7 +67,7 @@ def test_fake_cli_streams_chunks_and_result():
 def test_opencode_local_model_invoked_with_ollama_model_flag(monkeypatch):
     # §4.7: a local-model agent rides in as `--model ollama/<model>` after the
     # §19 opencode.json provider sync.
-    from autodave import harness
+    from autowright import harness
 
     synced = []
     monkeypatch.setattr(harness, "sync_opencode_ollama", synced.append)
@@ -86,7 +86,7 @@ def test_opencode_local_model_invoked_with_ollama_model_flag(monkeypatch):
 def test_sync_opencode_ollama_merges_config(monkeypatch, tmp_path):
     import json
 
-    from autodave import harness
+    from autowright import harness
 
     cfg = tmp_path / "opencode.json"
     cfg.write_text(json.dumps({"theme": "dark", "provider": {"anthropic": {}}}))
@@ -115,7 +115,7 @@ def test_codex_invoked_with_read_only_sandbox(monkeypatch):
 
 
 def test_detect_reports_all_four_with_sign_in_state(monkeypatch):
-    from autodave import harness
+    from autowright import harness
 
     present = {"gemini", "opencode"}
     monkeypatch.setattr(harness, "resolve_bin",
@@ -141,17 +141,17 @@ def test_detect_reports_all_four_with_sign_in_state(monkeypatch):
 
 def test_detect_finds_fake_claude_from_path(monkeypatch):
     """conftest prepends tests/bin, so the real detection path finds the fake CLI."""
-    from autodave import harness
+    from autowright import harness
 
     found = harness.detect()
     by_id = {f["id"]: f for f in found}
     assert by_id["claude"]["installed"]
-    assert "auto-dave test fake" in by_id["claude"]["detail"]
+    assert "autowright test fake" in by_id["claude"]["detail"]
 
 
 def test_check_ready_requires_sign_in(monkeypatch):
     """§19: every account-backed harness must be signed in to be ready."""
-    from autodave import harness
+    from autowright import harness
 
     monkeypatch.setattr(harness, "resolve_bin", lambda name: f"/usr/local/bin/{name}")
     monkeypatch.setattr(harness, "signed_in", lambda pid: False)
@@ -165,7 +165,7 @@ def test_check_ready_requires_sign_in(monkeypatch):
 
 
 def test_signin_state_is_cheap_per_provider(monkeypatch):
-    from autodave import harness
+    from autowright import harness
 
     monkeypatch.setattr(harness, "resolve_bin", lambda name: "/usr/local/bin/x")
     monkeypatch.setattr(harness, "signed_in", lambda pid: pid == "codex")
@@ -179,7 +179,7 @@ def test_signin_state_is_cheap_per_provider(monkeypatch):
 def test_check_ready_local_model_requires_installed_model(monkeypatch):
     """§4.7: a local-model agent is OpenCode + Ollama server + the model —
     no sign-in needed."""
-    from autodave import harness
+    from autowright import harness
 
     monkeypatch.setattr(harness, "resolve_bin", lambda name: f"/usr/local/bin/{name}")
     monkeypatch.setattr(harness, "signed_in", lambda pid: False)
@@ -201,7 +201,7 @@ def test_check_ready_local_model_requires_installed_model(monkeypatch):
 
 
 def test_disallowed_imports_matches_drafting_rule():
-    from autodave.imports_check import ALLOWED_IMPORTS, disallowed_imports
+    from autowright.imports_check import ALLOWED_IMPORTS, disallowed_imports
 
     code = ("import django\n"
             "import requests\n"
@@ -212,7 +212,7 @@ def test_disallowed_imports_matches_drafting_rule():
     assert disallowed_imports(code) == ["django", "numpy"]
     assert disallowed_imports("x = 1 +\n") == []  # syntax error surfaces at exec
     # rule identical to §8 draft validation — drafting uses the shared module directly
-    from autodave import drafting
+    from autowright import drafting
 
     assert drafting.disallowed_imports is disallowed_imports
     assert "requests" in ALLOWED_IMPORTS

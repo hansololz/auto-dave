@@ -20,12 +20,12 @@ from .events import hub
 from .executor import CTRL
 from .storage import SECRET_REF_RE, Store, resolve_param_value
 
-STEP_TIMEOUT = 15 * 60  # per-step hard cap (seconds); override via AUTODAVE_STEP_TIMEOUT
+STEP_TIMEOUT = 15 * 60  # per-step hard cap (seconds); override via AUTOWRIGHT_STEP_TIMEOUT
 
 
 def _step_timeout() -> float:
     try:
-        return float(os.environ.get("AUTODAVE_STEP_TIMEOUT", "") or STEP_TIMEOUT)
+        return float(os.environ.get("AUTOWRIGHT_STEP_TIMEOUT", "") or STEP_TIMEOUT)
     except ValueError:
         return STEP_TIMEOUT
 
@@ -111,7 +111,7 @@ def run_step_process(script: Path, ctx: dict, state: dict, log, result: dict,
     `result` collects §4.5 result ops, `holder` gets error/notify/result_touched.
     `state['proc']` holds the live Popen so a caller can cancel."""
     proc = subprocess.Popen(
-        [sys.executable, "-m", "autodave.executor", str(script)],
+        [sys.executable, "-m", "autowright.executor", str(script)],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, errors="replace",  # binary garbage on stdout must not kill the read loop
     )

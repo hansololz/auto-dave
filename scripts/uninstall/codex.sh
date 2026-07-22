@@ -1,5 +1,5 @@
 #!/bin/bash
-# Uninstall Codex CLI (installed by backend/autodave/installer.py into ~/.local/bin).
+# Uninstall Codex CLI (installed by backend/autowright/installer.py into ~/.local/bin).
 # DEVELOPER-ONLY — run by hand in a terminal. Agents must never execute this.
 # Usage: ./codex.sh [--purge]    --purge also deletes ~/.codex (config + auth)
 set -euo pipefail

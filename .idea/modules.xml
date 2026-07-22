@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/auto-dave.iml" filepath="$PROJECT_DIR$/.idea/auto-dave.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/autowright.iml" filepath="$PROJECT_DIR$/.idea/autowright.iml" />
     </modules>
   </component>
 </project>

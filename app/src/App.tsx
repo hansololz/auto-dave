@@ -44,7 +44,7 @@ function Sidebar() {
       <div className="ad-drag" style={{ height: 44, flex: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '2px 16px 18px' }}>
         <Logo />
-        <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-.01em' }}>Auto Dave</span>
+        <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-.01em' }}>Autowright</span>
       </div>
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 10px' }}>
         {NAV.map((n) => {
@@ -102,7 +102,7 @@ function BootSplash({ waiting }: { waiting: boolean }) {
           <Logo size={40} />
           <Spinner size={18} />
           <div style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>
-            {waiting ? 'Waiting for the Auto Dave backend…' : 'Connecting…'}
+            {waiting ? 'Waiting for the Autowright backend…' : 'Connecting…'}
           </div>
         </>
       )}

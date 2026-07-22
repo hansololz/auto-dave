@@ -84,7 +84,7 @@ def _latest_compatible(name: str) -> str | None:
     from packaging.version import InvalidVersion, Version
 
     url = f"https://pypi.org/pypi/{_norm(name)}/json"
-    req = urllib.request.Request(url, headers={"User-Agent": "AutoDave/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Autowright/1.0"})
     with urllib.request.urlopen(req, timeout=PYPI_TIMEOUT) as resp:
         releases = json.load(resp).get("releases") or {}
     supported = set(sys_tags())

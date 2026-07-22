@@ -53,7 +53,7 @@ BLOCKED_ENVELOPE = """===BLOCKED===
 blockers:
   - reason: The task needs access to physical mail.
     fix: Point it at a digital source instead.
-    details: Auto Dave scripts can only read files and web pages.
+    details: Autowright scripts can only read files and web pages.
 ===END===
 """
 
@@ -85,7 +85,7 @@ def respond(prompt: str) -> str:
 def main() -> None:
     args = sys.argv[1:]
     if "--version" in args:
-        print("0.0.0 (auto-dave test fake)")
+        print("0.0.0 (autowright test fake)")
         return
     prompt = args[-1] if args else ""
     text = respond(prompt)

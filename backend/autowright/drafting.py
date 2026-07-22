@@ -27,7 +27,7 @@ from .imports_check import ALLOWED_IMPORTS, disallowed_imports
 from .specmd import blocks_to_md, md_to_blocks
 from .storage import SECRET_REF_RE
 
-log = logging.getLogger("autodave.drafting")
+log = logging.getLogger("autowright.drafting")
 
 PARAM_KINDS = {"toggle", "list", "kv", "number", "text"}
 STEP_FILE_RE = re.compile(r"^(\d{2})-[a-z0-9][a-z0-9-]*\.py$")

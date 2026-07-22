@@ -1,5 +1,5 @@
 #!/bin/bash
-# Uninstall OpenCode (installed by backend/autodave/installer.py into ~/.local/bin).
+# Uninstall OpenCode (installed by backend/autowright/installer.py into ~/.local/bin).
 # DEVELOPER-ONLY — run by hand in a terminal. Agents must never execute this.
 # Usage: ./opencode.sh [--purge]    --purge also deletes config/auth/data dirs
 #

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import paths
 
-LABEL = "com.autodave.backend"
+LABEL = "com.autowright.backend"
 
 
 def plist_path() -> Path:
@@ -23,7 +23,7 @@ def plist_path() -> Path:
 def install() -> str:
     plist = {
         "Label": LABEL,
-        "ProgramArguments": [sys.executable, "-m", "autodave.main"],
+        "ProgramArguments": [sys.executable, "-m", "autowright.main"],
         "RunAtLoad": True,
         "KeepAlive": True,
         "StandardOutPath": str(paths.logs_dir() / "backend.out.log"),
@@ -69,7 +69,7 @@ def status() -> str:
 def restart() -> str:
     p = plist_path()
     if not p.exists():
-        return "not installed — use `autodave service install` first"
+        return "not installed — use `autowright service install` first"
     subprocess.run(["launchctl", "unload", str(p)], capture_output=True)
     r = subprocess.run(["launchctl", "load", str(p)], capture_output=True, text=True)
     return "restarted" if r.returncode == 0 else f"restart failed: {r.stderr.strip()}"

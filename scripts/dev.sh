@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Fastest way to launch Auto Dave from the repo, with hot reloading: deps only (no
+# Fastest way to launch Autowright from the repo, with hot reloading: deps only (no
 # renderer bundle), then the real backend, a Vite dev server for the renderer
 # (HMR — edits to app/src apply live), and Electron pointed at it via
-# AUTODAVE_RENDERER_URL (§15). Same real code everywhere: real data dir
-# (~/Library/Application Support/Auto Dave), macOS Keychain, random free port,
-# backend as the real launchd LaunchAgent (com.autodave.backend, §3:
+# AUTOWRIGHT_RENDERER_URL (§15). Same real code everywhere: real data dir
+# (~/Library/Application Support/Autowright), macOS Keychain, random free port,
+# backend as the real launchd LaunchAgent (com.autowright.backend, §3:
 # RunAtLoad/KeepAlive, survives Electron quit), no mocks, no seed data.
 # Backend edits still need a restart (the backend is not hot-reloaded).
 # Ctrl+C shuts the whole app down (Electron, vite, and the backend);
@@ -12,28 +12,28 @@
 #
 #   ./scripts/dev.sh    deps, restart the service, vite + Electron with HMR
 #
-# Isolated mode (opt-in): setting any AUTODAVE_* knob makes dev.sh spawn the
+# Isolated mode (opt-in): setting any AUTOWRIGHT_* knob makes dev.sh spawn the
 # backend directly with that env instead of via launchd (the plist carries no
-# env). Knobs (§15): AUTODAVE_HOME (isolated data dir), AUTODAVE_PORT,
-# AUTODAVE_OLLAMA_URL, AUTODAVE_STEP_TIMEOUT.
-#   --fresh    wipe the data dir first — refused unless AUTODAVE_HOME is set
+# env). Knobs (§15): AUTOWRIGHT_HOME (isolated data dir), AUTOWRIGHT_PORT,
+# AUTOWRIGHT_OLLAMA_URL, AUTOWRIGHT_STEP_TIMEOUT.
+#   --fresh    wipe the data dir first — refused unless AUTOWRIGHT_HOME is set
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-RELEASE_HOME="$HOME/Library/Application Support/Auto Dave"
-DATA="${AUTODAVE_HOME:-$RELEASE_HOME}"
+RELEASE_HOME="$HOME/Library/Application Support/Autowright"
+DATA="${AUTOWRIGHT_HOME:-$RELEASE_HOME}"
 # logs live outside the data dir (§5): ~/Library/Logs, or <home>/logs when isolated
-LOGS="${AUTODAVE_HOME:+$DATA/logs}"
-LOGS="${LOGS:-$HOME/Library/Logs/Auto Dave}"
+LOGS="${AUTOWRIGHT_HOME:+$DATA/logs}"
+LOGS="${LOGS:-$HOME/Library/Logs/Autowright}"
 
-# any AUTODAVE_* env present → isolated mode (direct spawn so the env reaches the backend)
+# any AUTOWRIGHT_* env present → isolated mode (direct spawn so the env reaches the backend)
 ISOLATED=0
-if env | grep -q '^AUTODAVE_'; then ISOLATED=1; fi
+if env | grep -q '^AUTOWRIGHT_'; then ISOLATED=1; fi
 
 if [ "${1:-}" = "--fresh" ]; then
-  if [ -z "${AUTODAVE_HOME:-}" ]; then
+  if [ -z "${AUTOWRIGHT_HOME:-}" ]; then
     echo "--fresh would wipe the real app data ($RELEASE_HOME)."
-    echo "Set AUTODAVE_HOME to an isolated dir to use --fresh."
+    echo "Set AUTOWRIGHT_HOME to an isolated dir to use --fresh."
     exit 1
   fi
   echo "· wiping $DATA"
@@ -64,9 +64,9 @@ kill_stale() {
 # be stuck in graceful shutdown (uvicorn waits on open WebSockets) — the
 # kill_stale SIGKILL fallback is what actually clears those.
 BEFORE=$(cat "$DATA/backend.json" 2>/dev/null || true)
-"$ROOT/.venv/bin/autodave" service uninstall > /dev/null 2>&1 || true
-kill_stale "[Pp]ython -m autodave"                   # backend (python -m autodave.main)
-kill_stale "$ROOT/.venv/bin/autodave"                # autodave / autodave-backend entry points
+"$ROOT/.venv/bin/autowright" service uninstall > /dev/null 2>&1 || true
+kill_stale "[Pp]ython -m autowright"                   # backend (python -m autowright.main)
+kill_stale "$ROOT/.venv/bin/autowright"                # autowright / autowright-backend entry points
 kill_stale "$ROOT/app/node_modules/electron"         # electron (incl. helper processes)
 kill_stale "$ROOT/app/node_modules/.bin/vite"        # vite dev server
 
@@ -75,12 +75,12 @@ if [ "$ISOLATED" = "1" ]; then
   # direct spawn, detached, launchd-like environment (cwd /, minimal PATH)
   echo "· starting backend (isolated mode, data: $DATA)"
   (cd / && PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
-    "$ROOT/.venv/bin/python" -m autodave.main \
+    "$ROOT/.venv/bin/python" -m autowright.main \
     > "$LOGS/backend.out.log" 2> "$LOGS/backend.err.log" &)
 else
   # the real thing: launchd LaunchAgent, exactly as a release install starts it
   echo "· installing launchd service (data: $DATA)"
-  "$ROOT/.venv/bin/autodave" service install
+  "$ROOT/.venv/bin/autowright" service install
 fi
 
 # Ctrl+C shuts the whole app down: Electron dies with the terminal's SIGINT,
@@ -92,8 +92,8 @@ fi
 shutdown_backend() {
   echo
   echo "· ctrl-c — stopping the backend"
-  "$ROOT/.venv/bin/autodave" service uninstall > /dev/null 2>&1 || true
-  kill_stale "[Pp]ython -m autodave"
+  "$ROOT/.venv/bin/autowright" service uninstall > /dev/null 2>&1 || true
+  kill_stale "[Pp]ython -m autowright"
   exit 130
 }
 trap shutdown_backend INT TERM
@@ -130,4 +130,4 @@ done
 
 # ---- electron (foreground; quitting it leaves the backend up, like release) ----
 echo "· launching Electron (HMR via http://127.0.0.1:$VPORT)"
-cd "$ROOT/app" && AUTODAVE_RENDERER_URL="http://127.0.0.1:$VPORT" npx electron .
+cd "$ROOT/app" && AUTOWRIGHT_RENDERER_URL="http://127.0.0.1:$VPORT" npx electron .

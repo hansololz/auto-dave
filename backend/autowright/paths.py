@@ -1,15 +1,15 @@
 """Filesystem locations (§5). Data under Application Support, logs under ~/Library/Logs.
-AUTODAVE_HOME overrides both for dev/tests (logs go to <home>/logs)."""
+AUTOWRIGHT_HOME overrides both for dev/tests (logs go to <home>/logs)."""
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-APP_NAME = "Auto Dave"
+APP_NAME = "Autowright"
 
 
 def app_support() -> Path:
-    env = os.environ.get("AUTODAVE_HOME")
+    env = os.environ.get("AUTOWRIGHT_HOME")
     if env:
         return Path(env).expanduser()
     return Path.home() / "Library" / "Application Support" / APP_NAME
@@ -52,7 +52,7 @@ def harness_cwd() -> Path:
 
 
 def logs_dir() -> Path:
-    env = os.environ.get("AUTODAVE_HOME")
+    env = os.environ.get("AUTOWRIGHT_HOME")
     if env:
         return Path(env).expanduser() / "logs"
     return Path.home() / "Library" / "Logs" / APP_NAME

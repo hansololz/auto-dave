@@ -1,5 +1,5 @@
 #!/bin/bash
-# Uninstall Ollama (installed by backend/autodave/installer.py into ~/.local/bin).
+# Uninstall Ollama (installed by backend/autowright/installer.py into ~/.local/bin).
 # DEVELOPER-ONLY — run by hand in a terminal. Agents must never execute this.
 # Usage: ./ollama.sh [--purge]    --purge also deletes ~/.ollama (downloaded models!)
 set -euo pipefail

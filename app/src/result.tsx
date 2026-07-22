@@ -236,7 +236,7 @@ function FilesFooter({ files, path }: { files: ResultFile[]; path?: string }) {
           {path && (
             <button
               className="ad-btn-ghost"
-              onClick={() => { void window.autodave?.revealPath(path) }}
+              onClick={() => { void window.autowright?.revealPath(path) }}
               style={{ flex: 'none', fontSize: 12 }}
             >
               <i className="fa-solid fa-folder-open" style={{ fontSize: 10 }} /> Show in Finder

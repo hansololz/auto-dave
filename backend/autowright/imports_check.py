@@ -8,7 +8,7 @@ import sys
 from typing import Iterable
 
 ALLOWED_IMPORTS = set(sys.stdlib_module_names) | {
-    "autodave", "requests", "httpx", "bs4", "lxml", "feedparser", "dateutil", "yaml",
+    "autowright", "requests", "httpx", "bs4", "lxml", "feedparser", "dateutil", "yaml",
 }
 
 

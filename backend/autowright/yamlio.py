@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-log = logging.getLogger("autodave.yamlio")
+log = logging.getLogger("autowright.yamlio")
 
 
 def load_yaml(path: Path, default: Any = None) -> Any:

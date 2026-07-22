@@ -249,7 +249,7 @@ export default function AgentNewPage() {
         {editAgent ? 'Edit agent' : 'Add an agent'}
       </h1>
       <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', margin: '0 0 22px' }}>
-        Pick the harness that writes your automations, then choose which model it uses. The agent never executes anything — Auto Dave does.
+        Pick the harness that writes your automations, then choose which model it uses. The agent never executes anything — Autowright does.
       </p>
 
       {fix === 'needs' && (

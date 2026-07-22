@@ -1,12 +1,12 @@
-# Handoff: Auto Dave — macOS automation app
+# Handoff: Autowright — macOS automation app
 
 ## Overview
-Auto Dave is a macOS desktop app for recurring personal automations. The user describes a job in plain words ("Check the manga I follow for new chapters every morning at 8"); a connected AI agent (Claude Code, Gemini CLI, Codex, or a local Ollama model) writes it as human-readable scripts; Auto Dave runs those scripts on a schedule, entirely on the user's Mac, and shows results. Nothing runs before the user reviews it. The design covers onboarding, the main app (automations, executions, agents, secrets, settings), a creation/review flow, and a macOS menu-bar surface.
+Autowright is a macOS desktop app for recurring personal automations. The user describes a job in plain words ("Check the manga I follow for new chapters every morning at 8"); a connected AI agent (Claude Code, Gemini CLI, Codex, or a local Ollama model) writes it as human-readable scripts; Autowright runs those scripts on a schedule, entirely on the user's Mac, and shows results. Nothing runs before the user reviews it. The design covers onboarding, the main app (automations, executions, agents, secrets, settings), a creation/review flow, and a macOS menu-bar surface.
 
 ## About the Design Files
 The files in this bundle are **design references created in HTML** — an interactive prototype showing intended look and behavior, not production code to copy directly. The task is to **recreate this design in the target codebase's existing environment** (Swift/AppKit, Electron/React, Tauri, etc.) using its established patterns and libraries — or, if no codebase exists yet, choose the most appropriate stack for a macOS desktop app and implement the design there.
 
-`Auto Dave.dc.html` is the entire prototype: markup first (all styles inline on elements), then a single JavaScript logic class at the bottom of the file that holds the full data model, state transitions, and simulated flows. `support.js` is only the prototype runtime — ignore it for implementation.
+`Autowright.dc.html` is the entire prototype: markup first (all styles inline on elements), then a single JavaScript logic class at the bottom of the file that holds the full data model, state transitions, and simulated flows. `support.js` is only the prototype runtime — ignore it for implementation.
 
 ## Fidelity
 **High-fidelity.** Colors, typography, spacing, copy, and interaction states are final intent. Recreate the UI pixel-perfectly using the codebase's component library. All measurements below are exact values from the prototype.
@@ -66,18 +66,18 @@ Runs and steps use one badge system (mono 10.5–12px, uppercase chips, tint bg 
 All screens live in one window: 100vh, dark, with macOS traffic lights (12px circles: #ff5f57 / #febc2e / #28c840) drawn top-left.
 
 ### 1. Onboarding (3 steps, step label top-right in mono)
-- **Step 1 — Welcome.** Centered 720px column. Logo + wordmark, 30px headline "Recurring jobs, done exactly the same way every time.", subhead, then a live self-check card ("Getting Auto Dave ready") that runs setup steps with pulsing dots and durations, ending in a "READY / All set" result well with chips and a paragraph. Continue button appears only when done ("Setting things up…" mono note while running).
+- **Step 1 — Welcome.** Centered 720px column. Logo + wordmark, 30px headline "Recurring jobs, done exactly the same way every time.", subhead, then a live self-check card ("Getting Autowright ready") that runs setup steps with pulsing dots and durations, ending in a "READY / All set" result well with chips and a paragraph. Continue button appears only when done ("Setting things up…" mono note while running).
 - **Step 2 — Connect your AI.** Headline "Connect your AI". First a searching spinner ("Looking for an AI already on this Mac…"), then either a "FOUND ON THIS MAC" list of detected apps (radio-select cards) or a "no AI found" note plus two suggestion cards in an auto-fit grid (min 280px):
-  - **Use Claude** — requires Claude Code + Pro account. Flow states: idle (accent CTA "Set up Claude Code") → installing (labelled 4px progress bar with % in mono) → macOS sudo prompt (amber pulsing dot, "Auto Dave never sees your password") → optionally denied ("Install paused — permission was declined", retry) → waiting for browser sign-in (reopen/cancel links) → connected (green check).
+  - **Use Claude** — requires Claude Code + Pro account. Flow states: idle (accent CTA "Set up Claude Code") → installing (labelled 4px progress bar with % in mono) → macOS sudo prompt (amber pulsing dot, "Autowright never sees your password") → optionally denied ("Install paused — permission was declined", retry) → waiting for browser sign-in (reopen/cancel links) → connected (green check).
   - **Use a free local AI** — Ollama + Qwen3 8B, "Download and install · 5.2 GB", two-step progress (install Ollama → download model, continues in background), same sudo/denied states, ends "Ready to go."
   - Cards select via 16px radio rings (accent when selected, dot scales .4→1). "Skip for now" ghost link always available. Persistent footer with three green-dot reassurances: "Everything runs on this Mac", "Nothing runs until you review it", "Passwords stay in your Keychain".
 - **Step 3 — First automation.** Reuses the Create flow (below) with "Step 3 of 3" label and skip option.
 
 ### 2. App shell
-212px sidebar (`#0a0d11`, right hairline): traffic lights, logo + "Auto Dave" (16px/600), then nav items (Automations, Executions, Agents, Secrets, Settings) — 13px/500 rows, 7px radius, accent-tinted bg when active, count pills (mono 10.5px, 20px radius) for live counts. Content pane scrolls independently.
+212px sidebar (`#0a0d11`, right hairline): traffic lights, logo + "Autowright" (16px/600), then nav items (Automations, Executions, Agents, Secrets, Settings) — 13px/500 rows, 7px radius, accent-tinted bg when active, count pills (mono 10.5px, 20px radius) for live counts. Content pane scrolls independently.
 
 ### 3. Create automation (also onboarding step 3 and edit mode)
-- **Ask:** 620px column, "What should Auto Dave do for you?", 4-row textarea (focus ring: accent at 60%), example-prompt chips (pill buttons), a "Written by <agent>" mono dropdown (chooses which agent writes the spec; footer note: "Auto Dave still runs everything"), primary CTA "Draft the automation".
+- **Ask:** 620px column, "What should Autowright do for you?", 4-row textarea (focus ring: accent at 60%), example-prompt chips (pill buttons), a "Written by <agent>" mono dropdown (chooses which agent writes the spec; footer note: "Autowright still runs everything"), primary CTA "Draft the automation".
 - **Building:** centered spinner + staged checklist (icons turn green as stages complete) + agent label.
 - **Review:** 1200px page. Title row: automation name, version dropdown (edit mode; lists versions, restore), agent picker, "Start over" ghost, primary Create/Save (disabled state with amber hint when blocked). Lede: "Read what your AI wrote. Change anything — nothing runs until you create it." Below: editable spec — schedule, parameters (toggle/list/kv/number/text kinds with one-line read-only summaries), and readable step scripts with per-step agent menus. Viewing an old version shows an accent-tinted banner.
 
@@ -103,7 +103,7 @@ List of connected agents (harness, model — shows "Default model" when using th
 640px single column, grouped sections with toggles (36×21px track, 15px knob travel, accent when on).
 
 ### 11. Menu bar surface
-Full-screen macOS desktop mock: 30px translucent menu bar (Desktop / File / Edit…, clock), an Auto Dave circle-play icon button with red alert dot when something failed. Clicking opens a 334px translucent panel (blur 30px): "AUTO DAVE" eyebrow + aggregate status, one row per automation (status dot — pulsing when running, name, mono sub-line, hover-revealed run button, relative time), footer with "Open Auto Dave" link + version. Click-outside closes.
+Full-screen macOS desktop mock: 30px translucent menu bar (Desktop / File / Edit…, clock), an Autowright circle-play icon button with red alert dot when something failed. Clicking opens a 334px translucent panel (blur 30px): "AUTO DAVE" eyebrow + aggregate status, one row per automation (status dot — pulsing when running, name, mono sub-line, hover-revealed run button, relative time), footer with "Open Autowright" link + version. Click-outside closes.
 
 ## Interactions & Behavior
 - **Navigation** is state-driven (surface → page → detail ids). Back buttons and browser/OS back both work; once past onboarding, back never returns into it.
@@ -131,5 +131,5 @@ Prototype knobs (useful as dev/test flags): start surface (Onboarding / App / Me
 - No raster images.
 
 ## Files
-- `Auto Dave.dc.html` — the complete prototype. Markup (with inline styles and `data-screen-label` markers for every screen) is at the top; the full logic/data model is the `class Component` script at the bottom of the file. Open it in a browser to click through every flow.
+- `Autowright.dc.html` — the complete prototype. Markup (with inline styles and `data-screen-label` markers for every screen) is at the top; the full logic/data model is the `class Component` script at the bottom of the file. Open it in a browser to click through every flow.
 - `support.js` — prototype runtime only; not part of the design.

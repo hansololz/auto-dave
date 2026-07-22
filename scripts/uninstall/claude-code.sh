@@ -1,5 +1,5 @@
 #!/bin/bash
-# Uninstall Claude Code (installed by backend/autodave/installer.py via
+# Uninstall Claude Code (installed by backend/autowright/installer.py via
 # claude.ai/install.sh — binary in ~/.local/bin, versions in ~/.local/share/claude).
 # DEVELOPER-ONLY — run by hand in a terminal. Agents must never execute this.
 # Usage: ./claude-code.sh [--purge]

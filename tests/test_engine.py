@@ -11,7 +11,7 @@ def wait_done(engine, exec_id, timeout=30):
 
 
 def test_run_lifecycle_success(store):
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     a = store.create_automation(make_version(), "Exec Demo", None)
@@ -32,7 +32,7 @@ def test_run_lifecycle_success(store):
 
 def test_chip_is_optional(store):
     """§4.5: an execution that never calls result.chip() has no chip anywhere."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -51,7 +51,7 @@ def test_chip_is_optional(store):
 
 
 def test_failed_step_stops_run(store):
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -66,7 +66,7 @@ def test_failed_step_stops_run(store):
 
 
 def test_missing_secret_stops_before_step_one(store):
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -83,8 +83,8 @@ def test_missing_secret_stops_before_step_one(store):
 
 
 def test_secret_redacted_from_logs(store):
-    from autodave import keychain
-    from autodave.engine import Engine
+    from autowright import keychain
+    from autowright.engine import Engine
 
     keychain.set_secret("API_KEY", "super-secret-value-123")
     store.secrets.append({"name": "API_KEY", "desc": ""})
@@ -103,8 +103,8 @@ def test_secret_redacted_from_logs(store):
 
 
 def test_multiline_secret_lines_redacted_from_logs(store):
-    from autodave import keychain
-    from autodave.engine import Engine
+    from autowright import keychain
+    from autowright.engine import Engine
 
     pem = "-----BEGIN KEY-----\nabc123line\n-----END KEY-----"
     keychain.set_secret("PEM_KEY", pem)
@@ -132,7 +132,7 @@ def test_multiline_secret_lines_redacted_from_logs(store):
 def test_retry_in_place_from_failed_step(store):
     """§7: retry re-executes the same record from the failed step — the failed
     step gains attempt 2, succeeded steps stay untouched, workspace persists."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -173,7 +173,7 @@ def test_retry_in_place_from_failed_step(store):
 def test_retry_rejected_unless_failed(store):
     import pytest
 
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     a = store.create_automation(make_version(), "No Retry", None)
@@ -187,7 +187,7 @@ def test_retry_rejected_unless_failed(store):
 def test_skip_live_step_continues_execution(store):
     """§7 skip: the live step's subprocess dies, the step goes `skipped`, the
     next step still executes, and the execution finishes `succeeded`."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -220,7 +220,7 @@ def test_skip_live_step_continues_execution(store):
 def test_one_execution_at_a_time(store):
     import pytest
 
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -235,7 +235,7 @@ def test_one_execution_at_a_time(store):
 
 
 def test_memory_persists_between_executions(store):
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -252,8 +252,8 @@ def test_memory_persists_between_executions(store):
 
 
 def test_execution_metadata_and_env_vars(store):
-    """§6.1: steps see execution.* metadata; child processes see AUTODAVE_* env vars."""
-    from autodave.engine import Engine
+    """§6.1: steps see execution.* metadata; child processes see AUTOWRIGHT_* env vars."""
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -262,9 +262,9 @@ def test_execution_metadata_and_env_vars(store):
          "code": (
              "import os, subprocess, sys\n"
              'log(f"meta={execution.automation_name}/{execution.step_index}/{execution.step_name}/{execution.trigger}")\n'
-             'log("env=" + os.environ["AUTODAVE_EXECUTION_ID"])\n'
+             'log("env=" + os.environ["AUTOWRIGHT_EXECUTION_ID"])\n'
              "child = subprocess.run([sys.executable, '-c',"
-             " 'import os; print(os.environ[\"AUTODAVE_AUTOMATION_NAME\"])'],"
+             " 'import os; print(os.environ[\"AUTOWRIGHT_AUTOMATION_NAME\"])'],"
              " capture_output=True, text=True)\n"
              'log("child=" + child.stdout.strip())\n'
              "try:\n"
@@ -286,7 +286,7 @@ def test_execution_metadata_and_env_vars(store):
 
 def test_workspace_shared_between_steps(store):
     """§6: all steps of an execution share one workspace (cwd)."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -306,7 +306,7 @@ def test_workspace_shared_between_steps(store):
 
 
 def test_agent_step_query_only(store):
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     store.agents = [{"id": "mock", "harness": "Claude Code", "model": "x", "default": True}]
     engine = Engine(store)
@@ -325,9 +325,9 @@ def test_agent_step_query_only(store):
 
 def test_step_timeout_applies_to_silent_hang(store, monkeypatch):
     """§6: the per-step timeout must fire even when the step prints nothing."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
-    monkeypatch.setenv("AUTODAVE_STEP_TIMEOUT", "1")
+    monkeypatch.setenv("AUTOWRIGHT_STEP_TIMEOUT", "1")
     engine = Engine(store)
     ver = make_version()
     ver["steps"] = [
@@ -347,7 +347,7 @@ def test_step_timeout_applies_to_silent_hang(store, monkeypatch):
 
 def test_run_draft_version_lowercase_label(store):
     """§19: POST /execute accepts version 'draft' (lowercase) as well as 'Draft'."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     a = store.create_automation(make_version(), "Drafty", None)
@@ -367,7 +367,7 @@ def test_run_draft_version_lowercase_label(store):
 def test_draft_execution_uses_draft_memory(store):
     """§4.4: a Draft execution seeds draft/memory from the live memory once,
     then iterates on it — the live memory dir is never written."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     a = store.create_automation(make_version(), "Drafty Mem", None)
@@ -400,7 +400,7 @@ def test_draft_execution_uses_draft_memory(store):
 
 def test_runtime_import_allowlist_revalidated(store):
     """§6.2: the executor re-checks the curated allowlist before exec'ing a step."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -416,7 +416,7 @@ def test_runtime_import_allowlist_revalidated(store):
 
 def test_agent_audit_logs_full_prompt(store):
     """§6: the FULL redacted prompt/reply are written to the attempt log (no 2k/10k cap)."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     store.agents = [{"id": "mock", "harness": "Claude Code", "model": "x", "default": True}]
     engine = Engine(store)
@@ -438,8 +438,8 @@ def test_agent_audit_logs_full_prompt(store):
 
 def test_secrets_scoped_per_step(store):
     """§6 scoping: a step only gets the secrets its own source references."""
-    from autodave import keychain
-    from autodave.engine import Engine
+    from autowright import keychain
+    from autowright.engine import Engine
 
     keychain.set_secret("API_ONE", "value-one")
     keychain.set_secret("API_TWO", "value-two")
@@ -469,7 +469,7 @@ def test_secrets_scoped_per_step(store):
 def test_log_files_per_step_attempt(store):
     """§5 logs/ layout: one NDJSON file per (step, attempt) named
     <stem>.a<n>.ndjson, lines {ts, t, k, seq, text} with a per-file seq."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     a = store.create_automation(make_version(), "Attributed", None)
@@ -492,7 +492,7 @@ def test_log_files_per_step_attempt(store):
 
 
 def test_execution_level_lines_go_to_execution_log(store):
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -509,8 +509,8 @@ def test_execution_level_lines_go_to_execution_log(store):
 
 def test_finished_at_persisted_and_reloaded(store):
     import sqlite3
-    from autodave.engine import Engine
-    from autodave.storage import Store
+    from autowright.engine import Engine
+    from autowright.storage import Store
     from datetime import datetime
 
     engine = Engine(store)
@@ -529,7 +529,7 @@ def test_finished_at_persisted_and_reloaded(store):
 
 
 def test_agent_step_without_enabled_agent_fails(store):
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -546,8 +546,8 @@ def test_agent_step_without_enabled_agent_fails(store):
 
 def test_failure_diagnostics_on_execution_record(store):
     """§7: a failed step's exception becomes §4.5 `error` — step, message, reason."""
-    from autodave.engine import Engine
-    from autodave.storage import Store
+    from autowright.engine import Engine
+    from autowright.storage import Store
 
     engine = Engine(store)
     ver = make_version()
@@ -569,7 +569,7 @@ def test_failure_diagnostics_on_execution_record(store):
 
 def test_failure_reason_null_when_unclassified(store):
     """§7: a failure that fits no known category keeps message, reason null."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -582,7 +582,7 @@ def test_failure_reason_null_when_unclassified(store):
 
 
 def test_failure_error_absent_on_success(store):
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     a = store.create_automation(make_version(), "Fine", None)
@@ -595,8 +595,8 @@ def test_failure_error_absent_on_success(store):
 
 def test_failure_error_message_redacted(store):
     """§7: the error message is redacted like any log line."""
-    from autodave import keychain
-    from autodave.engine import Engine
+    from autowright import keychain
+    from autowright.engine import Engine
 
     keychain.set_secret("API_KEY", "sekret-42")
     store.secrets.append({"name": "API_KEY", "desc": ""})
@@ -613,9 +613,9 @@ def test_failure_error_message_redacted(store):
 
 def test_failure_reason_timeout(store, monkeypatch):
     """§7: a timed-out step gets the time-limit reason."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
-    monkeypatch.setenv("AUTODAVE_STEP_TIMEOUT", "1")
+    monkeypatch.setenv("AUTOWRIGHT_STEP_TIMEOUT", "1")
     engine = Engine(store)
     ver = make_version()
     ver["steps"] = [
@@ -631,7 +631,7 @@ def test_failure_reason_timeout(store, monkeypatch):
 
 
 def test_failure_reason_disallowed_import(store):
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -645,7 +645,7 @@ def test_failure_reason_disallowed_import(store):
 
 def test_failure_reason_missing_secret_before_step_one(store):
     """§7: the pre-step secret check sets `error` with a null step."""
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     ver = make_version()
@@ -662,7 +662,7 @@ def test_failure_reason_missing_secret_before_step_one(store):
 def test_pre_version_snapshot_on_first_execution(store):
     # §6.3: the engine snapshots memory right before the first execution of a
     # version with no recorded execution yet — real versions only, never Draft.
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     a = store.create_automation(make_version(), "Snap Ver", None)
@@ -689,7 +689,7 @@ def test_pre_version_snapshot_on_first_execution(store):
 
 def test_pre_version_snapshot_toggle_off(store):
     # §6.3: the pre_version toggle off → the first-execution snapshot is skipped.
-    from autodave.engine import Engine
+    from autowright.engine import Engine
 
     engine = Engine(store)
     a = store.create_automation(make_version(), "No Snap Ver", None)
@@ -704,8 +704,8 @@ def test_draft_test_executes_in_draft_dirs(store, monkeypatch):
     """§11: a test points the shared step executor at draft/workspace +
     draft/result (kept after the test) and produces a §4.5-style result —
     result.yaml beside the files the step wrote, files + path on test.done."""
-    from autodave import testexec as tr
-    from autodave.events import hub
+    from autowright import testexec as tr
+    from autowright.events import hub
 
     monkeypatch.setattr(tr, "store", store)
     ver = make_version()
@@ -757,9 +757,9 @@ def test_create_mode_test_uses_pending_slot(store, monkeypatch):
     """§11 create mode: no automation yet — the test executes in the §4.4
     pending slot's workspace/ + result/ and the result payload carries
     files + path there too."""
-    from autodave import paths
-    from autodave import testexec as tr
-    from autodave.events import hub
+    from autowright import paths
+    from autowright import testexec as tr
+    from autowright.events import hub
 
     monkeypatch.setattr(tr, "store", store)
     ver = make_version()

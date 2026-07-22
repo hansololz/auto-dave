@@ -166,7 +166,7 @@ export default function AgentsPage() {
         Agents
       </PageTitle>
       <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)', margin: '0 0 20px' }}>
-        The AI that writes your automations. It never executes anything — Auto Dave does that. New automations use your default agent.
+        The AI that writes your automations. It never executes anything — Autowright does that. New automations use your default agent.
       </p>
       {agents.length > 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(310px,1fr))', gap: 14 }}>
@@ -192,7 +192,7 @@ export default function AgentsPage() {
           body={(
             <>
               <span style={{ fontWeight: 500, color: 'var(--text)' }}>{delAgent.name || delAgent.harness}</span>
-              {' '}will be removed from Auto Dave. Nothing it wrote is deleted.
+              {' '}will be removed from Autowright. Nothing it wrote is deleted.
               {delUses.length > 0 && (
                 <p style={{ color: P.amber, margin: '8px 0 0' }}>
                   {delUses.length === 1

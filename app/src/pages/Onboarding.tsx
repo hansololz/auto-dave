@@ -556,10 +556,10 @@ export default function Onboarding() {
     if (agentPre) chips.push('Agent found')
     if (autoPre) chips.push('Automations found')
     const para = autoPre
-      ? 'Auto Dave created fresh settings and folders, and found your existing automations. You’re ready to go.'
+      ? 'Autowright created fresh settings and folders, and found your existing automations. You’re ready to go.'
       : agentPre
-      ? 'Auto Dave created fresh settings and folders, and found an AI already connected. You’re ready to go.'
-      : 'Auto Dave created fresh settings and folders, and everything is loaded. You’re ready to go.'
+      ? 'Autowright created fresh settings and folders, and found an AI already connected. You’re ready to go.'
+      : 'Autowright created fresh settings and folders, and everything is loaded. You’re ready to go.'
     const nextPara = autoPre
       ? 'Setup only happens once. Your automations are already here, so you can go straight to them.'
       : agentPre
@@ -571,19 +571,19 @@ export default function Onboarding() {
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '30px 32px 60px', animation: 'adFadeUp .5s ease both' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
           <Logo size={32} />
-          <span style={{ fontWeight: 600, fontSize: 15, letterSpacing: '-.01em' }}>Auto Dave</span>
+          <span style={{ fontWeight: 600, fontSize: 15, letterSpacing: '-.01em' }}>Autowright</span>
         </div>
         <h1 style={{ fontWeight: 600, fontSize: 30, lineHeight: 1.25, letterSpacing: '-.02em', margin: '0 0 12px' }}>
           Recurring jobs, done exactly the same way every time.
         </h1>
         <p style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--text-2)', margin: '0 0 28px' }}>
-          Describe a job in plain words. Your AI writes it as scripts you can read. Auto Dave executes them on your schedule and shows you the result.
+          Describe a job in plain words. Your AI writes it as scripts you can read. Autowright executes them on your schedule and shows you the result.
         </p>
 
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--hairline)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontWeight: 600, fontSize: 13.5 }}>Getting Auto Dave ready</span>
+              <span style={{ fontWeight: 600, fontSize: 13.5 }}>Getting Autowright ready</span>
             </div>
           </div>
           <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -646,7 +646,7 @@ export default function Onboarding() {
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '44px 32px 60px', animation: 'adFadeUp .5s ease both' }}>
         <h1 style={{ fontWeight: 600, fontSize: 26, lineHeight: 1.25, letterSpacing: '-.02em', margin: '0 0 10px' }}>Connect your AI</h1>
         <p style={{ fontSize: 14.5, lineHeight: 1.6, color: 'var(--text-2)', margin: '0 0 26px' }}>
-          The AI only writes the scripts — Auto Dave executes them. Nothing executes before you review it.
+          The AI only writes the scripts — Autowright executes them. Nothing executes before you review it.
         </p>
 
         {ob.det === 'searching' && (

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Uninstall Gemini CLI (installed by backend/autodave/installer.py via
+# Uninstall Gemini CLI (installed by backend/autowright/installer.py via
 # `npm install -g --prefix ~/.local @google/gemini-cli`).
 # DEVELOPER-ONLY — run by hand in a terminal. Agents must never execute this.
 # Usage: ./gemini.sh [--purge]    --purge also deletes ~/.gemini (config + auth)

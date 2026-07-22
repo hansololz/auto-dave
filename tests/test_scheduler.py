@@ -4,8 +4,8 @@ from conftest import make_version
 
 
 def _mk(store):
-    from autodave.engine import Engine
-    from autodave.scheduler import Scheduler
+    from autowright.engine import Engine
+    from autowright.scheduler import Scheduler
 
     engine = Engine(store)
     sched = Scheduler(store, engine)  # loop not started — we drive the hook

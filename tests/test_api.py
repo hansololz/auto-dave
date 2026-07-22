@@ -9,8 +9,8 @@ from conftest import make_version
 
 @pytest.fixture()
 def client(home):
-    from autodave import api
-    from autodave.storage import store
+    from autowright import api
+    from autowright.storage import store
 
     store.load_all()
     store.autos.clear()
@@ -34,7 +34,7 @@ def test_state_shape(client):
 
 
 def test_instructions_endpoint(client):
-    from autodave.drafting import CONTRACT_PREAMBLE, DEFAULT_INSTRUCTIONS
+    from autowright.drafting import CONTRACT_PREAMBLE, DEFAULT_INSTRUCTIONS
 
     # §11/§19: both instruction files travel to the page verbatim
     r = client.get("/instructions").json()
@@ -62,7 +62,7 @@ def test_draft_job_and_create_flow(client):
     draft = j["draft"]
     assert draft["steps"] and draft["spec"]
     # §8: create drafts carry the seeded default build instructions back to Review
-    from autodave.drafting import DEFAULT_INSTRUCTIONS
+    from autowright.drafting import DEFAULT_INSTRUCTIONS
     assert draft["instr"] == DEFAULT_INSTRUCTIONS
     r = client.post("/automations", json={"draft": draft, "agentId": "mock"})
     assert r.status_code == 200
@@ -83,8 +83,8 @@ def _wait_job(client, job_id):
 
 def test_create_draft_grants_all_agents_by_default(client, monkeypatch):
     # §19: no enabledAgents + no stored automation → every configured agent is granted
-    from autodave import api
-    from autodave.storage import store
+    from autowright import api
+    from autowright.storage import store
 
     store.agents.append({"id": "second", "harness": "Claude Code", "mode": "default",
                          "model": None, "default": False})
@@ -124,7 +124,7 @@ def test_draft_job_blocked_at_spec(client):
 
 
 def test_sync_blocked_has_no_draft(client):
-    from autodave.storage import store
+    from autowright.storage import store
 
     # sync: the caller already holds the spec — the blocked payload carries none
     a = store.create_automation(make_version(), "Sync blocked", "mock")
@@ -137,8 +137,8 @@ def test_sync_blocked_has_no_draft(client):
 
 
 def test_sync_uses_provided_spec(client):
-    from autodave import paths
-    from autodave.storage import store
+    from autowright import paths
+    from autowright.storage import store
 
     a = store.create_automation(make_version(), "Sync target", "mock")
     marker = "The provided spec wins over the stored one."
@@ -153,8 +153,8 @@ def test_sync_uses_provided_spec(client):
 
 
 def test_sync_current_still_supported(client):
-    from autodave import paths
-    from autodave.storage import store
+    from autowright import paths
+    from autowright.storage import store
 
     a = store.create_automation(make_version(), "Sync current", "mock")
     cur = make_version(spec=[{"k": "h1", "text": "Edited"},
@@ -169,8 +169,8 @@ def test_sync_current_still_supported(client):
 
 
 def test_draft_edit_honors_in_editor_grants(client):
-    from autodave import paths
-    from autodave.storage import store
+    from autowright import paths
+    from autowright.storage import store
 
     # saved grants: no agents enabled, no secrets allowed
     a = store.create_automation(make_version(), "Ask target", "mock", enabled_agents=[])
@@ -192,7 +192,7 @@ def test_draft_edit_honors_in_editor_grants(client):
 
 
 def test_execution_and_execution_pages(client):
-    from autodave.storage import store
+    from autowright.storage import store
 
     a = store.create_automation(make_version(), "API Exec", "mock")
     r = client.post(f"/automations/{a['id']}/execute", json={})
@@ -244,7 +244,7 @@ def _echo_draft(**over):
 
 
 def _capture_events(monkeypatch):
-    from autodave import api
+    from autowright import api
 
     events: list[dict] = []
     monkeypatch.setattr(api.hub, "publish", lambda ev, **kw: events.append({"ev": ev, **kw}))
@@ -275,7 +275,7 @@ def test_test_param_values_override(client, monkeypatch):
 def test_test_stored_values_and_no_record(client, monkeypatch):
     # §19: with autoId (edit mode) the stored values are the base; a test writes
     # no execution record.
-    from autodave.storage import store
+    from autowright.storage import store
 
     events = _capture_events(monkeypatch)
     auto = client.post("/automations", json={"draft": _echo_draft()}).json()
@@ -314,7 +314,7 @@ def test_test_cancel(client, monkeypatch):
 
 
 def test_patch_automation_triggers_and_grants(client):
-    from autodave.storage import store
+    from autowright.storage import store
 
     a = store.create_automation(make_version(), "Patchable", "mock")
     r = client.patch(f"/automations/{a['id']}", json={
@@ -343,7 +343,7 @@ def test_patch_automation_triggers_and_grants(client):
 def test_app_started_fires_enabled_app_start_triggers(client, monkeypatch):
     # §6 app-start firing: POST /app-started executes every automation with an
     # enabled app_start trigger; off ones stay quiet.
-    from autodave.storage import store
+    from autowright.storage import store
 
     events = _capture_events(monkeypatch)
     a = store.create_automation(make_version(), "On start", "mock")
@@ -370,7 +370,7 @@ def test_app_started_fires_enabled_app_start_triggers(client, monkeypatch):
 
 
 def test_patch_automation_triggers_422(client):
-    from autodave.storage import store
+    from autowright.storage import store
 
     a = store.create_automation(make_version(), "Strict", "mock")
     # message kinds are reserved (§4.3), bad cron and past one-shots are refused
@@ -383,7 +383,7 @@ def test_patch_automation_triggers_422(client):
 
 
 def test_save_version_and_restore(client):
-    from autodave.storage import store
+    from autowright.storage import store
 
     a = store.create_automation(make_version(), "Versioner", "mock")
     r = client.post(f"/automations/{a['id']}/versions",
@@ -396,7 +396,7 @@ def test_save_version_and_restore(client):
 
 
 def test_save_version_applies_draft_triggers(client):
-    from autodave.storage import store
+    from autowright.storage import store
 
     a = store.create_automation(make_version(), "Scheduled", "mock",
                                 triggers=[{"id": "t1", "kind": "cron", "expr": "0 8 * * *", "off": True},
@@ -429,7 +429,7 @@ def test_save_version_applies_draft_triggers(client):
 
 
 def test_edit_draft_snapshot_carries_triggers(client):
-    from autodave.storage import store
+    from autowright.storage import store
 
     a = store.create_automation(make_version(), "Drafted", "mock")
     r = client.put(f"/automations/{a['id']}/draft", json={"draft": {
@@ -443,7 +443,7 @@ def test_edit_draft_snapshot_carries_triggers(client):
 
 
 def test_delete_agent_reassigns_default(client):
-    from autodave.storage import store
+    from autowright.storage import store
 
     r = client.post("/agents", json={"harness": "OpenCode", "mode": "ollama",
                                      "model": "qwen3:8b", "name": "Local"})
@@ -456,7 +456,7 @@ def test_delete_agent_reassigns_default(client):
 
 
 def test_seed_then_state(client, home):
-    from autodave.storage import store
+    from autowright.storage import store
     from seed_data import seed
 
     seed(store)
@@ -517,14 +517,14 @@ def test_seed_then_state(client, home):
 def test_settings_devmode_gates_request_logging(client):
     import logging
 
-    from autodave.main import _DevModeFilter
+    from autowright.main import _DevModeFilter
 
     # §4.9: default off; PATCH persists it
     assert client.get("/settings").json()["devMode"] is False
     flt = _DevModeFilter()
     info = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1,
                              "GET /state", None, None)
-    warn = logging.LogRecord("autodave.api", logging.WARNING, __file__, 1,
+    warn = logging.LogRecord("autowright.api", logging.WARNING, __file__, 1,
                              "boom", None, None)
     # §5: off → warnings only
     assert not flt.filter(info)
@@ -535,7 +535,7 @@ def test_settings_devmode_gates_request_logging(client):
 
 
 def test_packages_outdated_and_update(client, monkeypatch):
-    from autodave import packages as pkglib
+    from autowright import packages as pkglib
 
     # §6.2: the installed distribution is the comparison baseline for `latest`.
     monkeypatch.setattr(pkglib, "_installed_versions",
@@ -566,7 +566,7 @@ def test_packages_outdated_and_update(client, monkeypatch):
 
 def test_memory_snapshot_endpoints(client):
     # §6.3/§19: manual snapshot, rename, restore, delete; pre-clear rides clear.
-    from autodave.storage import store
+    from autowright.storage import store
 
     auto = client.post("/automations", json={"draft": _echo_draft()}).json()
     a = store.autos[auto["id"]]
@@ -609,7 +609,7 @@ def test_memory_snapshot_endpoints(client):
 
 def test_patch_snapshot_settings_and_gated_clear(client):
     # §19 PATCH snapshotSettings: partial merge; §6.3 pre-clear off → clear leaves no snapshot.
-    from autodave.storage import store
+    from autowright.storage import store
 
     auto = client.post("/automations", json={"draft": _echo_draft()}).json()
     a = store.autos[auto["id"]]
@@ -627,7 +627,7 @@ def test_patch_snapshot_settings_and_gated_clear(client):
 
 def test_memory_snapshot_409_while_live(client):
     # §6.3: manual snapshot and restore are blocked while an execution is live.
-    from autodave.storage import store
+    from autowright.storage import store
 
     auto = client.post("/automations", json={"draft": _echo_draft()}).json()
     a = store.autos[auto["id"]]
@@ -645,7 +645,7 @@ def test_memory_snapshot_409_while_live(client):
 
 def test_check_harness_endpoint(client, monkeypatch):
     # §19: the §4.7 readiness check before an agent record exists (§10 cards).
-    from autodave import harness
+    from autowright import harness
 
     monkeypatch.setattr(harness, "check_ready", lambda name, model=None: name == "Codex")
     assert client.post("/agents/check-harness",
@@ -657,7 +657,7 @@ def test_check_harness_endpoint(client, monkeypatch):
 
 def test_signin_and_login_endpoints(client, monkeypatch):
     # §19 sign-in help: only for an installed, signed-out, account-backed provider.
-    from autodave import harness, installer
+    from autowright import harness, installer
 
     monkeypatch.setattr(harness, "signin_state",
                         lambda pid: {"installed": pid != "gemini", "signedIn": pid == "claude"})
@@ -673,7 +673,7 @@ def test_signin_and_login_endpoints(client, monkeypatch):
 
 def test_install_endpoints(client, monkeypatch):
     # §19: install runs in the backend; the status snapshot reattaches a remounted UI.
-    from autodave import installer
+    from autowright import installer
 
     assert client.post("/agents/install", json={"id": "nope"}).status_code == 422
     assert client.get("/agents/install/claude").json() == {"state": "idle"}

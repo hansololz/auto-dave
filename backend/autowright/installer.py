@@ -125,7 +125,7 @@ def _stream_shell(cmd: list[str], emit, env_extra: dict | None = None) -> None:
 
 
 def _download(url: str, dest: str, emit, label: str) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "auto-dave"})
+    req = urllib.request.Request(url, headers={"User-Agent": "autowright"})
     with urllib.request.urlopen(req, timeout=120) as r, open(dest, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
         got, last = 0, -1
