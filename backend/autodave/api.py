@@ -86,7 +86,9 @@ def _agents_json() -> list[dict]:
     out = []
     for ag in store.agents:
         used = [a["name"] for a in store.autos.values()
-                if a["agent_id"] == ag["id"] or ag["id"] in a["enabled_agents"]]
+                if a["agent_id"] == ag["id"]
+                or any(s.get("agent_id") == ag["id"]
+                       for s in a["versions"].get(a["current_version"], {}).get("steps", []))]
         out.append({**ag, "usedBy": used})
     return out
 

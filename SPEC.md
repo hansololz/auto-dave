@@ -1854,6 +1854,10 @@ generated marketing copy (the desc is drafting input, §8 grants yaml); when the
 the line reads "No description yet — add one in Edit to tell the drafting AI what this agent
 is for." —
 and a **USED BY** row of clickable automation chips (fallback "Not used by any automation yet.").
+USED BY means actual reference, not permission: an automation is listed when the agent is its
+writer (`agent_id`) or a current-version step carries the agent's `agent_id`. The
+`enabled_agents` grant alone never counts — same rule as secrets, whose usage is step-code
+references, not `allowed_secrets` (§12 Secrets).
 There is no Edit button —
 the whole card is clickable (same hover treatment as the Automations list tiles) and opens the
 §12 edit form; a Needs-setup card opens it with the reconnect banner. Clicks on the overflow
