@@ -2063,6 +2063,7 @@ failing step carries two attempts.
   `ui.tsx` shared primitives, `tokens.css` design tokens, `pages/` one file per screen).
   `UI-GUIDE.md` records the renderer conventions.
 - `scripts/` — project scripts (`dev.sh`, `build.sh`, `prod.sh`, `logs.sh` — §18;
+  `uninstall/` — developer-only uninstall scripts for the harness CLIs and Ollama, §18;
   `gen_tray_icon.py` renders the tray template PNGs;
   `gen_app_icon.cjs` renders the dock icon `app/electron/appIcon.png` via Electron —
   invoked from `app/` as `./node_modules/.bin/electron ../scripts/gen_app_icon.cjs`;
@@ -2140,6 +2141,19 @@ Dev workflow:
 - App: `cd app && npm install`; typecheck+bundle with `npm run build`; `npm run app` launches
   Electron against the built bundle (release delivery; dev.sh instead serves the same source
   via Vite + `AUTODAVE_RENDERER_URL`, §15).
+- **`./scripts/uninstall/<tool>.sh`** (`claude-code.sh`, `codex.sh`, `gemini.sh`,
+  `opencode.sh`, `ollama.sh`) — developer-only reversal of the §19 installers, run manually by a
+  developer in a terminal. Default removes the tool's binary from `~/.local/bin` (Gemini via
+  `npm uninstall -g --prefix ~/.local @google/gemini-cli` plus its `~/.local/lib/node_modules`
+  tree; Ollama stops the running server first; OpenCode prefers the CLI's own
+  `opencode uninstall --force` — with `--keep-config --keep-data` unless purging — then removes
+  any leftover paths). **`--purge`** also deletes the tool's
+  config/auth/data dirs (`~/.claude` + `~/.claude.json*` and `~/.local/share/claude`;
+  `~/.codex`; `~/.gemini`; `~/.config`/`~/.local/share`/`~/.local/state`/`~/.cache`
+  `opencode` dirs; `~/.ollama` incl. models). Never invoked by the app, the backend, or any
+  agent — each script guards itself (shared `_lib.sh`): exits if agent env markers are present
+  (`CLAUDECODE`), exits without an interactive TTY on stdin+stdout, and requires the developer
+  to type the tool name to confirm.
 - **`./scripts/commit`** — stages all uncommitted changes (`git add -A`), asks Claude
   (Opus 4.8, `claude --model claude-opus-4-8 -p`) for a commit message based on the staged diff
   (≤72-char imperative summary, whole message capped at 2-3 sentences), prints it, and commits. Exits 0 with no commit if
