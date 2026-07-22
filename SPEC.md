@@ -1830,7 +1830,10 @@ checked once, staggered, on the first Agents page visit that sees it (new agents
 the next visit); later visits render the cached badge with no re-check. The cache entry for an
 agent updates when its edit form saves ("Connecting" until the fresh result lands, §4.7 check
 re-run right after the save) and when the reconnect flow's check answers (§12 form banner).
-Each card shows the agent's `desc` detail line
+Each card shows the agent's `desc` detail line — the real §4.7 desc only, never
+generated marketing copy (the desc is drafting input, §8 grants yaml); when the desc is empty
+the line reads "No description yet — add one in Edit to tell the drafting AI what this agent
+is for." —
 and a **USED BY** row of clickable automation chips (fallback "Not used by any automation yet.").
 Ready agents get an inline "Edit" button;
 Needs-setup rows use an accent-primary "Edit" button instead. The row overflow menu holds, for

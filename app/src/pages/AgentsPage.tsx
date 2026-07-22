@@ -8,16 +8,6 @@ import { BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, MenuRow, menuStyle, MiniBa
 import { openAgentEdit } from './AgentNewPage'
 
 
-function detailOf(ag: Agent, ready: boolean): string {
-  if (ag.model) return `Serves ${ag.model} on this Mac through OpenCode and Ollama. Private, works offline.`
-  if (ag.harness === 'OpenCode') return 'Uses whatever OpenCode is already configured with.'
-  if (ag.harness === 'Gemini CLI') return 'Uses your Google account through Gemini CLI.'
-  if (ag.harness === 'Codex') return 'Uses your ChatGPT account through Codex.'
-  // Claude Code
-  if (!ready) return 'Signed out. Reconnect to create or edit automations — existing ones still execute on schedule.'
-  return 'Signed in with your Claude account. Uses your existing subscription — nothing extra to pay here.'
-}
-
 function AgentCard({ ag, check, onDelete }: {
   ag: Agent; check: AgentCheck | undefined; onDelete: (ag: Agent) => void
 }) {
@@ -64,8 +54,9 @@ function AgentCard({ ag, check, onDelete }: {
       <div style={{ font: `500 11.5px var(--mono)`, color: 'var(--text-faint)', marginTop: -5 }}>
         {ag.harness} · {dispModel(ag)}
       </div>
-      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)' }}>
-        {ag.desc?.trim() ? ag.desc : detailOf(ag, checking ? true : ready)}
+      {/* Detail line = the §4.7 desc (drafting input) — never generated copy. */}
+      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: ag.desc?.trim() ? 'var(--text-2)' : 'var(--text-faint)' }}>
+        {ag.desc?.trim() ? ag.desc : 'No description yet — add one in Edit to tell the drafting AI what this agent is for.'}
       </p>
       {uses.length > 0 ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
