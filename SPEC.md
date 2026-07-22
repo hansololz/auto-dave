@@ -2068,7 +2068,8 @@ failing step carries two attempts.
   `gen_app_icon.cjs` renders the dock icon `app/electron/appIcon.png` via Electron —
   invoked from `app/` as `./node_modules/.bin/electron ../scripts/gen_app_icon.cjs`;
   `commit` stages all uncommitted changes, generates a commit message via
-  `claude --model claude-opus-4-8 -p` from the staged diff, and commits).
+  `claude --model claude-opus-4-8 -p` from the staged diff, and commits;
+  `knowledge.sh` regenerates `knowledge.md`, §18).
 - `tests/` — pytest suite for the backend (storage, drafting, engine, schedule, API), plus the
   test doubles: `tests/bin/claude` (fake agent CLI) and `tests/seed_data.py` (§16 fixture).
 - `LICENSE` — MIT, copyright David Zhang (also `"license": "MIT"` in `app/package.json`).
@@ -2161,6 +2162,14 @@ Dev workflow:
   agent — each script guards itself (shared `_lib.sh`): exits if agent env markers are present
   (`CLAUDECODE`), exits without an interactive TTY on stdin+stdout, and requires the developer
   to type the tool name to confirm.
+- **`./scripts/knowledge.sh`** — regenerates `knowledge.md` at the repo root: a gitignored,
+  developer-only orientation doc (concise, diagram-heavy — mermaid architecture + per-action
+  sequence diagrams, annotated file tree, data-model and key-file tables). Invokes
+  `claude --model claude-opus-4-8 -p` with read-only tools (`Read`, `Glob`, `Grep`, and
+  read-only Bash: `ls`/`tree`/`git ls-files`/`git log`/`wc`/`head`/`cat`) to explore the repo
+  (SPEC.md as primary source, verified against code), prepends a generated-at header, and
+  writes atomically (temp file + `mv`). Purely for developer reading — never read by agents,
+  never used to build the app; no other file references it.
 - **`./scripts/commit`** — stages all uncommitted changes (`git add -A`), asks Claude
   (Opus 4.8, `claude --model claude-opus-4-8 -p`) for a commit message based on the staged diff
   (≤72-char imperative summary, whole message capped at 2-3 sentences), prints it, and commits. Exits 0 with no commit if

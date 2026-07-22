@@ -26,3 +26,6 @@ build/
 # Logs
 *.log
 .dev-home/
+
+# Generated dev-only orientation doc (scripts/knowledge.sh)
+knowledge.md
