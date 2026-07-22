@@ -7,15 +7,12 @@ description: Build, launch, and drive Auto Dave (Electron + Python backend) to v
 
 ## Handles
 
-- `scripts/dev.sh` — fast dev loop with HMR: deps only, installs the real launchd service
-  (`com.autodave.backend`, random port, real Keychain, data in
-  `~/Library/Application Support/Auto Dave`), starts a Vite dev server, launches Electron
-  foreground with `AUTODAVE_RENDERER_URL` pointing at it. Quitting Electron leaves the backend
-  running; stop with `.venv/bin/autodave service uninstall`. Ctrl+C on dev.sh shuts everything
-  down (Electron, Vite, and the backend). Setting any `AUTODAVE_*` env
-  switches it to a direct-spawned isolated backend; `--fresh` needs `AUTODAVE_HOME`. NEVER
-  point verification sessions at the real data dir — always isolate with `AUTODAVE_HOME`.
-- For scripted verification, start pieces yourself (all backgroundable):
+- The `scripts/` directory is developer-only — agents must never run anything in it (a
+  PreToolUse hook in `.claude/settings.json` blocks it). `dev.sh` is what the developer runs by
+  hand for the HMR loop; for context: it installs the real launchd service, starts Vite, and
+  launches Electron with `AUTODAVE_RENDERER_URL`. NEVER point verification sessions at the real
+  data dir — always isolate with `AUTODAVE_HOME`.
+- Verify by starting the pieces yourself (all backgroundable):
   1. Backend: `AUTODAVE_HOME=<dir> AUTODAVE_PORT=<port> .venv/bin/python -m autodave.main`
      - Backend always starts EMPTY (fresh onboarding). There is no seed command — demo data is a
        test fixture only (`tests/seed_data.py`); create data through the UI or API.

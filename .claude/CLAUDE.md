@@ -11,6 +11,8 @@
   change — no legacy-code handlers, migration shims, or deprecated fallbacks.
 - Developer mode and production mode must behave the same: no mocked data in developer mode, and no separate
   dev-only code paths. Both modes execute the same real code.
-- Never execute anything under `scripts/uninstall/`. Those scripts remove the harness CLIs
-  (Claude Code, Codex, Gemini, OpenCode) and Ollama, and are strictly for the developer to run
-  by hand in a terminal. Agents may edit them when asked, but must never run them.
+- Never execute anything under `scripts/`. All project scripts are strictly for the developer to
+  run by hand in a terminal (`scripts/uninstall/` additionally removes the harness CLIs and
+  Ollama). Agents may read and edit them when asked, but must never run them. To verify changes,
+  launch the app pieces directly per the `verify` skill (backend module, `npm run build`,
+  playwright-driven Electron).

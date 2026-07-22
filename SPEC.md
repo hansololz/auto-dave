@@ -2075,6 +2075,13 @@ failing step carries two attempts.
 
 ## 18. Commands
 
+Everything under `scripts/` is developer-only: run by hand in a terminal, never by an agent.
+`.claude/settings.json` enforces this with a PreToolUse hook that blocks any Claude Code Bash
+command referencing the `scripts/` directory (deterministic harness-level block, independent of
+model compliance; agents may still read/edit the files via the non-Bash tools). Agents verify
+changes by launching the app pieces directly (backend module, `npm run build`, Electron via
+playwright — see `.claude/skills/verify`).
+
 Dev workflow:
 
 - **`./scripts/build.sh`** — build only, no launch: creates the venv and `node_modules` if

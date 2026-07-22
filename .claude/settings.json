@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); if printf '%s' \"$input\" | grep -qE 'scripts/|cd[[:space:]]+\\.?/?scripts'; then echo 'Blocked: the scripts/ directory is developer-only — agents must never run these scripts. The developer runs them by hand in a terminal.' >&2; exit 2; fi; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
