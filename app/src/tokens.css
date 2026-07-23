@@ -266,7 +266,7 @@ textarea:disabled, input:disabled { opacity: .45; }
 
 /* drag region for the hiddenInset title bar */
 .ad-drag { -webkit-app-region: drag; }
-.ad-drag button, .ad-drag a, .ad-drag input { -webkit-app-region: no-drag; }
+.ad-drag button, .ad-drag a, .ad-drag input, .ad-no-drag { -webkit-app-region: no-drag; }
 
 /* Markdown views — the shared §4.5 renderer (react-markdown + remark-gfm).
    Assumes 18px card side padding: tables go full-bleed with -18px margins. */

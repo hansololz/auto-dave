@@ -27,7 +27,7 @@ const NAV: { page: string; label: string; icon: string }[] = [
 function NavToggle({ onClick, title }: { onClick: () => void; title: string }) {
   return (
     <button
-      className="ad-nav-row"
+      className="ad-nav-row ad-no-drag"
       onClick={onClick}
       title={title}
       style={{
@@ -162,16 +162,18 @@ export default function App() {
           <Sidebar />
         </div>
       )}
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: 'var(--bg-content)', position: 'relative' }}>
+        <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 101 }} />
+        {surface === 'create' ? <CreateFlow /> : <Content />}
+      </div>
+      {/* After the drag strips in DOM order (§9): drag regions are collected in
+          DOM order ignoring z-index, so a later strip would swallow the button. */}
       {inShell && (
         <NavToggle
           onClick={() => setCollapsed(!navCollapsed)}
           title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         />
       )}
-      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: 'var(--bg-content)', position: 'relative' }}>
-        <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 101 }} />
-        {surface === 'create' ? <CreateFlow /> : <Content />}
-      </div>
       <Toast msg={toast} />
     </div>
   )

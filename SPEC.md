@@ -1341,7 +1341,13 @@ content, z-index 100), the sidebar's top 44 px is also draggable, and the conten
 carries its own 40 px sticky drag strip — every surface, both sidebar states — so page content
 sits at the same vertical offset whether the sidebar is collapsed or expanded; toggling never
 shifts the page vertically. Interactive controls inside drag regions stay clickable
-(`no-drag` on buttons/links/inputs). 212 px fixed sidebar: logo + "Autowright", nav
+(`no-drag` on buttons/links/inputs); the window-fixed sidebar toggle sits outside any `.ad-drag`
+container but overlaps both strips, so it carries an explicit `no-drag` (`.ad-no-drag`) — and it
+must be rendered **after** the content pane in the DOM: Chromium collects drag regions in DOM
+order ignoring z-index, so a drag strip that comes later would re-add "draggable" over the
+button's no-drag rect (this is why the collapsed-state full-width strip, not the expanded
+sidebar, is the dangerous overlap). Real OS clicks on a swallowed button start a window drag;
+synthetic/Playwright clicks bypass drag regions entirely and won't catch either mistake. 212 px fixed sidebar: logo + "Autowright", nav
 (Automations, Executions, Agents, Secrets, Settings) with live count pills; content pane scrolls
 independently. The sidebar collapses completely via a panel toggle (`fa-table-columns`, native
 `title` tooltip): one single window-fixed button (`position: fixed`, 28 px, `left: 82, top: 9`,
