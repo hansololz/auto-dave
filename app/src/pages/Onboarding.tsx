@@ -30,6 +30,8 @@ interface Card {
 }
 
 const LOCAL_MODEL = 'qwen3:8b'
+// §10: every body variant of the Free local AI card ends with this fit sentence.
+const LOCAL_FIT = 'Best for simple steps — for authoring automations, a cloud option gives stronger results.'
 const LOCAL_ID = 'local'
 const SUG_ORDER = ['claude', 'codex', 'gemini', 'opencode']
 const SUG: Record<string, { title: string; body: string; btn: string; primary: boolean }> = {
@@ -51,7 +53,7 @@ const SUG: Record<string, { title: string; body: string; btn: string; primary: b
   },
   [LOCAL_ID]: {
     title: 'Free local AI', primary: false, btn: 'Download and install · 5.2 GB',
-    body: 'Sets up OpenCode with Ollama and Qwen3 8B. Local to this Mac, works offline.',
+    body: `Sets up OpenCode with Ollama and Qwen3 8B. Local to this Mac, works offline. ${LOCAL_FIT}`,
   },
 }
 const CONTINUE_LABEL: Record<string, string> = {
@@ -830,8 +832,8 @@ export default function Onboarding() {
     // present) the body drops the setup framing entirely.
     const found = isLocal ? ob.localModel : null
     const body = isLocal && ob.localFound
-      ? `OpenCode with Ollama and ${found ?? LOCAL_MODEL} — local to this Mac, works offline.`
-      : found ? `Sets up OpenCode with Ollama and ${found}, already on this Mac. Works offline.` : s.body
+      ? `OpenCode with Ollama and ${found ?? LOCAL_MODEL} — local to this Mac, works offline. ${LOCAL_FIT}`
+      : found ? `Sets up OpenCode with Ollama and ${found}, already on this Mac. Works offline. ${LOCAL_FIT}` : s.body
     const btn = found ? 'Set up local AI' : s.btn
     const conn = c.phase === 'connected'
     const busy = c.phase === 'installing' || c.phase === 'pulling' || c.phase === 'signin' || c.phase === 'failed'

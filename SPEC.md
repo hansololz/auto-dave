@@ -1559,12 +1559,17 @@ real sign-in checks; no simulation in any mode:
   three pieces are already present at detection, in which case it renders as the last
   "FOUND ON THIS MAC" card instead (same card and machine; the found-section status line
   counts it like any found card, and its body reads "OpenCode with Ollama and `<model>` —
-  local to this Mac, works offline."). Placement is decided once at detection and never
+  local to this Mac, works offline. Best for simple steps — for authoring automations, a
+  cloud option gives stronger results."). Placement is decided once at detection and never
   moves mid-flow — the qwen3:8b recovery download below keeps the card in the found
-  section. With no model found the body reads "Sets up
-  OpenCode with Ollama and Qwen3 8B. Local to this Mac, works offline." and the button
+  section. Every body variant of this card ends with the same fit sentence: "Best for
+  simple steps — for authoring automations, a cloud option gives stronger results." With no
+  model found the body reads "Sets up
+  OpenCode with Ollama and Qwen3 8B. Local to this Mac, works offline." plus the fit
+  sentence and the button
   "Download and install · 5.2 GB"; with a model found the body reads "Sets up OpenCode with
-  Ollama and `<model>`, already on this Mac. Works offline." and the button "Set up local AI"
+  Ollama and `<model>`, already on this Mac. Works offline." plus the fit sentence and the
+  button "Set up local AI"
   (only the still-missing pieces install — no model download). When every piece is already
   present as the cards land, the card skips the install button and runs the connection check
   automatically (§19 `POST /agents/check-harness` with harness OpenCode and the card's
@@ -2018,7 +2023,8 @@ schedule — but you need an agent to create or edit them." + CTA "Add your firs
 "Save changes" when editing): pick harness (Claude Code / Gemini CLI / Codex / OpenCode —
 all four selectable, §4.7), mode (default model vs. a specific model vs. local Ollama model —
 the specific-model option renders for every harness; the local-model
-option renders only when the harness is OpenCode, §4.7),
+option renders only when the harness is OpenCode, §4.7, and carries the note "Pick a model
+served on this Mac through Ollama — best for simple steps"),
 model (required for specific-model and local-model modes — the specific-model mode shows a
 mono free-text input with a per-harness placeholder: Claude Code "e.g. claude-opus-4-8",
 Gemini CLI "e.g. gemini-2.5-pro", Codex "e.g. gpt-5-codex", OpenCode

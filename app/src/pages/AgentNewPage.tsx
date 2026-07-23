@@ -351,7 +351,7 @@ export default function AgentNewPage() {
               { id: 'custom' as const, name: 'A specific model', note: 'Type the model this harness should use' },
               // §4.7: local models run only through OpenCode (Ollama behind it)
               ...(harness === 'opencode'
-                ? [{ id: 'ollama' as const, name: 'A local model', note: 'Pick a model served on this Mac through Ollama' }]
+                ? [{ id: 'ollama' as const, name: 'A local model', note: 'Pick a model served on this Mac through Ollama — best for simple steps' }]
                 : []),
             ]).map((md) => {
               const on = mode === md.id
