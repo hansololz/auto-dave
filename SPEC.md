@@ -1337,21 +1337,25 @@ already-redacted execution output (§6).
 
 One 100 vh dark window with macOS traffic lights. The window drags from its top edge, Apple
 Music-style: a fixed 18 px full-width drag strip spans the whole window top (above sidebar and
-content, z-index 100), the sidebar's top 44 px is also draggable, and shell-less surfaces keep
-their own 40 px sticky drag strip. Interactive controls inside drag regions stay clickable
+content, z-index 100), the sidebar's top 44 px is also draggable, and the content pane always
+carries its own 40 px sticky drag strip — every surface, both sidebar states — so page content
+sits at the same vertical offset whether the sidebar is collapsed or expanded; toggling never
+shifts the page vertically. Interactive controls inside drag regions stay clickable
 (`no-drag` on buttons/links/inputs). 212 px fixed sidebar: logo + "Autowright", nav
 (Automations, Executions, Agents, Secrets, Settings) with live count pills; content pane scrolls
 independently. The sidebar collapses completely via a panel toggle (`fa-table-columns`, native
-`title` tooltip) that keeps one fixed window position in both states — Claude-desktop-style: 28 px
-button at `left: 82, top: 9`, right of the traffic lights, tuned by eye.
-The button carries `zIndex: 101` so it stays clickable above
-the 18 px fixed drag strip (z 100); the collapsed-state sticky drag strip is also z 101 so its
-stacking context doesn't cap the button. The window uses
+`title` tooltip): one single window-fixed button (`position: fixed`, 28 px, `left: 82, top: 9`,
+right of the traffic lights, tuned by eye, Claude-desktop-style) rendered only in the shell.
+The same element serves both states — it never moves or remounts, so it holds one fixed window
+position through the collapse animation too. The button carries `zIndex: 102` so it stays
+clickable above both the 18 px fixed drag strip (z 100) and the content pane's 40 px sticky drag
+strip (z 101), which sits under the button's window position when the sidebar is collapsed. The window uses
 `titleBarStyle: 'hidden'` with `trafficLightPosition: { x: 14, y: 14 }` — nudged down-right from
-the macOS default, holding that one fixed position in every window state. Expanded, it sits inside the sidebar's
-top 44 px drag row; collapsed, the sidebar is gone, the content pane spans the full window width
-behind the same 40 px sticky drag strip shell-less surfaces use, and the identical button in that
-strip expands it back. The collapsed state persists in `localStorage` (`ad-nav-collapsed`) and
+the macOS default, holding that one fixed position in every window state. Collapse/expand is
+animated: the sidebar sits in a wrapper whose width transitions 212 px ↔ 0 (`.22s ease`,
+`overflow: hidden`); the sidebar itself keeps a fixed 212 px width so nav rows never reflow or
+squish mid-animation, and collapsed the content pane spans the full window width. The collapsed
+state persists in `localStorage` (`ad-nav-collapsed`) and
 applies to both the app shell and the create/edit shell — it is never reset by navigation. Navigation is state-driven (`surface` → `page` → detail ids); browser/OS back works,
 but once past onboarding back never re-enters it. Page navigation (`go()`) always lands in the app
 shell: if the create/edit surface is active, it exits back to `surface: app` — so sidebar tabs work

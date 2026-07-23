@@ -22,7 +22,8 @@ const NAV: { page: string; label: string; icon: string }[] = [
   { page: 'settings', label: 'Settings', icon: 'fa-sliders' },
 ]
 
-// One fixed window position in both sidebar states (§9): right of the traffic lights.
+// One window-fixed button for both sidebar states (§9): right of the traffic lights,
+// same element across collapse/expand so it never moves during the animation.
 function NavToggle({ onClick, title }: { onClick: () => void; title: string }) {
   return (
     <button
@@ -30,9 +31,9 @@ function NavToggle({ onClick, title }: { onClick: () => void; title: string }) {
       onClick={onClick}
       title={title}
       style={{
-        position: 'absolute', left: 82, top: 9, display: 'flex', alignItems: 'center',
+        position: 'fixed', left: 82, top: 9, display: 'flex', alignItems: 'center',
         justifyContent: 'center', width: 28, height: 28, borderRadius: 7,
-        color: 'var(--text-faint)', zIndex: 101,
+        color: 'var(--text-faint)', zIndex: 102,
       }}
     >
       <i className="fa-solid fa-table-columns" style={{ fontSize: 13 }} />
@@ -40,7 +41,7 @@ function NavToggle({ onClick, title }: { onClick: () => void; title: string }) {
   )
 }
 
-function Sidebar({ onCollapse }: { onCollapse: () => void }) {
+function Sidebar() {
   const page = useStore((s) => s.page)
   const go = useStore((s) => s.go)
   const nAutos = useStore((s) => s.autos.length)
@@ -57,12 +58,10 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
   }
   return (
     <div style={{
-      width: 212, flex: 'none', background: 'var(--bg-sidebar)',
+      width: 212, height: '100%', flex: 'none', background: 'var(--bg-sidebar)',
       borderRight: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column',
     }}>
-      <div className="ad-drag" style={{ height: 44, flex: 'none', position: 'relative' }}>
-        <NavToggle onClick={onCollapse} title="Collapse sidebar" />
-      </div>
+      <div className="ad-drag" style={{ height: 44, flex: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '2px 16px 18px' }}>
         <Logo />
         <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-.01em' }}>Autowright</span>
@@ -155,17 +154,22 @@ export default function App() {
   if (surface === 'onboard') return <><Onboarding /><Toast msg={toast} /></>
 
   const inShell = surface === 'app' || (surface === 'create' && createFrom !== 'onboard')
-  const sidebarHidden = !inShell || navCollapsed
   return (
     <div style={{ height: '100vh', display: 'flex', background: 'var(--bg-window)' }}>
       <div className="ad-drag" style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 18, zIndex: 100 }} />
-      {!sidebarHidden && <Sidebar onCollapse={() => setCollapsed(true)} />}
-      <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-content)', position: 'relative' }}>
-        {sidebarHidden && (
-          <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 101 }}>
-            {inShell && <NavToggle onClick={() => setCollapsed(false)} title="Expand sidebar" />}
-          </div>
-        )}
+      {inShell && (
+        <div style={{ width: navCollapsed ? 0 : 212, flex: 'none', overflow: 'hidden', transition: 'width .22s ease' }}>
+          <Sidebar />
+        </div>
+      )}
+      {inShell && (
+        <NavToggle
+          onClick={() => setCollapsed(!navCollapsed)}
+          title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        />
+      )}
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: 'var(--bg-content)', position: 'relative' }}>
+        <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 101 }} />
         {surface === 'create' ? <CreateFlow /> : <Content />}
       </div>
       <Toast msg={toast} />
