@@ -647,7 +647,8 @@ def test_check_harness_endpoint(client, monkeypatch):
     # §19: the §4.7 readiness check before an agent record exists (§10 cards).
     from autowright import harness
 
-    monkeypatch.setattr(harness, "check_ready", lambda name, model=None: name == "Codex")
+    monkeypatch.setattr(harness, "check_ready",
+                        lambda name, model=None, mode="default": name == "Codex")
     assert client.post("/agents/check-harness",
                        json={"harness": "Codex"}).json() == {"status": "ready"}
     assert client.post("/agents/check-harness",

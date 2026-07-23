@@ -107,8 +107,8 @@ export const api = {
   deleteAgent: (id: string) => req('DELETE', `/agents/${id}`),
   checkAgent: (id: string) => req<{ status: string }>('POST', `/agents/${id}/check`),
   // §19 §4.7 readiness check before an agent record exists (§10 found cards)
-  checkHarness: (harness: string, model?: string | null) =>
-    req<{ status: string }>('POST', '/agents/check-harness', { harness, model }),
+  checkHarness: (harness: string, model?: string | null, mode: string = 'default') =>
+    req<{ status: string }>('POST', '/agents/check-harness', { harness, mode, model }),
   detectAgents: () =>
     req<{ id: string; name: string; installed: boolean; signedIn: boolean | null; detail: string }[]>(
       'GET', '/agents/detect'),

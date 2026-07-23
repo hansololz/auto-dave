@@ -406,12 +406,16 @@ the user skipped that step mid-execution (§7).
 
 ```
 { id: uuid, name, desc, harness: Claude Code | Gemini CLI | Codex | OpenCode,
-  mode: default | ollama, model }
+  mode: default | ollama | custom, model }
 ```
 `desc` is an optional free-text description ("What this agent is for — shown on the Agents
 page and given to the drafting agent"), rendered as the detail line on the agent card and
 carried into the §8 grants yaml so the drafting agent knows what each enabled agent is for.
-`model` is null unless `mode` is `ollama`, where it names the local Ollama model. Mode
+`model` is null when `mode` is `default` and required otherwise. Mode `custom` is valid with
+every harness: the user types the model as a free-text string and the app passes it verbatim
+to the harness CLI as `--model <model>` (§6, §19); the string is never validated by the app —
+a wrong name surfaces as a harness error at invoke time. Mode `ollama`: `model` names the
+local Ollama model. Mode
 `ollama` is valid **only with the OpenCode harness** — Ollama is not a harness of its own; it
 is purely the local-model runtime OpenCode drives (`opencode run --model ollama/<model>`,
 §19). A null model means the app never picks or passes a model — the harness uses whatever
@@ -746,8 +750,10 @@ never used for lookups.
   `claude -p --tools "" --strict-mcp-config --no-session-persistence`, Codex
   `codex exec --sandbox read-only --skip-git-repo-check`; Gemini CLI and OpenCode expose no
   tool-disable flag for one-shot invocations and are
-  invoked bare (documented limitation; an OpenCode agent with a local model adds
-  `--model ollama/<model>`). Every harness CLI child (drafting and runtime alike)
+  invoked bare (documented limitation; a custom-model agent — mode `custom`, §4.7 — adds
+  `--model <model>` to the harness command, the same flag on all four CLIs; an OpenCode
+  agent with a local model adds `--model ollama/<model>`). Every harness CLI child
+  (drafting and runtime alike)
   runs with its cwd set to an empty `harness-cwd/` directory under Application Support: CLI
   startup project scans stay inside that empty folder and never enter TCC-protected locations
   (Photos, Music, Desktop, …), so macOS shows no permission prompts attributed to the backend.
@@ -1870,9 +1876,13 @@ schedule — but you need an agent to create or edit them." + CTA "Add your firs
 
 **New / Edit agent** form (720 px, one form — title and submit label switch to "Edit agent" /
 "Save changes" when editing): pick harness (Claude Code / Gemini CLI / Codex / OpenCode —
-all four selectable, §4.7), mode (default model vs. local Ollama model — the local-model
+all four selectable, §4.7), mode (default model vs. a specific model vs. local Ollama model —
+the specific-model option renders for every harness; the local-model
 option renders only when the harness is OpenCode, §4.7),
-model (required for local-model mode), name
+model (required for specific-model and local-model modes — the specific-model mode shows a
+mono free-text input with a per-harness placeholder: Claude Code "e.g. claude-opus-4-8",
+Gemini CLI "e.g. gemini-2.5-pro", Codex "e.g. gpt-5-codex", OpenCode
+"e.g. anthropic/claude-opus-4-8"; OpenCode expects the provider/model form), name
 (required), optional description ("What this agent is for — shown on the Agents page and given
 to the drafting agent"). The
 submit button renders disabled-styled until valid but stays clickable: submitting with a missing
@@ -2320,10 +2330,12 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `POST /executions/{id}/retry` (§7 in-place retry; 409 unless failed and not live) ·
   `POST /executions/{id}/skip-step` `{ index }` (§7 skip; 409 unless that step is executing)
 - `GET/POST /agents` · `PATCH/DELETE /agents/{id}` · `POST /agents/{id}/check` (health/badge)
-  and `POST /agents/check-harness` `{ harness, model? }` (the same check before an agent record
-  exists — onboarding's found-card auto-check) — one shared readiness check
+  and `POST /agents/check-harness` `{ harness, mode?, model? }` (the same check before an agent
+  record exists — onboarding's found-card auto-check) — one shared readiness check
   (`harness.check_ready`) decides ready vs. needs-setup everywhere: the harness binary must
-  resolve (rule below). A local-model agent (OpenCode with mode `ollama`, §4.7) additionally
+  resolve (rule below). A custom-model agent (mode `custom`, §4.7) checks exactly like a
+  default-mode one — the typed model string is never validated by the check (§4.7); a wrong
+  name surfaces at invoke time. A local-model agent (OpenCode with mode `ollama`, §4.7) additionally
   needs Ollama's server answering **and the agent's model installed** (the model appears in
   `/api/tags`; a bare name without a tag matches its `:latest` variant) — and needs **no**
   sign-in: a local model needs no account. Every default-mode check instead requires the

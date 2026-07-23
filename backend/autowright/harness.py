@@ -141,9 +141,15 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
             proc_holder: dict | None, on_chunk=None) -> str:
     # §4.7: a local-model agent is OpenCode driving Ollama — the model rides
     # in as `--model ollama/<model>` after the §19 opencode.json provider sync.
+    # A custom-model agent passes the user-typed string verbatim as `--model`
+    # (the same flag on all four CLIs), never validated by the app.
+    mode = agent.get("mode", "default")
     model = agent.get("model")
-    if harness == "OpenCode" and model:
+    if harness == "OpenCode" and mode == "ollama" and model:
         sync_opencode_ollama(model)
+    model_args: list[str] = []
+    if model:
+        model_args = ["--model", f"ollama/{model}" if mode == "ollama" else model]
     # §6: query-only runtime calls — invoke each harness with the strongest
     # flags it offers to disable tools/shell/file access beyond the model API.
     cmd_map = {
@@ -152,20 +158,19 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
         # the one-shot call off disk. stream-json + --include-partial-messages
         # streams text deltas for §8 live progress (stream-json in print mode
         # requires --verbose). (Flags verified against claude --help.)
-        "Claude Code": ["claude", "-p", "--tools", "", "--strict-mcp-config",
+        "Claude Code": ["claude", "-p", *model_args, "--tools", "", "--strict-mcp-config",
                         "--no-session-persistence", "--output-format", "stream-json",
                         "--include-partial-messages", "--verbose", prompt],
         # Gemini CLI has no documented flag that disables its built-in tools
         # for a one-shot -p call (only sandbox/approval modes) — left bare.
-        "Gemini CLI": ["gemini", "-p", prompt],
+        "Gemini CLI": ["gemini", *model_args, "-p", prompt],
         # Codex: read-only sandbox blocks writes/shell side effects;
         # --skip-git-repo-check lets exec work outside a git repo (workspace).
-        "Codex": ["codex", "exec", "--sandbox", "read-only",
+        "Codex": ["codex", "exec", *model_args, "--sandbox", "read-only",
                   "--skip-git-repo-check", prompt],
         # OpenCode has no documented flag that disables tool use for
         # `opencode run` — left bare.
-        "OpenCode": ["opencode", "run",
-                     *(["--model", f"ollama/{model}"] if model else []), prompt],
+        "OpenCode": ["opencode", "run", *model_args, prompt],
     }
     cmd = cmd_map.get(harness)
     if not cmd:
@@ -389,23 +394,26 @@ def signin_state(provider_id: str) -> dict:
     return {"installed": binpath is not None, "signedIn": signed_in(provider_id)}
 
 
-def check_ready(harness_name: str, model: str | None = None) -> bool:
+def check_ready(harness_name: str, model: str | None = None,
+                mode: str = "default") -> bool:
     """The single readiness check behind §19 `/agents/{id}/check` and
     `/agents/check-harness`.
 
     Ready means the harness can take a prompt right now: the binary resolves.
-    A local-model agent (OpenCode with a model, §4.7) additionally needs the
-    Ollama server answering and the model installed — and no sign-in, a local
-    model needs no account. Every default-mode check instead requires the
-    harness to be signed in by the §19 per-harness rule.
+    A local-model agent (OpenCode with mode ollama, §4.7) additionally needs
+    the Ollama server answering and the model installed — and no sign-in, a
+    local model needs no account. Default- and custom-mode checks instead
+    require the harness to be signed in by the §19 per-harness rule; the
+    custom-mode model string is never validated (§4.7) — a wrong name
+    surfaces at invoke time.
     """
     pid = HARNESS_ID.get(harness_name)
     if not pid:
         return False
     if resolve_bin(PROVIDER_BIN[pid]) is None:
         return False
-    if model is not None:
-        if harness_name != "OpenCode":
+    if mode == "ollama":
+        if harness_name != "OpenCode" or not model:
             return False
         st = ollama_status()
         if not st["ready"] or not ollama_model_installed(model, st["models"]):

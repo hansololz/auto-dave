@@ -244,7 +244,7 @@ export default function Onboarding() {
     const model = ob.localModel ?? LOCAL_MODEL
     setCard(LOCAL_ID, { phase: 'checking', notReady: null })
     const t0 = Date.now()
-    void api.checkHarness('OpenCode', model)
+    void api.checkHarness('OpenCode', model, 'ollama')
       .then((r) => r.status === 'ready')
       .catch(() => false)
       .then(async (ready) => {

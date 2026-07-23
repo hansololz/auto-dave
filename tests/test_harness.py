@@ -71,7 +71,8 @@ def test_opencode_local_model_invoked_with_ollama_model_flag(monkeypatch):
 
     synced = []
     monkeypatch.setattr(harness, "sync_opencode_ollama", synced.append)
-    cmd = _captured_invoke(monkeypatch, {"harness": "OpenCode", "model": "qwen3:8b"})
+    cmd = _captured_invoke(monkeypatch, {"harness": "OpenCode", "mode": "ollama",
+                                         "model": "qwen3:8b"})
     assert cmd[:2] == ["/usr/local/bin/opencode", "run"]
     i = cmd.index("--model")
     assert cmd[i + 1] == "ollama/qwen3:8b"
@@ -81,6 +82,25 @@ def test_opencode_local_model_invoked_with_ollama_model_flag(monkeypatch):
     cmd = _captured_invoke(monkeypatch, {"harness": "OpenCode"})
     assert "--model" not in cmd  # default mode: no model is ever passed
     assert synced == ["qwen3:8b"]  # and no sync either
+
+
+def test_custom_model_invoked_with_verbatim_model_flag(monkeypatch):
+    # §4.7: a custom-model agent passes the user-typed string verbatim as
+    # `--model` on every harness — no ollama/ prefix, no opencode.json sync.
+    from autowright import harness
+
+    synced = []
+    monkeypatch.setattr(harness, "sync_opencode_ollama", synced.append)
+    for name, model in (("Claude Code", "claude-opus-4-8"),
+                        ("Gemini CLI", "gemini-2.5-pro"),
+                        ("Codex", "gpt-5-codex"),
+                        ("OpenCode", "anthropic/claude-opus-4-8")):
+        cmd = _captured_invoke(monkeypatch, {"harness": name, "mode": "custom",
+                                             "model": model})
+        i = cmd.index("--model")
+        assert cmd[i + 1] == model
+        assert cmd[-1] == "question: hi?"
+    assert synced == []
 
 
 def test_sync_opencode_ollama_merges_config(monkeypatch, tmp_path):
@@ -187,14 +207,20 @@ def test_check_ready_local_model_requires_installed_model(monkeypatch):
     monkeypatch.setattr(harness, "ollama_status",
                         lambda: {"ready": True, "installed": True,
                                  "models": ["qwen3:8b", "llama3.2:latest"]})
-    assert harness.check_ready("OpenCode", "qwen3:8b")  # signed out is fine
-    assert harness.check_ready("OpenCode", "llama3.2")  # bare name → :latest
-    assert not harness.check_ready("OpenCode", "mistral:7b")
-    assert not harness.check_ready("Claude Code", "qwen3:8b")  # OpenCode only
+    assert harness.check_ready("OpenCode", "qwen3:8b", "ollama")  # signed out is fine
+    assert harness.check_ready("OpenCode", "llama3.2", "ollama")  # bare name → :latest
+    assert not harness.check_ready("OpenCode", "mistral:7b", "ollama")
+    assert not harness.check_ready("Claude Code", "qwen3:8b", "ollama")  # OpenCode only
+    # §4.7 custom mode: model string never validated — sign-in decides, and a
+    # signed-out harness is not ready
+    assert not harness.check_ready("Claude Code", "made-up-model", "custom")
+    monkeypatch.setattr(harness, "signed_in", lambda pid: True)
+    assert harness.check_ready("Claude Code", "made-up-model", "custom")
+    monkeypatch.setattr(harness, "signed_in", lambda pid: False)
 
     monkeypatch.setattr(harness, "ollama_status",
                         lambda: {"ready": False, "installed": True, "models": []})
-    assert not harness.check_ready("OpenCode", "qwen3:8b")
+    assert not harness.check_ready("OpenCode", "qwen3:8b", "ollama")
 
     monkeypatch.setattr(harness, "resolve_bin", lambda name: None)
     assert not harness.check_ready("OpenCode", "qwen3:8b")  # no binary → never ready

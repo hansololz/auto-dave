@@ -606,16 +606,19 @@ def add_agent(body: dict) -> dict:
     if harness_name not in HARNESSES:
         raise HTTPException(422, "unknown harness")
     mode = body.get("mode", "default")
-    if mode not in ("default", "ollama"):
-        raise HTTPException(422, "mode must be default | ollama")
-    # §4.7: mode ollama is OpenCode driving a local Ollama model; model is null
-    # unless mode is ollama — a null model means the harness uses whatever it
+    if mode not in ("default", "ollama", "custom"):
+        raise HTTPException(422, "mode must be default | ollama | custom")
+    # §4.7: mode ollama is OpenCode driving a local Ollama model; mode custom
+    # is a user-typed model string valid with every harness; model is null
+    # only in default mode — a null model means the harness uses whatever it
     # is already configured with.
     if mode == "ollama" and harness_name != "OpenCode":
         raise HTTPException(422, "local-model mode needs the OpenCode harness")
-    model = (body.get("model") or None) if mode == "ollama" else None
+    model = (body.get("model") or None) if mode != "default" else None
     if mode == "ollama" and not model:
         raise HTTPException(422, "local-model mode needs a model")
+    if mode == "custom" and not model:
+        raise HTTPException(422, "custom-model mode needs a model")
     import uuid
 
     with store.lock:
@@ -633,8 +636,8 @@ def patch_agent(agent_id: str, body: dict) -> dict:
     # shape POST rejects (e.g. mode ollama with no model, §4.7).
     if "harness" in body and body["harness"] not in HARNESSES:
         raise HTTPException(422, "unknown harness")
-    if "mode" in body and body["mode"] not in ("default", "ollama"):
-        raise HTTPException(422, "mode must be default | ollama")
+    if "mode" in body and body["mode"] not in ("default", "ollama", "custom"):
+        raise HTTPException(422, "mode must be default | ollama | custom")
     with store.lock:
         ag = _agent_or_404(agent_id)
         mode = body.get("mode", ag.get("mode", "default"))
@@ -644,6 +647,8 @@ def patch_agent(agent_id: str, body: dict) -> dict:
         model = body["model"] if "model" in body else ag.get("model")
         if mode == "ollama" and not model:
             raise HTTPException(422, "local-model mode needs a model")
+        if mode == "custom" and not model:
+            raise HTTPException(422, "custom-model mode needs a model")
         if body.get("default"):
             for g in store.agents:
                 g["default"] = g["id"] == agent_id
@@ -652,7 +657,7 @@ def patch_agent(agent_id: str, body: dict) -> dict:
         for k in ("name", "model", "mode", "desc"):
             if k in body:
                 ag[k] = body[k]
-        if ag.get("mode") != "ollama":
+        if ag.get("mode", "default") == "default":
             ag["model"] = None
         store.save_agents()
     hub.publish("agents.changed")
@@ -686,7 +691,8 @@ def delete_agent(agent_id: str) -> dict:
 @app.post("/agents/{agent_id}/check", dependencies=[Depends(auth)])
 def check_agent(agent_id: str) -> dict:
     ag = _agent_or_404(agent_id)
-    return {"status": "ready" if harness.check_ready(ag["harness"], ag.get("model"))
+    return {"status": "ready" if harness.check_ready(ag["harness"], ag.get("model"),
+                                                     ag.get("mode", "default"))
             else "needs-setup"}
 
 
@@ -706,7 +712,8 @@ def check_harness(body: dict) -> dict:
     """§19: the §4.7 readiness check before an agent record exists (§10)."""
     if body.get("harness") not in harness.HARNESS_ID:
         raise HTTPException(422, "unknown harness")
-    return {"status": "ready" if harness.check_ready(body["harness"], body.get("model"))
+    return {"status": "ready" if harness.check_ready(body["harness"], body.get("model"),
+                                                     body.get("mode", "default"))
             else "needs-setup"}
 
 

@@ -33,6 +33,14 @@ const DEFAULT_NOTE: Record<HarnessId, string> = {
   opencode: 'Whatever OpenCode is already configured with',
 }
 
+// §4.7 custom mode: free-text model string, passed verbatim as `--model`
+const CUSTOM_PLACEHOLDER: Record<HarnessId, string> = {
+  claude: 'e.g. claude-opus-4-8',
+  gemini: 'e.g. gemini-2.5-pro',
+  codex: 'e.g. gpt-5-codex',
+  opencode: 'e.g. anthropic/claude-opus-4-8',
+}
+
 const SUGGESTED = [
   { id: 'qwen3-coder:30b', note: 'Best local coding model', meta: '19 GB' },
   { id: 'gemma4:e4b', note: 'Good local default', meta: '9.6 GB' },
@@ -78,8 +86,8 @@ export default function AgentNewPage() {
   const editAgent = editing?.agent ?? null
   const editHid = editAgent ? (HARNESS_ID[editAgent.harness] ?? 'claude') : null
   const [harness, setHarness] = useState<HarnessId | null>(editHid)
-  const [mode, setMode] = useState<'default' | 'ollama' | null>(
-    editAgent ? (editAgent.model ? 'ollama' : 'default') : null)
+  const [mode, setMode] = useState<'default' | 'ollama' | 'custom' | null>(
+    editAgent ? editAgent.mode : null)
   const [model, setModel] = useState<string | null>(editAgent?.model ?? null)
   const [name, setName] = useState(editAgent ? (editAgent.name || editAgent.harness) : '')
   const [desc, setDesc] = useState(editAgent?.desc ?? '')
@@ -159,7 +167,7 @@ export default function AgentNewPage() {
   const needsOllama = mode === 'ollama'
   const canAdd = !!harness && !!mode
     && (!needsOllama || ready)
-    && (mode !== 'ollama' || !!model)
+    && (mode === 'default' || !!model?.trim())
     && !!name.trim()
 
   const startPull = (raw: string) => {
@@ -205,7 +213,7 @@ export default function AgentNewPage() {
     const payload = {
       harness: HARNESS_NAME[h],
       mode,
-      model: mode === 'ollama' ? model : null,
+      model: mode === 'default' ? null : (model?.trim() ?? null),
       name: name.trim(),
       desc: desc.trim(),
     }
@@ -339,6 +347,8 @@ export default function AgentNewPage() {
           }}>
             {([
               { id: 'default' as const, name: 'Default model', note: DEFAULT_NOTE[harness] },
+              // §4.7: a user-typed model string — valid with every harness
+              { id: 'custom' as const, name: 'A specific model', note: 'Type the model this harness should use' },
               // §4.7: local models run only through OpenCode (Ollama behind it)
               ...(harness === 'opencode'
                 ? [{ id: 'ollama' as const, name: 'A local model', note: 'Pick a model served on this Mac through Ollama' }]
@@ -363,6 +373,22 @@ export default function AgentNewPage() {
               )
             })}
           </div>
+
+          {mode === 'custom' && (
+            <>
+              <Eyebrow style={{ margin: '0 0 10px' }}>MODEL NAME</Eyebrow>
+              <input
+                className="ad-input"
+                value={model ?? ''}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder={CUSTOM_PLACEHOLDER[harness]}
+                style={{
+                  width: '100%', boxSizing: 'border-box', padding: '11px 14px',
+                  font: `500 13px var(--mono)`, color: 'var(--text)', marginBottom: 16,
+                }}
+              />
+            </>
+          )}
 
           {needsOllama && st && !ready && (
             inst === 'installing' ? (
