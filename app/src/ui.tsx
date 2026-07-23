@@ -104,7 +104,7 @@ export function FailureNotice({ error, onView, style }: {
         </span>
         <div style={{ flex: 1 }} />
         {onView && (
-          <button className="ad-btn-text" onClick={onView} style={{ fontSize: 12, fontWeight: 500 }}>
+          <button className="ad-btn-text" onClick={onView}>
             View execution <i className="fa-solid fa-chevron-right" style={{ fontSize: 9 }} />
           </button>
         )}

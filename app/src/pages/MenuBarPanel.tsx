@@ -106,7 +106,6 @@ export default function MenuBarPanel() {
         <button
           className="ad-btn-link"
           onClick={() => void window.autowright?.openApp('/app')}
-          style={{ fontSize: 12 }}
         >
           Open Autowright
         </button>

@@ -12,10 +12,6 @@ import { ResultSection, SpecMarkdown } from '../result'
 
 const badgeAnim = (s: string) => (s === 'executing' ? 'adPulse 1.4s ease-in-out infinite' : 'none')
 
-// ---------- §9.2 MEMORY snapshot-row text buttons: shared sizing (colors + hover live in ad-btn-text) ----------
-
-const memRowSize: React.CSSProperties = { fontWeight: 500, fontSize: 11.5, padding: '3px 7px' }
-
 // §6.3 automatic-snapshot toggles — label + plain-language explanation per reason
 const SNAP_SETTINGS: Array<{ key: keyof SnapshotSettings; label: string; help: string }> = [
   {
@@ -158,7 +154,7 @@ function AddTrigger({ hasAppStart, onAdd }: {
         >
           Add
         </button>
-        <button className="ad-btn-text dim" onClick={reset} style={{ fontWeight: 500, fontSize: 12, flex: 'none' }}>
+        <button className="ad-btn-text dim" onClick={reset} style={{ flex: 'none' }}>
           Cancel
         </button>
       </div>
@@ -665,7 +661,7 @@ export default function AutomationDetail() {
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 30px 70px', animation: 'adFadeUp .4s ease' }}>
-      <button className="ad-btn-text" onClick={() => go('automations')} style={{ fontWeight: 500, fontSize: 12.5, padding: '4px 0' }}>
+      <button className="ad-btn-text" onClick={() => go('automations')}>
         <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Automations
       </button>
 
@@ -787,18 +783,18 @@ export default function AutomationDetail() {
           <button
             className="ad-btn-accent-ghost"
             onClick={() => doExecute('Draft')}
-            style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, padding: '6px 11px', flex: 'none' }}
+            style={{ flex: 'none' }}
           >
             <i className="fa-solid fa-play" style={{ fontSize: 9 }} /> Execute draft
           </button>
           <button
             className="ad-btn-soft"
             onClick={() => setSurface('create', 'edit')}
-            style={{ fontSize: 12, padding: '6px 12px', flex: 'none' }}
+            style={{ flex: 'none' }}
           >
             Resume editing
           </button>
-          <button className="ad-btn-text dim" onClick={discardDraft} style={{ fontWeight: 500, fontSize: 12, flex: 'none' }}>
+          <button className="ad-btn-text dim" onClick={discardDraft} style={{ flex: 'none' }}>
             Discard
           </button>
         </div>
@@ -897,7 +893,7 @@ export default function AutomationDetail() {
         <div style={{ marginBottom: 26 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
             <Eyebrow style={{ color: 'var(--text-faint)' }}>RECENT EXECUTIONS</Eyebrow>
-            <button className="ad-btn-text" onClick={() => go('executions')} style={{ fontWeight: 500, fontSize: 11.5 }}>
+            <button className="ad-btn-text" onClick={() => go('executions')}>
               All executions <i className="fa-solid fa-chevron-right" style={{ fontSize: 9 }} />
             </button>
           </div>
@@ -955,7 +951,7 @@ export default function AutomationDetail() {
                       ? 'Next execution starts fresh, like the first time. Current memory is snapshotted first.'
                       : "Next execution starts fresh, like the first time. Automatic snapshots are off — this can't be undone."}
                   </span>
-                  <button className="ad-btn-danger-ghost" onClick={doClearMemory} style={{ fontSize: 12, padding: '6px 13px' }}>
+                  <button className="ad-btn-danger-ghost" onClick={doClearMemory}>
                     Clear
                   </button>
                   <button className="ad-btn-soft" onClick={() => setConfirmClear(false)}>
@@ -998,7 +994,7 @@ export default function AutomationDetail() {
                       Snapshot
                     </button>
                   )}
-                  <button className="ad-btn-text danger" onClick={() => setConfirmClear(true)} style={{ fontWeight: 500, fontSize: 12 }}>
+                  <button className="ad-btn-text danger" onClick={() => setConfirmClear(true)}>
                     Clear memory
                   </button>
                 </>
@@ -1048,10 +1044,10 @@ export default function AutomationDetail() {
                           style={{ width: 220, fontSize: 12, padding: '5px 10px' }}
                         />
                         <div style={{ flex: 1 }} />
-                        <button className="ad-btn-text" onClick={() => doRenameSnap(s.id)} style={memRowSize}>
+                        <button className="ad-btn-text" onClick={() => doRenameSnap(s.id)}>
                           Save
                         </button>
-                        <button className="ad-btn-text" onClick={() => setSnapRow(null)} style={memRowSize}>
+                        <button className="ad-btn-text" onClick={() => setSnapRow(null)}>
                           Cancel
                         </button>
                       </>
@@ -1059,10 +1055,10 @@ export default function AutomationDetail() {
                       <>
                         <span style={{ fontSize: 12.5, color: 'var(--text-2em)' }}>Delete this snapshot?</span>
                         <div style={{ flex: 1 }} />
-                        <button className="ad-btn-text danger" onClick={() => doDeleteSnap(s.id)} style={{ ...memRowSize, fontWeight: 600 }}>
+                        <button className="ad-btn-text danger" onClick={() => doDeleteSnap(s.id)}>
                           Delete
                         </button>
-                        <button className="ad-btn-text" onClick={() => setSnapRow(null)} style={memRowSize}>
+                        <button className="ad-btn-text" onClick={() => setSnapRow(null)}>
                           Keep
                         </button>
                       </>
@@ -1075,17 +1071,16 @@ export default function AutomationDetail() {
                           {s.reason} · {s.version} · {s.size} · {s.files} {s.files === 1 ? 'file' : 'files'} · {s.when}
                         </span>
                         <div style={{ flex: 1 }} />
-                        <button className="ad-btn-text" onClick={() => setSnapRow({ sid: s.id, kind: 'restore' })} style={memRowSize}>
+                        <button className="ad-btn-text" onClick={() => setSnapRow({ sid: s.id, kind: 'restore' })}>
                           Restore
                         </button>
                         <button
                           className="ad-btn-text"
                           onClick={() => { setRenameVal(s.name ?? ''); setSnapRow({ sid: s.id, kind: 'rename' }) }}
-                          style={memRowSize}
                         >
                           Rename
                         </button>
-                        <button className="ad-btn-text danger" onClick={() => setSnapRow({ sid: s.id, kind: 'delete' })} style={memRowSize}>
+                        <button className="ad-btn-text danger" onClick={() => setSnapRow({ sid: s.id, kind: 'delete' })}>
                           Delete
                         </button>
                       </>

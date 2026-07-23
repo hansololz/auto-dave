@@ -249,7 +249,7 @@ export default function AgentNewPage() {
       <button
         className="ad-btn-text"
         onClick={() => go('agents')}
-        style={{ fontWeight: 500, fontSize: 12.5, padding: '4px 0', marginBottom: 10 }}
+        style={{ marginBottom: 10 }}
       >
         <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Agents
       </button>
@@ -547,7 +547,6 @@ export default function AgentNewPage() {
         <button
           className="ad-btn-text dim"
           onClick={() => go('agents')}
-          style={{ fontWeight: 500, fontSize: 12.5 }}
         >
           Cancel
         </button>

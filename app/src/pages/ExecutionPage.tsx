@@ -13,7 +13,7 @@ type Sel = { step: number | null; attempt: number | null }
 
 function BackLink({ onClick }: { onClick: () => void }) {
   return (
-    <button className="ad-btn-text" onClick={onClick} style={{ fontSize: 12.5, fontWeight: 500, padding: '4px 0' }}>
+    <button className="ad-btn-text" onClick={onClick}>
       <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Executions
     </button>
   )

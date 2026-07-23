@@ -548,7 +548,7 @@ function MissingSecretRow({ name, sub, onAdded }: { name: string; sub: string; o
             onKeyDown={(e) => { if (e.key === 'Enter') void add() }}
             style={{ flex: 1, minWidth: 0, color: 'var(--text)', font: "400 12px var(--mono)", padding: '7px 10px' }}
           />
-          <BtnPrimary onClick={() => void add()} disabled={!val.trim() || busy} style={{ padding: '6px 12px', fontSize: 12 }}>
+          <BtnPrimary onClick={() => void add()} disabled={!val.trim() || busy}>
             Add secret
           </BtnPrimary>
         </div>
@@ -1450,7 +1450,7 @@ export default function CreateFlow() {
           padding: `0 30px 0 ${isReview ? '30px' : '32px'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <button className="ad-btn-text" onClick={() => void close()} style={{ font: "500 12.5px var(--sans)", padding: '4px 0' }}>
+          <button className="ad-btn-text" onClick={() => void close()}>
             <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> {backLabel}
           </button>
           {isOnboard && <span style={{ font: "500 11px var(--mono)", color: 'var(--text-faint)' }}>Step 3 of 3</span>}
@@ -1503,11 +1503,11 @@ export default function CreateFlow() {
               />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <BtnPrimary onClick={() => void submitAsk()} style={{ padding: '10px 18px', fontSize: 13.5 }}>
+              <BtnPrimary onClick={() => void submitAsk()}>
                 Draft the automation
               </BtnPrimary>
               {isOnboard && (
-                <button className="ad-btn-text dim" onClick={skipOnboard} style={{ font: "500 12.5px var(--sans)", padding: '6px 2px' }}>
+                <button className="ad-btn-text dim" onClick={skipOnboard}>
                   Skip for now
                 </button>
               )}
@@ -1606,15 +1606,15 @@ export default function CreateFlow() {
                               : 'Sync and review the steps before saving'}
                   </span>
                 )}
-                <button className="ad-btn-text dim" disabled={busyRewrite} onClick={() => void startOver()} style={{ font: "500 12.5px var(--sans)", padding: '6px 4px' }}>
+                <button className="ad-btn-text dim" disabled={busyRewrite} onClick={() => void startOver()}>
                   {isEdit ? 'Discard draft' : 'Start over'}
                 </button>
                 {isEdit && (rev.touched || !!auto?.draft) && (
-                  <button className="ad-btn-ghost" onClick={() => void close()} style={{ padding: '8px 15px' }}>
+                  <button className="ad-btn-ghost" onClick={() => void close()}>
                     Keep draft
                   </button>
                 )}
-                <BtnPrimary onClick={() => void doSave()} disabled={saveBlocked} style={{ padding: '9px 16px' }}>
+                <BtnPrimary onClick={() => void doSave()} disabled={saveBlocked}>
                   {isEdit && auto
                     ? (viewingOld ? `Restore v${rev.viewing} as v${auto.version + 1}` : `Save as v${auto.version + 1}`)
                     : 'Create automation'}
@@ -1674,9 +1674,7 @@ export default function CreateFlow() {
                       {rev.specUndo && (
                         <button
                           className="ad-btn-text dim" disabled={busyRewrite}
-                          onClick={undoSpec}
-                          style={{ font: "500 11.5px var(--sans)", padding: '4px 4px' }}
-                        >
+                          onClick={undoSpec}                        >
                           Undo
                         </button>
                       )}
@@ -1705,9 +1703,7 @@ export default function CreateFlow() {
                           onClick={() => {
                             if (rev.specText !== rev.specTextOrig) { setConfirmSpecCancel(true); return }
                             up({ specEdit: false, specText: '', specTextOrig: '' })
-                          }}
-                          style={{ font: "500 11.5px var(--sans)", padding: '4px 4px' }}
-                        >
+                          }}                        >
                           Cancel
                         </button>
                         <button
@@ -1721,9 +1717,7 @@ export default function CreateFlow() {
                               dirty: true, touched: true,
                             })
                             showToast('Spec saved — the workflow is out of sync. Sync the steps before saving.', 5800)
-                          }}
-                          style={{ padding: '5px 12px', fontSize: 11.5, borderRadius: 6 }}
-                        >
+                          }}                        >
                           Save
                         </button>
                       </div>
@@ -1832,7 +1826,7 @@ export default function CreateFlow() {
                     />
                     {rev.askBusy ? (<>
                       <Spinner size={14} style={{ flex: 'none', margin: '0 8px 9px' }} />
-                      <button className="ad-btn-ghost" onClick={cancelAsk} style={{ borderRadius: 8, padding: '8px 12px', font: "500 12px var(--sans)", whiteSpace: 'nowrap', flex: 'none' }}>
+                      <button className="ad-btn-ghost" onClick={cancelAsk} style={{ whiteSpace: 'nowrap', flex: 'none' }}>
                         Cancel
                       </button>
                     </>) : (
@@ -2050,9 +2044,7 @@ export default function CreateFlow() {
                       <span style={{ display: 'flex', gap: 9, alignItems: 'center', flex: 'none' }}>
                         <button
                           className="ad-btn-text dim"
-                          onClick={(e) => { e.stopPropagation(); up({ instrDraft: null, instrEdit: false }) }}
-                          style={{ font: "500 11.5px var(--sans)", padding: '4px 4px' }}
-                        >
+                          onClick={(e) => { e.stopPropagation(); up({ instrDraft: null, instrEdit: false }) }}                        >
                           Cancel
                         </button>
                         <button
@@ -2063,9 +2055,7 @@ export default function CreateFlow() {
                             if (rev.instrDraft == null || rev.instrDraft === rev.instr) return
                             up({ instr: rev.instrDraft, instrDraft: null, instrEdit: false, touched: true, dirty: true })
                             showToast('Instructions saved — the workflow is out of sync. Sync the steps before saving.', 5800)
-                          }}
-                          style={{ padding: '5px 12px', fontSize: 11.5, borderRadius: 6 }}
-                        >
+                          }}                        >
                           Save
                         </button>
                       </span>
@@ -2179,7 +2169,7 @@ export default function CreateFlow() {
                     )}
                   </div>
                   {rev.syncBusy ? (
-                    <button className="ad-btn-ghost" onClick={cancelSync} style={{ padding: '5px 10px', flex: 'none', whiteSpace: 'nowrap' }}>
+                    <button className="ad-btn-ghost" onClick={cancelSync} style={{ flex: 'none', whiteSpace: 'nowrap' }}>
                       Cancel
                     </button>
                   ) : (
@@ -2381,7 +2371,7 @@ export default function CreateFlow() {
                             </span>
                             {p.latest && p.status !== 'installing' && (
                               <button className="ad-btn-soft" disabled={rev.pkgBusy || busyRewrite}
-                                onClick={() => void updatePkgs([p.pip])} style={{ flex: 'none', padding: '3px 9px' }}>
+                                onClick={() => void updatePkgs([p.pip])} style={{ flex: 'none' }}>
                                 Update
                               </button>
                             )}
@@ -2453,7 +2443,7 @@ export default function CreateFlow() {
                             <span style={{ font: "500 10px var(--mono)", letterSpacing: '.06em', color: 'var(--text-faintest)' }}>
                               PARAMETER VALUES · THIS TEST ONLY
                             </span>
-                            <button className="ad-btn-soft" onClick={() => setTestParams(null)} style={{ padding: '3px 9px' }}>
+                            <button className="ad-btn-soft" onClick={() => setTestParams(null)}>
                               {isEdit ? 'Use current values' : 'Use defaults'}
                             </button>
                           </div>
@@ -2513,14 +2503,13 @@ export default function CreateFlow() {
                             )}
                             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                               {testExec.status === 'failed' && !test.analyzing && rev.repair?.source !== 'test' && (
-                                <button className="ad-btn-soft" onClick={runAnalyze} style={{ fontSize: 11.5 }}>
+                                <button className="ad-btn-soft" onClick={runAnalyze}>
                                   <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 10 }} /> Analyze the failure
                                 </button>
                               )}
                               <button
                                 className="ad-btn-ghost"
                                 onClick={() => go('execution', { execId: test.execId })}
-                                style={{ fontSize: 11.5 }}
                               >
                                 <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10 }} /> View run
                               </button>
@@ -2582,7 +2571,7 @@ export default function CreateFlow() {
                           <button
                             className="ad-btn-ghost"
                             onClick={() => go('execution', { execId: rev.lastTest!.execId! })}
-                            style={{ fontSize: 11.5, marginTop: 10 }}
+                            style={{ marginTop: 10 }}
                           >
                             <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10 }} /> View run
                           </button>

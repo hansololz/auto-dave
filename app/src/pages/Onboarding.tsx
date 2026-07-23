@@ -620,7 +620,7 @@ export default function Onboarding() {
 
         <p style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-2)', margin: '20px 0 16px' }}>{nextPara}</p>
         {ob.smDone
-          ? <BtnPrimary onClick={obToConnect} style={{ padding: '10px 18px', fontSize: 13.5, animation: 'adFadeUp .3s ease both' }}>{nextLabel}</BtnPrimary>
+          ? <BtnPrimary onClick={obToConnect} style={{ animation: 'adFadeUp .3s ease both' }}>{nextLabel}</BtnPrimary>
           : <span style={{ fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12, color: 'var(--text-faint)' }}>Setting things up…</span>}
       </div>
     )
@@ -716,7 +716,6 @@ export default function Onboarding() {
               <button
                 className="ad-btn-text dim"
                 onClick={obSkip}
-                style={{ fontWeight: 500, fontSize: 12.5, padding: '6px 2px' }}
               >
                 Skip for now
               </button>
@@ -759,7 +758,7 @@ export default function Onboarding() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingLeft: 16 }}>
-          <button className="ad-btn-text dim" style={{ fontSize: 12 }} onClick={() => setCard(p.id, { phase: 'idle', method: null })}>Cancel</button>
+          <button className="ad-btn-text dim" onClick={() => setCard(p.id, { phase: 'idle', method: null })}>Cancel</button>
         </div>
       </div>
     )

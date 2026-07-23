@@ -102,13 +102,12 @@ export default function AutomationsList() {
         right={(
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {pendingDraft && (
-              <BtnGhost onClick={() => setSurface('create', 'app')} style={{ padding: '8px 14px' }}>
+              <BtnGhost onClick={() => setSurface('create', 'app')}>
                 Resume draft
               </BtnGhost>
             )}
             <BtnPrimary
               onClick={() => (pendingDraft ? setConfirmFresh(true) : setSurface('create', 'app'))}
-              style={{ padding: '8px 14px' }}
             >
               New automation
             </BtnPrimary>

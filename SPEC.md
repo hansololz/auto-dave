@@ -2000,7 +2000,7 @@ which would drop the WebSocket and all renderer state. The footer link sends pla
   `oklch(0.8 0.13 85)` `/ .14`, magenta `oklch(0.72 0.16 340)` `/ .13`, gray `#98a1ad` /
   `rgba(152,161,173,.13)`. One extra chip color: orange `oklch(0.72 0.15 60)` `/ .13` for
   attention-flavored result chips (e.g. "5 of 6 checked").
-- Radii: buttons/inputs 8 px, small chips/soft buttons 6–7 px, cards 12 px, pills 16–20 px,
+- Radii: buttons/inputs 8 px, chips 6–7 px, cards 12 px, pills 16–20 px,
   popover menus 10 px, toast 9 px. Cards are flat (border only); floating surfaces get large
   soft shadows — popovers `0 18px 44px rgba(0,0,0,.5)`, toast `0 10px 30px rgba(0,0,0,.4)`,
   modal `0 24px 60px rgba(0,0,0,.5)`, menu-bar panel `0 18px 50px rgba(0,0,0,.55)`.
@@ -2016,8 +2016,15 @@ which would drop the WebSocket and all renderer state. The footer link sends pla
   button), `.ad-btn-link` (accent link-styled button), `.ad-chip-btn`, `.ad-menu-row`.
   Surfaces: `.ad-hover-row` (clickable list/table rows), `.ad-card-click` (clickable cards),
   `.ad-link-title` (clickable titles), `.ad-nav-row` (sidebar nav). Text fields use `.ad-input`
-  (border + accent focus ring; `.amber` variant on amber notice cards). Classes own colors and
-  interaction; call sites may size (padding/font) inline.
+  (border + accent focus ring; `.amber` variant on amber notice cards). Classes own colors,
+  interaction, **and size** — call sites never override button padding/font-size/radius inline
+  (layout-only styles such as `flex`, `whiteSpace`, margins are fine). All action buttons share
+  one size: 13 px font, radius 8 px, padding 8 px 15 px on bordered buttons (`.ad-btn-ghost`,
+  `.ad-btn-soft`, `.ad-btn-dashed`, `.ad-btn-accent-ghost`, `.ad-btn-danger-ghost`) and
+  9 px 16 px on the borderless filled `.ad-btn-primary` — same rendered box. Borderless text
+  buttons (`.ad-btn-text`, `.ad-btn-link`) are 500 13 px with 6 px 4 px padding. Non-action
+  controls keep their own scale: `.ad-btn-pill` (mono metadata pill), `.ad-chip-btn`
+  (example-prompt chip), `.ad-btn-x` (row-remove ✕), `.ad-btn-exec` (square icon button).
 - Derived tokens beyond the base palette: `--red-hover`, `--red-text`, `--accent-sel`
   (selected-card border), `--hairline-dim` (in-card row dividers; `--hairline` stays for card
   borders/headers), `--bg-code` + `--code-text` (script/log wells). Recurring fragments are
