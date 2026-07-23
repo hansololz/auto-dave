@@ -1027,7 +1027,7 @@ rail holds the **PARAMETERS block** — per param: label, its help description, 
 one-line summary value ("Values as used by this execution."). The STEPS rail's rows are **selectable**: each row shows the status dot (pulsing
 while executing), name, a right-aligned attempt-count chip ("×2", mono, faint — only when the
 step has more than one attempt) and the latest attempt's duration — rows carry no actions;
-skipping lives in the header's Skip-step button. Above step 1 sits an **"Execution log"**
+skipping lives in the header's Skip-step button. Above step 1 sits a **"Setup log"**
 pseudo-row (terminal icon in place of a status dot) selecting the execution-scoped log.
 Selecting any row changes which log the LOGS pane shows. While the
 execution is live the selection auto-follows the executing step until the user selects a row
@@ -1035,13 +1035,16 @@ themselves (reset when navigating to another execution); when a failed execution
 failed step's latest attempt is auto-selected. On a failed
 execution a **failure notice** sits above the RESULT card: red-tinted card, "Failed at step
 `<name>`", the §4.5 possible reason as plain text when present, and the error message in mono.
-The LOGS pane shows the selected step's log (header: step name, or "Execution" for the
+The LOGS pane shows the selected step's log (header: step name, or "Setup log" for the
 pseudo-row, plus the redaction note "secrets redacted: `<name>`"); when the selected step has
 more than one attempt, a segmented **attempt control** sits in the header — one status-tinted
 pill per attempt ("Attempt 2 · Failed · 3s"), latest selected by default. The pane is the
 color-coded log view (kinds sys/out/wrn/err); logs load lazily per selected step/attempt
 (§19) and live lines stream in over WS (deduped by `seq`), with live auto-scroll and the
-blinking cursor on the live attempt. Empty state "No logs — this execution never started." The RESULT card, when the execution has no result, is a dashed placeholder ("No result") with a
+blinking cursor on the live attempt. Empty states: "No logs — this execution never
+started." when the execution has no steps; an empty Setup log shows "No setup events —
+installs, retries, and failures would appear here."; an empty step attempt shows "No log
+lines here." The RESULT card, when the execution has no result, is a dashed placeholder ("No result") with a
 status-specific reason (still executing / failed before a result was built / cancelled / no
 result produced); with a result it is a collapsible **Results section** holding a stack of individually
 collapsible **result views**, each with a chevron + title header and right-aligned mono meta

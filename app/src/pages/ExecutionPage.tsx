@@ -32,7 +32,7 @@ function rowBg(selected: boolean): React.CSSProperties {
     : {}
 }
 
-/** §7: the "Execution log" pseudo-row above step 1 — selects execution.ndjson. */
+/** §7: the "Setup log" pseudo-row above step 1 — selects execution.ndjson. */
 function ExecLogRow({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
   return (
     <button
@@ -41,7 +41,7 @@ function ExecLogRow({ selected, onSelect }: { selected: boolean; onSelect: () =>
       style={{ ...rowBase, ...rowBg(selected) }}
     >
       <i className="fa-solid fa-terminal" style={{ fontSize: 8, width: 8, color: 'var(--text-faint)', flex: 'none' }} />
-      <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>Execution log</span>
+      <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>Setup log</span>
     </button>
   )
 }
@@ -355,7 +355,7 @@ export default function ExecutionPage() {
               padding: '10px 16px', borderBottom: '1px solid var(--hairline-dim)',
             }}>
               <Eyebrow style={{ display: 'inline-block' }}>
-                {sel?.step != null ? selStep?.name : 'Execution'}
+                {sel?.step != null ? selStep?.name : 'Setup log'}
                 {liveSelected ? ' · LIVE' : ''}
               </Eyebrow>
               {/* §7 attempt control — pills only when the step retried */}
@@ -413,7 +413,9 @@ export default function ExecutionPage() {
                     <div style={{ color: 'var(--text-faintest)' }}>
                       {steps.length === 0
                         ? 'No logs — this execution never started.'
-                        : 'No log lines here.'}
+                        : sel?.step == null
+                          ? 'No setup events — installs, retries, and failures would appear here.'
+                          : 'No log lines here.'}
                     </div>
                   )}
                   {liveSelected && (
