@@ -22,7 +22,25 @@ const NAV: { page: string; label: string; icon: string }[] = [
   { page: 'settings', label: 'Settings', icon: 'fa-sliders' },
 ]
 
-function Sidebar() {
+// One fixed window position in both sidebar states (§9): right of the traffic lights.
+function NavToggle({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      className="ad-nav-row"
+      onClick={onClick}
+      title={title}
+      style={{
+        position: 'absolute', left: 82, top: 10, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', width: 28, height: 28, borderRadius: 7,
+        color: 'var(--text-faint)',
+      }}
+    >
+      <i className="fa-solid fa-table-columns" style={{ fontSize: 13 }} />
+    </button>
+  )
+}
+
+function Sidebar({ onCollapse }: { onCollapse: () => void }) {
   const page = useStore((s) => s.page)
   const go = useStore((s) => s.go)
   const nAutos = useStore((s) => s.autos.length)
@@ -42,7 +60,9 @@ function Sidebar() {
       width: 212, flex: 'none', background: 'var(--bg-sidebar)',
       borderRight: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column',
     }}>
-      <div className="ad-drag" style={{ height: 44, flex: 'none' }} />
+      <div className="ad-drag" style={{ height: 44, flex: 'none', position: 'relative' }}>
+        <NavToggle onClick={onCollapse} title="Collapse sidebar" />
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '2px 16px 18px' }}>
         <Logo />
         <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-.01em' }}>Autowright</span>
@@ -118,6 +138,12 @@ export default function App() {
   const createFrom = useStore((s) => s.createFrom)
   const boot = useStore((s) => s.boot)
   const disconnect = useStore((s) => s.disconnect)
+  const [navCollapsed, setNavCollapsed] = useState(() => localStorage.getItem('ad-nav-collapsed') === '1')
+  const setCollapsed = (v: boolean) => {
+    if (v) localStorage.setItem('ad-nav-collapsed', '1')
+    else localStorage.removeItem('ad-nav-collapsed')
+    setNavCollapsed(v)
+  }
 
   useEffect(() => { void boot(); return disconnect }, [])
 
@@ -129,12 +155,17 @@ export default function App() {
   if (surface === 'onboard') return <><Onboarding /><Toast msg={toast} /></>
 
   const inShell = surface === 'app' || (surface === 'create' && createFrom !== 'onboard')
+  const sidebarHidden = !inShell || navCollapsed
   return (
     <div style={{ height: '100vh', display: 'flex', background: 'var(--bg-window)' }}>
       <div className="ad-drag" style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 18, zIndex: 100 }} />
-      {inShell && <Sidebar />}
+      {!sidebarHidden && <Sidebar onCollapse={() => setCollapsed(true)} />}
       <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-content)', position: 'relative' }}>
-        {!inShell && <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 5 }} />}
+        {sidebarHidden && (
+          <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 5 }}>
+            {inShell && <NavToggle onClick={() => setCollapsed(false)} title="Expand sidebar" />}
+          </div>
+        )}
         {surface === 'create' ? <CreateFlow /> : <Content />}
       </div>
       <Toast msg={toast} />

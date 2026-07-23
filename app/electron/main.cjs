@@ -91,7 +91,6 @@ function createWindow(hash) {
     minWidth: 980,
     minHeight: 640,
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 15 },
     backgroundColor: '#0b0e12',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   })

@@ -1320,7 +1320,14 @@ content, z-index 100), the sidebar's top 44 px is also draggable, and shell-less
 their own 40 px sticky drag strip. Interactive controls inside drag regions stay clickable
 (`no-drag` on buttons/links/inputs). 212 px fixed sidebar: logo + "Autowright", nav
 (Automations, Executions, Agents, Secrets, Settings) with live count pills; content pane scrolls
-independently. Navigation is state-driven (`surface` → `page` → detail ids); browser/OS back works,
+independently. The sidebar collapses completely via a panel toggle (`fa-table-columns`, native
+`title` tooltip) that keeps one fixed window position in both states — Claude-desktop-style: 28 px
+button at `left: 82, top: 10`, right of the traffic lights, tuned by eye. The window uses the
+default `hiddenInset` traffic-light position (no `trafficLightPosition` override). Expanded, it sits inside the sidebar's
+top 44 px drag row; collapsed, the sidebar is gone, the content pane spans the full window width
+behind the same 40 px sticky drag strip shell-less surfaces use, and the identical button in that
+strip expands it back. The collapsed state persists in `localStorage` (`ad-nav-collapsed`) and
+applies to both the app shell and the create/edit shell — it is never reset by navigation. Navigation is state-driven (`surface` → `page` → detail ids); browser/OS back works,
 but once past onboarding back never re-enters it. Page navigation (`go()`) always lands in the app
 shell: if the create/edit surface is active, it exits back to `surface: app` — so sidebar tabs work
 while editing an automation. Popovers close on outside mousedown. Toasts:
