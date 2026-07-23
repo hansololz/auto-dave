@@ -193,7 +193,12 @@ URL validity: `/^https?:\/\/\S+\.\S+/`.
 
 Every definition carries a default: `toggle` → off, `number` → its `min`, `text`/`list`/`kv` →
 empty. Definitions are versioned with the automation; values live in the top-level
-`automation.yaml` and are matched by name and kind at execution/restore time (§5).
+`automation.yaml` and are matched by name and kind at execution/restore time (§5). The
+value-merged serialization (the automation JSON's `params`, execution records) is the full
+definition — `default` included — plus the resolved value field, so definitions survive a
+round-trip through the editor (edit mode seeds the draft's params from the automation JSON;
+a stripped default would make a §11 test resolve an unset param to empty instead of its
+default).
 
 ### 4.3 Triggers
 

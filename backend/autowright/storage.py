@@ -901,7 +901,9 @@ class Store:
         out = []
         for d in ver.get("params", []):
             v = resolve_param_value(d, a["param_values"])
-            p = {k: d[k] for k in d if k != "default"}
+            # Full definition, default included — edit mode seeds the draft's
+            # params from this shape, and a §11 test resolves off those defs.
+            p = dict(d)
             kind = d.get("kind")
             if kind == "toggle":
                 p["on"] = bool(v)

@@ -305,6 +305,24 @@ def test_test_stored_values_and_flagged_record(client, monkeypatch):
     assert aj["lastStatus"] == "none" and aj["latest"] is None
 
 
+def test_test_resolves_default_after_editor_roundtrip(client, monkeypatch):
+    # §4.2 regression: the automation JSON's params keep `default` — edit mode
+    # seeds the draft's defs from that shape, so a test with no stored value and
+    # no paramValues must still resolve the definition's default.
+    events = _capture_events(monkeypatch)
+    auto = client.post("/automations", json={"draft": _echo_draft()}).json()
+    aj = client.get(f"/automations/{auto['id']}").json()
+    assert aj["params"][0]["default"] == "hello"
+    events.clear()
+    r = client.post("/tests", json={"draft": _echo_draft(params=aj["params"]),
+                                    "autoId": auto["id"]})
+    assert r.status_code == 200
+    eid = r.json()["execId"]
+    assert _until_finished(events, eid)["exec_json"]["status"] == "succeeded"
+    logs = [e["line"]["text"] for e in events if e["ev"] == "exec.log"]
+    assert any("greeting=hello" in t for t in logs)
+
+
 def test_test_failure_analyzes_on_demand_only(client, monkeypatch):
     # §11: a failed test is never analyzed automatically — the §8 issue-analysis
     # call runs on POST /tests/{execId}/analyze and its blockers ride test.issue.
