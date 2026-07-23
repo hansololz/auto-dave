@@ -2084,7 +2084,7 @@ failing step carries two attempts.
   bridge), Vite + React + TS renderer under `src/` (`store.ts` central model, `api.ts` client,
   `ui.tsx` shared primitives, `tokens.css` design tokens, `pages/` one file per screen).
   `UI-GUIDE.md` records the renderer conventions.
-- `scripts/` — project scripts (`dev.sh`, `build.sh`, `prod.sh`, `logs.sh` — §18;
+- `scripts/` — project scripts (`dev.sh`, `build.sh`, `prod.sh`, `logs.sh`, `clean.sh` — §18;
   `uninstall/` — developer-only uninstall scripts for the harness CLIs and Ollama, §18;
   `gen_tray_icon.py` renders the tray template PNGs;
   `gen_app_icon.cjs` renders the dock icon `app/electron/appIcon.png` via Electron —
@@ -2170,6 +2170,15 @@ Dev workflow:
   `AUTOWRIGHT_HOME` is set, §5); creates missing backend logs so `tail` starts clean.
   **`--clear`** truncates the logs in place first (`: >` — writers keep their open
   append-mode handles), then follows.
+- **`./scripts/clean.sh`** — resets the repo to a pre-build state so the next `build.sh`/`dev.sh`
+  rebuilds from scratch. First stops anything running (deleting `.venv` under the live launchd
+  KeepAlive service would otherwise break): `autowright service uninstall`, then the same
+  kill_stale patterns as dev.sh for the backend, Electron, and Vite. Then deletes the build
+  artifacts: `.venv` (incl. the `.backend-stamp`), `app/node_modules`, `app/dist`, and the
+  contents of `build/` except `build/cache/` (the pinned CPython tarball, expensive to
+  re-download); **`--cache`** drops the cache too, removing `build/` entirely. Never touches the
+  data dir (`~/Library/Application Support/Autowright` or `AUTOWRIGHT_HOME`) or the logs dir
+  (`logs.sh --clear` handles logs).
 - Backend: `python3.14 -m venv .venv && .venv/bin/pip install -e "backend[dev]"`; test with
   `.venv/bin/python -m pytest tests/`; dev.sh launches the backend via `python -m autowright.main`
   (equivalent to the `autowright-backend` entry point); start an isolated backend (real agent CLIs,
