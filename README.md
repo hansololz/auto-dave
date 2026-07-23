@@ -5,8 +5,7 @@ plain words, a connected AI agent (Claude Code, Gemini CLI, Codex, OpenCode, or 
 writes it as human-readable Python step scripts, and Autowright executes them on a schedule — entirely
 on your Mac.
 
-`SPEC.md` is the source of truth for the whole app. `design/` holds the interactive design
-prototype the UI recreates.
+`SPEC.md` is the source of truth for the whole app.
 
 ## Components
 

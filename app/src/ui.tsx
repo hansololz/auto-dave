@@ -155,22 +155,6 @@ export function ProgressBar({ pct }: { pct: number }) {
   )
 }
 
-/** Amber pulsing-dot notice ("macOS is asking for your permission…"). */
-export function SudoNotice({ body }: { body: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
-      <span style={{
-        width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)',
-        animation: 'adPulse 1.2s ease-in-out infinite', flex: 'none', marginTop: 5,
-      }} />
-      <div>
-        <div style={{ fontWeight: 500, fontSize: 13 }}>macOS is asking for your permission…</div>
-        <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 2 }}>{body}</div>
-      </div>
-    </div>
-  )
-}
-
 export function GreenCheck({ label }: { label: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'adFadeUp .3s ease both' }}>

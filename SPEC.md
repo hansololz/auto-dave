@@ -1,11 +1,8 @@
 # Autowright — SPEC
 
-Source of truth. Holds enough detail to rebuild the app from scratch. The interactive design
-prototype lives in `design/` (`Autowright.dc.html` + `design/README.md`); this spec captures its
-behavior and data model as requirements. Where pixel-exact values matter (colors, spacing,
-typography), `design/README.md` is the authoritative token sheet — the summary in §14 is a digest.
-The spec follows the prototype as closely as possible; every place it deliberately overrides the
-prototype is listed in §20 — anything else that differs from the prototype is a spec bug.
+Source of truth. Holds enough detail to rebuild the app from scratch, including the pixel-exact
+values where they matter (colors, spacing, typography) — §14 is the authoritative design-token
+sheet, implemented in code by `app/src/tokens.css`.
 
 **Section map** — ordered so later sections build on earlier ones:
 
@@ -18,7 +15,6 @@ prototype is listed in §20 — anything else that differs from the prototype is
   §10 onboarding · §11 create/edit flow · §12 agents & secrets pages · §13 menu bar ·
   §14 design tokens
 - **Dev:** §15 dev/test knobs · §16 test seed data · §17 repository · §18 commands
-- **Appendix:** §20 deliberate divergences from the design prototype
 
 ## 1. Product overview
 
@@ -37,8 +33,8 @@ Core promises (exact UI copy, repeated in the onboarding footer):
 
 Four components (per top-level README):
 
-- **Electron desktop app** — the UI. Recreates the design prototype pixel-faithfully (dark theme
-  only). One window plus a menu-bar (tray) surface. Talks to the backend over a local API.
+- **Electron desktop app** — the UI (dark theme only; visual language in §14). One window plus
+  a menu-bar (tray) surface. Talks to the backend over a local API.
 - **Python backend** — long-lived local service: owns the data store (automations, versions,
   executions, agents, settings), the scheduler (fires triggers even when the app window is closed),
   Keychain access for secrets, and orchestration of AI agents that draft/edit automation specs
@@ -1522,10 +1518,9 @@ Onboarding state persists across steps: Back from step 3 returns to step 2 with 
 results, connect states, and the chosen provider intact (no re-search). Installs and model
 downloads run in the backend, so an in-flight install survives the step-3 remount — on return
 the UI reattaches via §19 `GET /agents/install/{id}` and the live `harness.install` /
-`ollama.pull` streams; the model download "finishes in the background" as promised. The
-prototype's sudo states ("Install paused — permission was declined", the amber password
-notice) are deliberately not implemented: real installs need no admin rights, so those states
-are unreachable (§20).
+`ollama.pull` streams; the model download "finishes in the background" as promised. Installs
+never need admin rights (§19 channels are all user-writable), so there is no sudo or
+permission-declined state anywhere in the flow.
 
 ## 11. Create / edit flow
 
@@ -1895,7 +1890,8 @@ shows "Install failed — `<first error line>`" with the button returning to "In
 size metadata, empty state "No local models installed yet — download one below and it will show
 up here." Model pulls: one at a time — the backend streams raw `ollama pull` output over the
 `ollama.pull` WS event and the UI parses the percent out of it (right column shows "N%";
-determinate bar when a percent is present, indeterminate otherwise — see §20); suggested-model
+determinate bar when a percent is present, indeterminate otherwise — real `ollama pull` output
+may not yield a percent); suggested-model
 chips fill the pull input (they don't start the pull); suggested models qwen3-coder:30b (19 GB,
 "Best local coding model"), gemma4:e4b (9.6 GB, "Good local default"), deepseek-coder:6.7b
 (3.8 GB, "Light and quick"). A suggestion chip is hidden when that model is already installed or
@@ -1939,17 +1935,41 @@ target over IPC (`open-target`) and the renderer navigates in place — never a 
 which would drop the WebSocket and all renderer state. The footer link sends plain `'/app'`
 (focus only). Deep links are ignored while onboarding hasn't completed.
 
-## 14. Design tokens (digest — `design/README.md` is authoritative)
+## 14. Design tokens (authoritative — `app/src/tokens.css` implements them)
 
-- Dark theme only. Fonts: IBM Plex Sans (UI), IBM Plex Mono (timestamps, chips, eyebrows,
-  metadata). Base UI 13 px; page titles 20 px/600; eyebrows 9.5–10 px mono uppercase.
-- Backgrounds: window `#0b0e12`, content `#0e1116`, sidebar `#0a0d11`, cards `#12151c`.
-  Text: primary `#e9ecf1`, secondary `#a8b0bc`, muted `#8a93a0`, faint `#67707c`.
-- Accent (brand orange): `oklch(0.74 0.155 52)`; status colors green 150 / cyan 210 / red 25 /
-  amber 85 / magenta 340 (oklch), tint backgrounds at ~13–15 % alpha. One extra chip color:
-  orange `oklch(0.72 0.15 60)` for attention-flavored result chips (e.g. "5 of 6 checked").
-- Radii: buttons/inputs 8 px, cards 12 px, pills 16–20 px. Cards flat (border only); popovers and
-  toasts get large soft shadows.
+- Dark theme only. Fonts: IBM Plex Sans 400/500/600/700 (all UI text; `--sans`), IBM Plex Mono
+  400/500/600 (timestamps, version labels, chips, eyebrows, counts, technical metadata;
+  `--mono`), bundled via `@fontsource`. `-webkit-font-smoothing: antialiased`.
+- Type scale: base UI 13 px; page titles 20 px/600 (26–30 px in onboarding/create); card titles
+  15 px/600; body 13–13.5 px/400, line-height 1.55–1.6; secondary 12–12.5 px; metadata/mono
+  10.5–12 px; eyebrows 9.5–10 px/600 mono uppercase, letter-spacing `.09em`. Headings tighten
+  letter-spacing (`-.01em` to `-.02em`).
+- Backgrounds: window `#0b0e12` (`--bg-window`), content `#0e1116`, sidebar `#0a0d11`, cards
+  `#12151c` (`--bg-card`; selectable/hovered cards `#14181f` `--bg-card-sel`), inset/result
+  wells `#0d1015` (`--bg-inset`), popover menus `#161a22` (`--bg-menu`), toast `#1b202a`
+  (`--bg-toast`). Menu-bar panel: `rgba(25,28,35,.94)`, 334 px wide, radius 12,
+  border `rgba(255,255,255,.1)`.
+- Text: primary `#e9ecf1` (`--text`), secondary `#a8b0bc` (`--text-2`), emphasized secondary
+  `#c6cdd6` / `#dfe4ea` (`--text-2em`/`--text-2emx`), muted `#8a93a0`, faint `#67707c`,
+  faintest `#4f5763`.
+- Borders (white at alpha): hairlines `.06` (`--hairline`), cards `.07`, inputs `.10`,
+  buttons `.11`, hover `.25` (`--border-hover`).
+- Accent (brand orange): `oklch(0.74 0.155 52)`; hover `oklch(0.79 0.155 52)`; tint backgrounds
+  `--accent-bg` `/ .15`, `--accent-chip-bg` `/ .13`, `--accent-hint-bg` `/ .08`; text on accent
+  `#16100a` (`--on-accent`); link hover `oklch(0.82 0.14 60)`; `::selection` accent `/ .35`.
+- Status colors (oklch; tint backgrounds at the alpha shown): green `oklch(0.76 0.15 150)`
+  `/ .13`, cyan `oklch(0.78 0.12 210)` `/ .13`, red `oklch(0.7 0.19 25)` `/ .13`, amber
+  `oklch(0.8 0.13 85)` `/ .14`, magenta `oklch(0.72 0.16 340)` `/ .13`, gray `#98a1ad` /
+  `rgba(152,161,173,.13)`. One extra chip color: orange `oklch(0.72 0.15 60)` `/ .13` for
+  attention-flavored result chips (e.g. "5 of 6 checked").
+- Radii: buttons/inputs 8 px, small chips/soft buttons 6–7 px, cards 12 px, pills 16–20 px,
+  popover menus 10 px, toast 9 px. Cards are flat (border only); floating surfaces get large
+  soft shadows — popovers `0 18px 44px rgba(0,0,0,.5)`, toast `0 10px 30px rgba(0,0,0,.4)`,
+  modal `0 24px 60px rgba(0,0,0,.5)`, menu-bar panel `0 18px 50px rgba(0,0,0,.55)`.
+- Selection allowlist: app chrome is unselectable (`user-select: none` on body); content
+  surfaces (logs, results, spec text, scripts, paths) opt in with `.ad-copy`; inputs and
+  textareas always selectable. `.ad-drag` marks the hiddenInset title-bar drag region
+  (interactive children opt out with `no-drag`).
 - All hover and focus states are CSS classes in `tokens.css` — never JS mouse-state (a JS hover
   flag sticks when a re-render or layout shift moves the node under the cursor). Buttons:
   `.ad-btn-primary`, `.ad-btn-ghost`, `.ad-btn-soft`, `.ad-btn-text`[`.dim`], `.ad-btn-pill`,
@@ -1964,18 +1984,21 @@ which would drop the WebSocket and all renderer state. The footer link sends pla
   (selected-card border), `--hairline-dim` (in-card row dividers; `--hairline` stays for card
   borders/headers), `--bg-code` + `--code-text` (script/log wells). Recurring fragments are
   `ui.tsx` primitives: `MiniBadge` (uppercase mono chip; status `Badge` maps onto it),
-  `ProgressBar`, `SudoNotice`, `GreenCheck`, `Spinner` (optional `color`), `PageTitle`, `Eyebrow`.
+  `ProgressBar`, `GreenCheck`, `Spinner` (optional `color`), `PageTitle`, `Eyebrow`.
 - Icons: Font Awesome 6.5.2. App mark: accent rounded square with a hammer glyph (`fa-solid fa-hammer`).
   The same mark is the macOS dock icon (`app/electron/appIcon.png`, 1024 px, mark at ~80% of canvas,
   generated by `scripts/gen_app_icon.cjs`; set at startup via `app.dock.setIcon` in
   `app/electron/main.cjs` so dev sessions don't show the default Electron icon).
-- Motion: fade-up entrances (.3–.5 s), spinners .8–.9 s, amber "waiting on you" pulse 1.2 s.
+- Motion (keyframes in `tokens.css`: `adFadeUp`, `adFadeOutDown`, `adFadeIn`, `adFadeOut`,
+  `adSpin`, `adPulse`, `adBlink`, `adBarSlide`): fade-up entrances (.3–.5 s; popovers .18 s),
+  spinners .8–.9 s, amber "waiting on you" pulse 1.2 s.
   Modals (shared `Modal` shell in `ui.tsx`: backdrop + card, used by the secret add/edit modal
   and `ConfirmModal`) animate both ways — enter .18 s fade-up, exit .12 s fade-down — and every
   dismissal path (backdrop click, Escape, Cancel, save/confirm) plays the exit before unmount;
   confirm actions fire after the exit finishes.
-- Layout: page gutter 30–32 px, max width 1200 px (Review page 1800 px, forms 620–720 px,
-  settings 640 px).
+- Layout: sidebar 212 px fixed; page gutter 30–32 px, max width 1200 px (Review page 1800 px,
+  forms 620–720 px, settings 640 px); card padding 15–22 px; control padding 9–10 px vertical /
+  14–18 px horizontal.
 - Scroll chaining: inner scroll panels embedded in the page flow (spec viewer, test log
   pane, etc.) chain to the page — reaching their bottom continues scrolling the page (browser
   default; no `overscroll-behavior: contain`). Only floating surfaces (popovers, dropdowns,
@@ -2037,7 +2060,7 @@ The shipped app has NO seed path: a fresh install always starts empty (onboardin
 no CLI or API to populate demo data. The seed fixture lives in `tests/seed_data.py` and is
 applied only by tests calling `seed(store)` (it refuses to seed when any automations exist).
 
-The prototype ships four demo automations useful for tests: "Track manga
+The fixture ships four demo automations: "Track manga
 chapters" (cron `0 8 * * *`, list/toggle/number/text/kv params, result.md markdown table with a READ
 column),
 "Nightly folder backup" (cron `0 2 * * *`), "Weekly report email" (cron `0 9 * * 1`, failed, uses
@@ -2050,7 +2073,6 @@ failing step carries two attempts.
 
 ## 17. Repository structure
 
-- `design/` — high-fidelity HTML prototype + design handoff README (authoritative tokens).
 - `backend/` — Python package `autowright`: storage, engine (+`executor.py` step SDK,
   `imports_check.py` shared §6.2 import allowlist), scheduler, drafting, harness adapters,
   FastAPI API (`api.py`), launchd service (`service.py`), CLI (`cli.py`).
@@ -2375,63 +2397,3 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   test's analysis finishes),
   `ollama.pull` (model-pull progress). Clients re-`GET /state` on
   reconnect.
-
-## 20. Deliberate divergences from the design prototype
-
-The spec follows `design/Autowright.dc.html` as closely as possible. These are the only places it
-knowingly overrides the prototype — each for a reason the prototype (a simulation with fake data)
-didn't have to face. Do not "fix" the app to match the prototype on these points:
-
-- **Stored secret values are never shown.** The prototype's Secrets list has a per-row show/hide
-  that reveals the stored value, and its edit modal pre-fills it. Real values live in the
-  Keychain and the API never returns them (§4.8): the list shows a fixed mask, and the edit
-  modal opens with an empty value field — show/hide applies only to what's being typed.
-- **Entity ids are UUIDs.** The prototype uses slugs (`'claude'`, `'ag'+Date.now()`); §4's
-  identity rule wins.
-- **Detection covers the four harnesses, with real sign-in state.** The prototype's onboarding
-  knobs can only simulate finding Claude Code / Ollama / Codex; the real detector (§19
-  `GET /agents/detect`) finds the four harnesses (Ollama is not a harness — its state feeds
-  the Free local AI card via `GET /ollama/status`), and its detail lines report the
-  provider's actual sign-in state instead of the prototype's fabricated "signed in with your
-  account" copy.
-- **Install and sign-in machines are real, with no sudo step.** The prototype's step-2
-  suggestion cards simulate installs on timers and include a sudo/password state; the app runs
-  real backend installs (§19 channels, all user-writable — macOS never asks for an admin
-  password), offers a suggestion card for every missing provider (the prototype has only
-  Claude and the free-local card), and runs the sign-in flow only when the provider actually
-  needs it. The prototype's sudo and permission-declined states are unreachable and not
-  implemented.
-- **Seed executions.** The prototype seeds 11 executions including a permanently-`executing`
-  one, covers `skipped` only as a step status, and has a `reused` step status that no longer
-  exists (§4.6 — in-place retry replaced it). §16 seeds twelve, covers every terminal
-  execution status, and never seeds `executing` (it is inherently live).
-- **Framework-knowledge panel copy follows §6/§6.1.** The prototype panel says memory is "one
-  JSON file" and shows `secret("smtp-password")`; the real panel must describe the memory
-  directory and `secrets.NAME` references.
-- **Seed step scripts use the real SDK.** Prototype scripts call `memory.last_seen`,
-  `agent.do(...)`, `result.summary(...)` — none exist in §6.1; real seeds use
-  `memory.load/save`, `agent.ask/read/write`, and the §6.1 result builder.
-- **Deleted-automation executions keep the historical name.** The prototype falls back to "—";
-  §5 snapshots `automation_name` so old executions render the real name, marked deleted.
-- **Execution-page parameters are the values used by that execution.** The prototype renders the
-  automation's current live params; the execution record snapshots the resolved values
-  ("Values as used by this execution.").
-- **Ollama pull bar has an indeterminate fallback.** The prototype always has a percent because
-  it simulates the pull; real `ollama pull` output may not yield one.
-- **`lastExecLabel` is always derived.** The prototype's seeds mostly omit it and the menu bar
-  patches in hardcoded times; the real field is computed per §4.1 for every automation.
-- **Multiple triggers.** The prototype models one daily/weekly schedule per automation
-  (hour/min/dow plus a single on/off). §4.3 replaces it with a trigger list — cron expressions,
-  one-shot times, reserved message kinds — so the schedule chips, the TRIGGERS card, and the
-  Review-page card diverge accordingly (the prototype's "Message triggers — coming soon" chip
-  becomes disabled kinds in the Add-trigger picker).
-- **No separate building screen.** The prototype shows a spinner + staged-checklist surface
-  between Ask and Review while the draft generates. The app navigates straight to Review, whose
-  cards carry the drafting stages (§11): the spec is readable — and editable — the moment the
-  spec call lands, clarifications happen inside the spec card, and steps-call blockers reuse
-  the sync Blocker modal.
-- **"Execution", never "run".** The prototype's copy and code say "Run now", "Running",
-  "runs", `lastRunLabel`. The app uses a single term for one occurrence of an automation —
-  see the §6 terminology rule ("Execute now", "Executing", `executing` status,
-  `lastExecLabel`). `design/README.md` describes the prototype and keeps its original
-  wording.

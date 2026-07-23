@@ -1,10 +1,10 @@
-# UI port conventions (for page implementers)
+# UI conventions (for page implementers)
 
-Recreate the design prototype (`design/Autowright.dc.html`) pixel-faithfully in React.
-The prototype's markup uses inline styles — port them as JSX `style={{…}}` objects, keeping the
-exact values. Dark theme only. All tokens exist as CSS vars (see `src/tokens.css`): use
-`var(--accent)`, `var(--bg-card)`, `var(--text-2)`, `var(--mono)` etc. instead of raw hex where a
-token exists; keep exact oklch/rgba values where no token fits.
+Implement pages to SPEC.md — §9–§13 describe each screen, §14 is the authoritative token sheet.
+Pages style with inline JSX `style={{…}}` objects using the exact spec values. Dark theme only.
+All tokens exist as CSS vars (see `src/tokens.css`): use `var(--accent)`, `var(--bg-card)`,
+`var(--text-2)`, `var(--mono)` etc. instead of raw hex where a token exists; keep exact
+oklch/rgba values where no token fits.
 
 ## Data + state
 
@@ -41,7 +41,7 @@ token exists; keep exact oklch/rgba values where no token fits.
   settings 640), padding `26px 30px 70px` (detail pages `20px 30px 70px`).
 - Icons: Font Awesome classes (`fa-solid fa-…`), already loaded.
 - Status colors/labels only via `Badge`/`badgeOf`. Mono for timestamps/chips/eyebrows/metadata.
-- Toast copy, warning copy, empty-state copy: use the exact strings from SPEC.md/prototype.
+- Toast copy, warning copy, empty-state copy: use the exact strings from SPEC.md.
 - Popovers close on outside mousedown (usePopover). Danger rows red.
 - Never block on `window.confirm` — use `ConfirmModal`.
 - `void`-call async api methods from event handlers; wrap in try/catch and
