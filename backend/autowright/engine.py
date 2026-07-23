@@ -449,7 +449,9 @@ class Engine:
                     else:
                         dmem.mkdir(parents=True, exist_ok=True)
 
-            vdir = self._version_dir(auto, h["ver"])
+            # §11 test executions carry their own script/memory dirs (`_test` is
+            # in-memory only — write_exec_yaml persists a fixed key set).
+            vdir = Path(h["_test"]["vdir"]) if h.get("_test") else self._version_dir(auto, h["ver"])
             for i, s in enumerate(ver["steps"]):
                 step = h["steps"][i]
                 if step["status"] in ("succeeded", "skipped"):
@@ -541,7 +543,7 @@ class Engine:
                 if body:
                     self.store.write_result(h["id"], body)
             self.store.update_execution(h)
-            self._notify_end(auto, h, result if result_touched else None, notify_text)
+            self._notify_end(auto, ver, h, result if result_touched else None, notify_text)
         except Exception as e:  # noqa: BLE001
             # This path must always complete — if the original failure was a
             # disk error, logging/persisting can raise again; swallow those so
@@ -610,7 +612,8 @@ class Engine:
             "allowed_secrets": auto["allowed_secrets"],
             "site_packages": str(pkglib.site_packages_dir()),
             "package_imports": [p["import"] for p in ver.get("packages") or []],
-            "memory_dir": str(self._memory_dir(auto, h["ver"])),
+            "memory_dir": h["_test"]["mem"] if h.get("_test")
+            else str(self._memory_dir(auto, h["ver"])),
             "workspace": str(self.store.exec_dir(h["id"]) / "workspace"),
             "result_dir": str(self.store.exec_dir(h["id"]) / "result"),
             "agent": agent_cfg,
@@ -629,7 +632,8 @@ class Engine:
                                 lambda k, text: self._log(h, k, text, redactions),
                                 result, notify_holder)
 
-    def _notify_end(self, auto: dict, h: dict, result: dict | None, notify_text: str | None) -> None:
+    def _notify_end(self, auto: dict, ver: dict, h: dict, result: dict | None,
+                    notify_text: str | None) -> None:
         """§6: at most one notification, at the end, per the §4.9 setting."""
         setting = self.store.settings.get("notif", "attention")
         status = h["status"]
@@ -641,7 +645,6 @@ class Engine:
             body = notify_text or (result or {}).get("chip") or \
                 ("Execution failed" if status == "failed" else "Execution finished")
             title_param = None
-            ver = self._resolve_version(auto, h["ver"]) or {}
             for p in ver.get("params", []):
                 if p["name"] == "notification_title":
                     title_param = resolve_param_value(p, auto["param_values"]) or None

@@ -86,9 +86,9 @@ export const api = {
   openPendingDraft: () => req('POST', '/draft/open'),
   deletePendingDraft: () => req('DELETE', '/draft'),
   restore: (autoId: string, v: number) => req<{ version: number }>('POST', `/automations/${autoId}/restore`, { v }),
-  // §19 test: executes the sent draft's steps ephemerally; progress via test.* WS events
-  postTest: (body: Record<string, unknown>) => req<{ testId: string }>('POST', '/tests', body),
-  cancelTest: (testId: string) => req('DELETE', `/tests/${testId}`),
+  // §19 test: starts a §4.5 test execution record of the sent draft's steps;
+  // progress via the ordinary exec.* events, cancel via POST /executions/{id}/cancel
+  postTest: (body: Record<string, unknown>) => req<{ execId: string }>('POST', '/tests', body),
   // §6.2 declared packages: fast installed-check / blocking ensure (§19)
   checkPackages: (packages: { pip: string; import: string }[]) =>
     req<{ packages: import('./types').PackageDep[] }>('POST', '/packages/check', { packages }),

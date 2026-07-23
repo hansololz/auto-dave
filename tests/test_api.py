@@ -260,57 +260,90 @@ def _until(events, ev, timeout=30):
     raise AssertionError(f"{ev} never arrived (got {[e['ev'] for e in events]})")
 
 
+def _until_finished(events, exec_id, timeout=30):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        e = next((e for e in events if e["ev"] == "exec.finished" and e["execId"] == exec_id), None)
+        if e:
+            return e
+        time.sleep(0.05)
+    raise AssertionError(f"exec.finished never arrived (got {[e['ev'] for e in events]})")
+
+
 def test_test_param_values_override(client, monkeypatch):
-    # §19: paramValues override the defaults for this test only.
+    # §19: paramValues override the defaults for this test only; the result is
+    # an ordinary execution record's.
     events = _capture_events(monkeypatch)
     r = client.post("/tests", json={"draft": _echo_draft(), "paramValues": {"greeting": "bonjour"}})
     assert r.status_code == 200
-    done = _until(events, "test.done")
-    assert done["status"] == "succeeded"
-    assert done["result"]["chip"] == "bonjour"
-    logs = [e["line"]["text"] for e in events if e["ev"] == "test.log"]
+    eid = r.json()["execId"]
+    assert _until_finished(events, eid)["exec_json"]["status"] == "succeeded"
+    full = client.get(f"/executions/{eid}").json()
+    assert full["test"] is True and full["ver"] == "Test" and full["trigger"] == "Test"
+    assert full["result"]["chip"] == "bonjour"
+    logs = [e["line"]["text"] for e in events if e["ev"] == "exec.log"]
     assert any("greeting=bonjour" in t for t in logs)
 
 
-def test_test_stored_values_and_no_record(client, monkeypatch):
-    # §19: with autoId (edit mode) the stored values are the base; a test writes
-    # no execution record.
+def test_test_stored_values_and_flagged_record(client, monkeypatch):
+    # §19: with autoId (edit mode) the stored values are the base; the record is
+    # flagged test and never touches the automation's derived display state.
     from autowright.storage import store
 
     events = _capture_events(monkeypatch)
     auto = client.post("/automations", json={"draft": _echo_draft()}).json()
     client.patch(f"/automations/{auto['id']}", json={"paramValues": {"greeting": "stored-hi"}})
     events.clear()
-    assert client.post("/tests", json={"draft": _echo_draft(), "autoId": auto["id"]}).status_code == 200
-    _until(events, "test.done")
-    logs = [e["line"]["text"] for e in events if e["ev"] == "test.log"]
+    r = client.post("/tests", json={"draft": _echo_draft(), "autoId": auto["id"]})
+    assert r.status_code == 200
+    eid = r.json()["execId"]
+    _until_finished(events, eid)
+    logs = [e["line"]["text"] for e in events if e["ev"] == "exec.log"]
     assert any("greeting=stored-hi" in t for t in logs)
-    assert store.execs == {}
+    assert store.execs[eid]["test"] is True
+    aj = client.get(f"/automations/{auto['id']}").json()
+    assert aj["lastStatus"] == "none" and aj["latest"] is None
 
 
 def test_test_run_failure_emits_issue(client, monkeypatch):
-    # §11: a failed step → test.done failed → §8 issue-analysis blockers in test.issue.
+    # §11: a failed step → exec.finished failed → §8 issue-analysis blockers in
+    # test.issue, keyed by the exec id.
     events = _capture_events(monkeypatch)
     d = _echo_draft(steps=[{"file": "01-boom.py", "name": "Boom", "desc": "",
                             "code": "raise KeyError('missing')\n"}])
-    assert client.post("/tests", json={"draft": d, "agentId": "mock"}).status_code == 200
-    assert _until(events, "test.done")["status"] == "failed"
+    r = client.post("/tests", json={"draft": d, "agentId": "mock"})
+    assert r.status_code == 200
+    eid = r.json()["execId"]
+    assert _until_finished(events, eid)["exec_json"]["status"] == "failed"
     issue = _until(events, "test.issue")
+    assert issue["execId"] == eid
     assert issue["blockers"][0]["reason"] == "The task needs access to physical mail."
 
 
 def test_test_cancel(client, monkeypatch):
+    # §19: cancel goes through the ordinary execution cancel.
     events = _capture_events(monkeypatch)
     d = _echo_draft(steps=[{"file": "01-slow.py", "name": "Slow", "desc": "",
                             "code": "import time\nlog('sleeping')\ntime.sleep(60)\n"}])
-    tid = client.post("/tests", json={"draft": d}).json()["testId"]
+    eid = client.post("/tests", json={"draft": d}).json()["execId"]
     t0 = time.time()
     while time.time() - t0 < 10:  # wait until the step subprocess is live
-        if any(e["ev"] == "test.log" and e["line"]["text"] == "sleeping" for e in events):
+        if any(e["ev"] == "exec.log" and e["line"]["text"] == "sleeping" for e in events):
             break
         time.sleep(0.05)
-    assert client.delete(f"/tests/{tid}").json()["ok"]
-    assert _until(events, "test.done")["status"] == "cancelled"
+    assert client.post(f"/executions/{eid}/cancel").json()["ok"]
+    assert _until_finished(events, eid)["exec_json"]["status"] == "cancelled"
+
+
+def test_test_409_while_live(client, monkeypatch):
+    # §19: one live test per draft container.
+    events = _capture_events(monkeypatch)
+    d = _echo_draft(steps=[{"file": "01-slow.py", "name": "Slow", "desc": "",
+                            "code": "import time\nlog('sleeping')\ntime.sleep(60)\n"}])
+    eid = client.post("/tests", json={"draft": d}).json()["execId"]
+    assert client.post("/tests", json={"draft": d}).status_code == 409
+    client.post(f"/executions/{eid}/cancel")
+    _until_finished(events, eid)
 
 
 def test_patch_automation_triggers_and_grants(client):

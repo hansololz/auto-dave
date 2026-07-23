@@ -289,19 +289,19 @@ def test_pending_draft_slot_roundtrip(store):
 
 
 def test_open_pending_draft_makes_container(store):
-    """§4.4: opening the create flow makes the slot's container dirs exist,
-    without touching contents already there."""
+    """§4.4: opening the create flow makes the slot's container (memory/ only —
+    §11 tests execute as execution records) exist, without touching contents
+    already there."""
     from autowright import paths
     from conftest import make_version
 
     store.open_pending_draft()
-    for sub in ("memory", "workspace", "result"):
-        assert (paths.pending_draft_dir() / sub).is_dir()
+    assert (paths.pending_draft_dir() / "memory").is_dir()
     assert store.pending_draft_json() == {"draft": None, "agentId": None}
 
-    # re-open never clobbers a kept draft or scratch contents
+    # re-open never clobbers a kept draft or memory contents
     store.save_pending_draft(make_version(), name="Kept", agent_id=None, triggers=[])
-    marker = paths.pending_draft_dir() / "workspace" / "notes.txt"
+    marker = paths.pending_draft_dir() / "memory" / "notes.txt"
     marker.write_text("kept", encoding="utf-8")
     store.open_pending_draft()
     assert marker.read_text(encoding="utf-8") == "kept"

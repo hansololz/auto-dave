@@ -700,14 +700,24 @@ def test_pre_version_snapshot_toggle_off(store):
     assert store.list_snapshots(a) == []
 
 
-def test_draft_test_executes_in_draft_dirs(store, monkeypatch):
-    """§11: a test points the shared step executor at draft/workspace +
-    draft/result (kept after the test) and produces a §4.5-style result —
-    result.yaml beside the files the step wrote, files + path on test.done."""
+def wait_test_summary(container, timeout=30):
+    """The summary lands after the engine thread finishes — poll for it."""
+    t0 = time.time()
+    while not (container / "test.yaml").exists():
+        assert time.time() - t0 < timeout, "test summary never landed"
+        time.sleep(0.05)
+
+
+def test_draft_test_is_a_test_execution_record(store, monkeypatch):
+    """§11: a test is a §4.5 test execution record through the ordinary engine
+    path — workspace/result/logs under executions/<uuid>/, scripts in steps/,
+    result like any execution's — and never touches the automation's derived
+    display state. The last-test summary carries the exec id."""
     from autowright import testexec as tr
-    from autowright.events import hub
+    from autowright.engine import Engine
 
     monkeypatch.setattr(tr, "store", store)
+    engine = Engine(store)
     ver = make_version()
     ver["steps"] = [{
         "file": "01-make.py", "name": "Make", "desc": "",
@@ -719,84 +729,79 @@ def test_draft_test_executes_in_draft_dirs(store, monkeypatch):
     a = store.create_automation(ver, "Draft Tester", None)
     store.save_draft(a, ver)
 
-    done: dict = {}
-    orig = hub.publish
-
-    def capture(ev, **payload):
-        if ev == "test.done":
-            done.update(payload)
-        orig(ev, **payload)
-
-    monkeypatch.setattr(hub, "publish", capture)
-    runs = tr.TestExecutions()
-    tid = runs.start(ver, a, None, [], [], {})
-    t0 = time.time()
-    while tid in runs._by_id:
-        assert time.time() - t0 < 30, "test didn't finish in time"
-        time.sleep(0.05)
-
+    eid = tr.start(engine, ver, a, None, [], [], {})
+    wait_done(engine, eid)
     dd = store.auto_dir(a) / "draft"
-    assert (dd / "workspace" / "scratch.txt").read_text() == "wip"
-    assert (dd / "result" / "out.md").read_text() == "# hi"
-    assert (dd / "result" / "result.yaml").exists()
-    assert done["status"] == "succeeded"
-    res = done["result"]
+    wait_test_summary(dd)
+
+    h = store.execs[eid]
+    assert h["test"] is True and h["ver"] == "Test" and h["trigger"] == "Test"
+    assert h["status"] == "succeeded"
+    ed = store.exec_dir(eid)
+    assert (ed / "steps" / "01-make.py").exists()
+    assert (ed / "workspace" / "scratch.txt").read_text() == "wip"
+    assert (ed / "result" / "out.md").read_text() == "# hi"
+    res = store.result_json(h)
     assert res["chip"] == "Made it"
     assert {f["name"] for f in res["files"]} == {"out.md", "result.yaml"}
-    assert res["path"] == str(dd / "result")
+    assert res["path"] == str(ed / "result")
 
-    # §11: the last-test summary persists in the container and rides draft.test
-    assert (dd / "test.yaml").exists()
-    dj = store.auto_json(a)["draft"]
+    # §4.5: derived display state ignores test records
+    assert a["_last_status"] == "none" and a.get("_live") is None
+    j = store.auto_json(a)
+    assert j["lastStatus"] == "none" and j["latest"] is None
+
+    # §11: the last-test summary rides draft.test with the exec id
+    dj = j["draft"]
     assert dj["test"]["status"] == "succeeded"
     assert dj["test"]["when"]
-    assert dj["test"]["result"]["chip"] == "Made it"
+    assert dj["test"]["execId"] == eid
+
+    # §11 keep-latest: the next test deletes the previous record …
+    eid2 = tr.start(engine, ver, a, None, [], [], {})
+    wait_done(engine, eid2)
+    wait_test_summary(dd)
+    assert eid not in store.execs and eid2 in store.execs
+
+    # … and a settled draft deletes its test records.
+    store.delete_draft(a)
+    assert eid2 not in store.execs
 
 
-def test_create_mode_test_uses_pending_slot(store, monkeypatch):
-    """§11 create mode: no automation yet — the test executes in the §4.4
-    pending slot's workspace/ + result/ and the result payload carries
-    files + path there too."""
+def test_create_mode_test_records_without_automation(store, monkeypatch):
+    """§11 create mode: no automation yet — the record carries autoId "" and
+    the summary lands in the §4.4 pending slot."""
     from autowright import paths
     from autowright import testexec as tr
-    from autowright.events import hub
+    from autowright.engine import Engine
 
     monkeypatch.setattr(tr, "store", store)
+    engine = Engine(store)
     ver = make_version()
+    ver["name"] = "Pending Tester"
     ver["steps"] = [{
         "file": "01-make.py", "name": "Make", "desc": "",
-        "code": ('open("scratch.txt", "w").write("wip")\n'
-                 '(result / "out.md").write_text("# hi")\n'
+        "code": ('(result / "out.md").write_text("# hi")\n'
                  'result.value("Summary", "done")\n'),
     }]
 
-    done: dict = {}
-    orig = hub.publish
-
-    def capture(ev, **payload):
-        if ev == "test.done":
-            done.update(payload)
-        orig(ev, **payload)
-
-    monkeypatch.setattr(hub, "publish", capture)
-    runs = tr.TestExecutions()
-    tid = runs.start(ver, None, None, [], [], {})
-    t0 = time.time()
-    while tid in runs._by_id:
-        assert time.time() - t0 < 30, "test didn't finish in time"
-        time.sleep(0.05)
-
+    eid = tr.start(engine, ver, None, None, [], [], {})
+    wait_done(engine, eid)
     slot = paths.pending_draft_dir()
-    assert (slot / "workspace" / "scratch.txt").read_text() == "wip"
-    assert (slot / "result" / "out.md").read_text() == "# hi"
-    assert done["status"] == "succeeded"
-    res = done["result"]
+    wait_test_summary(slot)
+
+    h = store.execs[eid]
+    assert h["test"] is True and h["auto_id"] == "" and h["auto_name"] == "Pending Tester"
+    assert h["status"] == "succeeded"
+    res = store.result_json(h)
     assert {f["name"] for f in res["files"]} == {"out.md", "result.yaml"}
-    assert res["path"] == str(slot / "result")
 
     # §11: the summary persists in the slot and rides the pending payload
-    assert (slot / "test.yaml").exists()
     store.save_pending_draft(ver, "Pending Tester", None, None)
     pj = store.pending_draft_json()
     assert pj["draft"]["test"]["status"] == "succeeded"
-    assert pj["draft"]["test"]["result"]["path"] == str(slot / "result")
+    assert pj["draft"]["test"]["execId"] == eid
+
+    # Settling the slot deletes its test records too.
+    store.delete_pending_draft()
+    assert eid not in store.execs

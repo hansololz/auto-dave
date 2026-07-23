@@ -150,7 +150,7 @@ class Store:
             if not y or y.get("id") != ed.name or not y.get("started_at"):
                 continue
             h = {k: y[k] for k in ("id", "auto_id", "auto_name", "ver", "status", "trigger",
-                                   "started_at", "finished_at", "dur_ms", "note",
+                                   "test", "started_at", "finished_at", "dur_ms", "note",
                                    "chip", "chip_status", "error")}
             self.execdb.upsert(h)
             self.execs[h["id"]] = h
@@ -268,9 +268,10 @@ class Store:
 
     def _latest_exec(self, auto_id: str) -> dict | None:
         # skipped records never executed — §4.1's lastStatus vocabulary excludes them,
-        # so they must not shadow the real latest execution's status/chip.
+        # so they must not shadow the real latest execution's status/chip. Test
+        # records (§4.5) are draft-scoped and never count either.
         hs = [h for h in self.execs.values()
-              if h["auto_id"] == auto_id and h["status"] != "skipped"]
+              if h["auto_id"] == auto_id and h["status"] != "skipped" and not h.get("test")]
         return max(hs, key=lambda h: h["started_at"] or "") if hs else None
 
     # ---------- automation writes ----------
@@ -409,11 +410,11 @@ class Store:
 
     # ---------- pending create-mode draft (§4.4: the <root>/draft/ slot) ----------
     def open_pending_draft(self) -> None:
-        """§4.4: make the slot's container dirs exist — called when the create
-        flow opens, before any drafting; never touches contents already there."""
+        """§4.4: make the slot's container (memory/ only — §11 tests execute as
+        execution records) exist — called when the create flow opens, before any
+        drafting; never touches contents already there."""
         with self.lock:
-            for sub in ("memory", "workspace", "result"):
-                (paths.pending_draft_dir() / sub).mkdir(parents=True, exist_ok=True)
+            (paths.pending_draft_dir() / "memory").mkdir(parents=True, exist_ok=True)
 
     def save_pending_draft(self, ver: dict, name: str | None, agent_id: str | None,
                            triggers: list | None) -> None:
@@ -445,6 +446,7 @@ class Store:
         """Settles the slot (Create consumed it, or Start over discarded it)."""
         with self.lock:
             shutil.rmtree(paths.pending_draft_dir(), ignore_errors=True)
+            self.delete_test_execs("")  # §11: create-mode test records (autoId "")
 
     def pending_draft_summary(self) -> dict | None:
         """§19 GET /state `pendingDraft`: the slot's identity summary — backs
@@ -478,6 +480,7 @@ class Store:
             if dd.exists():
                 shutil.rmtree(dd)
             a["draft"] = None
+            self.delete_test_execs(a["id"])  # §11: test records die with the draft
 
     def patch_automation(self, a: dict, patch: dict) -> None:
         """User-owned fields only (§19 PATCH)."""
@@ -518,15 +521,18 @@ class Store:
         with self.lock:
             shutil.rmtree(self.auto_dir(a), ignore_errors=True)
             self.autos.pop(a["id"], None)
+            self.delete_test_execs(a["id"])  # §11 — real records stay (autoDeleted)
 
     # ---------- executions ----------
     def create_execution(self, auto: dict, ver_label: str, trigger: str,
                          steps: list[dict], note: str | None = None,
-                         status: str = "executing", params: list[dict] | None = None) -> dict:
+                         status: str = "executing", params: list[dict] | None = None,
+                         test: bool = False) -> dict:
         with self.lock:
             h = {
                 "id": new_id(), "auto_id": auto["id"], "auto_name": auto["name"],
                 "ver": ver_label, "status": status, "trigger": trigger,
+                "test": test,
                 "params": params or [],
                 "started_at": datetime.now().isoformat(timespec="seconds"),
                 "finished_at": None,
@@ -546,7 +552,9 @@ class Store:
             self.write_exec_yaml(h)
             self.execdb.upsert(h)
             self.execs[h["id"]] = h
-            if status == "executing":
+            # §4.5/§5: test executions never touch the automation's derived
+            # display state or the one-execution-at-a-time gate.
+            if status == "executing" and not test:
                 auto["_live"] = h["id"]
                 auto["_latest"] = h
                 auto["_last_status"] = "executing"
@@ -557,6 +565,8 @@ class Store:
         with self.lock:
             self.write_exec_yaml(h)
             self.execdb.upsert(h)
+            if h.get("test"):
+                return  # §4.5: derived display state ignores test executions
             a = self.autos.get(h["auto_id"])
             if h["status"] == "executing":
                 # in-place retry flips a terminal record back to executing (§7)
@@ -587,6 +597,7 @@ class Store:
             "version": h["ver"],
             "status": h["status"],
             "trigger": h["trigger"],
+            "test": bool(h.get("test")),
             "started_at": h["started_at"],
             "finished_at": h["finished_at"],
             "dur_ms": h["dur_ms"],
@@ -607,6 +618,7 @@ class Store:
             "id": y.get("id", exec_id), "auto_id": y.get("automation_id"),
             "auto_name": y.get("automation_name"), "ver": y.get("version"),
             "status": y.get("status"), "trigger": y.get("trigger"),
+            "test": bool(y.get("test")),
             "started_at": y.get("started_at"), "finished_at": y.get("finished_at"),
             "dur_ms": y.get("dur_ms"), "note": y.get("note"),
             "chip": y.get("chip"), "chip_status": y.get("chip_status"),
@@ -712,6 +724,16 @@ class Store:
                     a["_latest"] = latest
                     a["_last_status"] = latest["status"] if latest else "none"
                     a["_last_exec_at"] = latest["started_at"] if latest else None
+
+    def delete_test_execs(self, auto_id: str) -> None:
+        """§11: test executions live only as long as their draft container —
+        called when a draft settles, when a new test starts (keep-latest), and
+        when the automation is deleted. Live records are skipped (the §19 409
+        keeps one from existing at draft-settle time in practice)."""
+        with self.lock:
+            for h in list(self.execs.values()):
+                if h.get("test") and h["auto_id"] == auto_id and h["status"] != "executing":
+                    self.delete_execution(h["id"])
 
     def retention_cleanup(self) -> int:
         with self.lock:
@@ -936,13 +958,11 @@ class Store:
         when = ""
         if t.get("when"):
             when = timefmt.started_label(datetime.fromisoformat(t["when"]))
-        out: dict[str, Any] = {"status": t["status"], "when": when}
-        if t.get("result") is not None:
-            out["result"] = t["result"]
-        return out
+        return {"status": t["status"], "when": when, "execId": t.get("exec_id")}
 
     def latest_result_json(self, a: dict) -> dict | None:
-        hs = [h for h in self.execs.values() if h["auto_id"] == a["id"] and h["status"] != "executing"]
+        hs = [h for h in self.execs.values()
+              if h["auto_id"] == a["id"] and h["status"] != "executing" and not h.get("test")]
         for h in sorted(hs, key=lambda x: x["started_at"] or "", reverse=True):
             r = self.result_json(h)
             if r:
@@ -1025,6 +1045,7 @@ class Store:
             "autoName": (self.autos.get(h["auto_id"], {}) or {}).get("name") or h["auto_name"],
             "autoDeleted": h["auto_id"] not in self.autos,
             "ver": h["ver"], "status": h["status"], "trigger": h["trigger"],
+            "test": bool(h.get("test")),
             "dur": timefmt.dur_label(h["dur_ms"]),
             "started": timefmt.started_label(dt) if dt else "",
             "startedMs": int(dt.timestamp() * 1000) if dt else 0,

@@ -57,8 +57,10 @@ export default function ExecutionsList() {
   const { execs, go } = useStore()
   const [filt, setFilt] = useState<Filter>('All')
 
-  const shown = execs.filter((e) =>
-    filt === 'All' ? true : filt === 'Succeeded' ? e.status === 'succeeded' : e.status === 'failed')
+  // §11 test executions are draft-scoped — reachable only from the Test card's
+  // View-run button, never listed here.
+  const shown = execs.filter((e) => !e.test && (
+    filt === 'All' ? true : filt === 'Succeeded' ? e.status === 'succeeded' : e.status === 'failed'))
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease' }}>

@@ -26,7 +26,8 @@ function Sidebar() {
   const page = useStore((s) => s.page)
   const go = useStore((s) => s.go)
   const nAutos = useStore((s) => s.autos.length)
-  const nExecs = useStore((s) => s.execs.length)
+  // §11 test executions never appear in the Executions list — don't count them
+  const nExecs = useStore((s) => s.execs.filter((e) => !e.test).length)
   const nAgents = useStore((s) => s.agents.length)
   const nSecrets = useStore((s) => s.secrets.length)
   const activeRoot = page === 'automation' ? 'automations' : page === 'execution' ? 'executions' : page === 'agentNew' ? 'agents' : page

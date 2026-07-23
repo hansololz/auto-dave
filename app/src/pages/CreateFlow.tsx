@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent, Auto, Blocker, DraftPayload, DraftTest, DraftTrigger, PackageDep, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
-import { Badge, BtnGhost, BtnPrimary, Chip, ConfirmModal, Eyebrow, Modal, PyCode, Spinner, Toggle, agName, dispModel, logColor, menuStyle, paramSummary, resultChipColors, usePopover, validUrl } from '../ui'
+import { BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, Modal, ProgressBar, PyCode, Spinner, Toggle, agName, dispModel, menuStyle, paramSummary, usePopover, validUrl } from '../ui'
 import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown, SpecMarkdown } from '../result'
 
@@ -391,44 +391,6 @@ function serializeDraft(r: Rev): DraftPayload {
   }
 }
 
-// §11 Test card result summary — chip + values + files + Show in Finder;
-// shared by the live succeeded state and the persisted last-test block.
-function TestResultBits({ result }: { result: NonNullable<DraftTest['result']> | null }) {
-  if (!result) return null
-  return (
-    <>
-      {result.chip && (
-        <Chip {...resultChipColors(result.chipStatus)} style={{ marginTop: 7 }}>{result.chip}</Chip>
-      )}
-      {(result.values ?? []).map((v) => (
-        <div key={v.name} style={{ color: 'var(--code-text)', marginTop: 4 }}>
-          <span style={{ color: 'var(--text-faint)' }}>{v.name}: </span>
-          {Array.isArray(v.value) ? v.value.join(' · ') : v.value}
-        </div>
-      ))}
-      {(result.files ?? []).length > 0 && (
-        <div style={{ marginTop: 6 }}>
-          {(result.files ?? []).map((f) => (
-            <div key={f.name} style={{ color: 'var(--code-text)' }}>
-              <i className="fa-solid fa-file-lines" style={{ fontSize: 10, color: 'var(--text-faint)', marginRight: 6 }} />
-              {f.name} <span style={{ color: 'var(--text-faintest)' }}>{f.size}</span>
-            </div>
-          ))}
-          {result.path && (
-            <button
-              className="ad-btn-ghost"
-              onClick={() => { void window.autowright?.revealPath(result.path!) }}
-              style={{ fontSize: 11.5, marginTop: 4 }}
-            >
-              <i className="fa-solid fa-folder-open" style={{ fontSize: 10 }} /> Show in Finder
-            </button>
-          )}
-        </div>
-      )}
-    </>
-  )
-}
-
 // ---------- step row (read-only agent + secret tags) ----------
 
 // shared shell for the per-step agent / secret / package tags
@@ -735,7 +697,7 @@ function ParamEditor({ p, upd }: { p: ParamDef; upd: (patch: Record<string, unkn
 
 export default function CreateFlow() {
   const store = useStore()
-  const { agents, secrets, autos, createFrom, autoId, go, setSurface, showToast, loadAuto, test, beginTest, clearTest, consumeTestIssue } = store
+  const { agents, secrets, autos, execs, execFull, createFrom, autoId, go, setSurface, showToast, loadAuto, test, beginTest, clearTest, consumeTestIssue } = store
   const isEdit = createFrom === 'edit'
   const isOnboard = createFrom === 'onboard'
   const auto = isEdit ? autos.find((a) => a.id === autoId) ?? null : null
@@ -877,9 +839,8 @@ export default function CreateFlow() {
     // in-flight §8 drafting job — nobody would poll it and the harness would
     // keep working for a discarded result. Cancelling a finished job is a no-op.
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
-    // Leaving the editor abandons any live test — it's ephemeral (§11).
-    const t = useStore.getState().test
-    if (t?.status === 'executing') void api.cancelTest(t.testId).catch(() => { /* already gone */ })
+    // §11: a live test keeps executing — it's a real record, visible and
+    // cancellable from its execution page; re-entering the editor re-attaches.
     useStore.getState().clearTest()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1429,24 +1390,39 @@ export default function CreateFlow() {
     : p.kind === 'number' ? (typeof p.value === 'number' ? p.value : (p.min ?? 0))
     : String(p.value ?? ''),
   ]))
+  // §11: the tracked test is an ordinary execution record — steps/status render
+  // off it (execFull carries the body; the header list covers the gap before
+  // loadExec lands).
+  const testExec = test ? execFull[test.execId] ?? execs.find((e) => e.id === test.execId) : undefined
+  const testLive = testExec?.status === 'executing'
+  const testSteps = (test && execFull[test.execId]?.steps) ?? []
+  const testDone = testSteps.filter((s) => s.status !== 'queued' && s.status !== 'executing').length
+  const testLiveIdx = testSteps.findIndex((s) => s.status === 'executing')
+  // A live test survives leaving the editor — re-attach the card on entry.
+  useEffect(() => {
+    if (test) return
+    const live = execs.find((e) => e.test && e.status === 'executing'
+      && (isEdit ? e.autoId === (auto?.id ?? '') : e.autoId === ''))
+    if (live) beginTest(live.id)
+  }, [execs]) // eslint-disable-line react-hooks/exhaustive-deps
   const runTest = async () => {
-    if (!rev || rev.steps.length === 0 || test?.status === 'executing' || busyRewrite) return
+    if (!rev || rev.steps.length === 0 || testLive || busyRewrite) return
     clearTest()
     try {
-      const { testId } = await api.postTest({
+      const { execId } = await api.postTest({
         draft: serializeDraft(rev),
         ...(isEdit && auto ? { autoId: auto.id } : {}), // edit: scratch memory copies the automation's
         ...(testParams ? { paramValues: testParamValues(testParams) } : {}), // §11 test-only values
         agentId, // the drafting agent also handles the §8 issue analysis on failure
         enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
-      beginTest(testId)
+      beginTest(execId)
     } catch (e) {
       showToast((e as Error).message)
     }
   }
   const cancelTest = () => {
-    if (test?.status === 'executing') void api.cancelTest(test.testId).catch(() => { /* already done */ })
+    if (test && testLive) void api.cancelExec(test.execId).catch(() => { /* already done */ })
   }
 
   // ---------- render ----------
@@ -2440,7 +2416,7 @@ export default function CreateFlow() {
                 <div style={cardStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--hairline)' }}>
                       <Eyebrow>TEST</Eyebrow>
-                      {test?.status === 'executing' ? (
+                      {testLive ? (
                         <button className="ad-btn-soft" onClick={cancelTest}>
                           Cancel
                         </button>
@@ -2485,69 +2461,78 @@ export default function CreateFlow() {
                       )
                     )}
                     {test ? (
-                      <>
-                        {test.steps.length > 0 && (
-                          <div style={{ padding: '10px 20px 4px' }}>
-                            {test.steps.map((s, i) => (
-                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '3px 0' }}>
-                                <span style={{ font: "500 11px var(--mono)", color: 'var(--text-faint)', width: 14, flex: 'none' }}>{i + 1}</span>
-                                <span style={{ flex: 1, minWidth: 0, font: "400 12px var(--sans)", color: 'var(--text-2em)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</span>
-                                <Badge status={s.status} />
+                      /* §11: status + progress only — the live step timeline,
+                         logs, and result live on the test's execution page */
+                      <div style={{ padding: '12px 20px 14px' }}>
+                        {!testExec ? (
+                          <Spinner size={13} />
+                        ) : (
+                          <>
+                            {testLive ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "400 12px var(--sans)", color: 'var(--text-2em)' }}>
+                                <Spinner size={12} />
+                                <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  Executing
+                                  {testSteps.length > 0 ? ` — step ${Math.max(testLiveIdx, 0) + 1} of ${testSteps.length}` : ''}
+                                  {testLiveIdx >= 0 ? ` · ${testSteps[testLiveIdx].name}` : ''}
+                                </span>
                               </div>
-                            ))}
-                          </div>
+                            ) : testExec.status === 'succeeded' ? (
+                              <div style={{ font: "400 12px var(--sans)", color: 'var(--green)' }}>
+                                <i className="fa-solid fa-check" style={{ fontSize: 11, marginRight: 7 }} /> Test succeeded — the memory copy was discarded.
+                              </div>
+                            ) : testExec.status === 'failed' ? (
+                              test.analyzing ? (
+                                <div style={{ font: "400 12px var(--sans)", color: 'var(--amber)' }}>
+                                  <Spinner size={11} color="var(--amber)" style={{ marginRight: 7, verticalAlign: -1 }} />
+                                  Analyzing the failure… {selAgent ? `(${agName(selAgent)})` : ''}
+                                </div>
+                              ) : (
+                                <div style={{ font: "400 12px var(--sans)", color: 'var(--amber)' }}>
+                                  <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11, marginRight: 7 }} /> Test failed.
+                                </div>
+                              )
+                            ) : (
+                              <div style={{ font: "400 12px var(--sans)", color: 'var(--text-faint)' }}>
+                                Test {testExec.status}.
+                              </div>
+                            )}
+                            {testSteps.length > 0 && (
+                              <div style={{ margin: '11px 0 3px' }}>
+                                <ProgressBar pct={(testDone / testSteps.length) * 100} />
+                              </div>
+                            )}
+                            <button
+                              className="ad-btn-ghost"
+                              onClick={() => go('execution', { execId: test.execId })}
+                              style={{ fontSize: 11.5, marginTop: 10 }}
+                            >
+                              <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10 }} /> View run
+                            </button>
+                          </>
                         )}
-                        <div style={{ padding: '10px 20px 12px', font: "400 11.5px/1.8 var(--mono)", background: 'var(--bg-code)', maxHeight: 260, overflowY: 'auto' }}>
-                          {test.lines.map((l, i) => (
-                            <div key={i} style={{ color: logColor(l.k), whiteSpace: 'pre-wrap', overflowWrap: 'break-word', fontStyle: l.k === 'sys' ? 'italic' : 'normal' }}>{l.text}</div>
-                          ))}
-                          {test.status === 'executing' && (
-                            <div style={{ color: 'var(--text-faint)', marginTop: 6 }}>
-                              <Spinner size={11} style={{ marginRight: 7, verticalAlign: -1 }} />
-                              executing the draft…
-                            </div>
-                          )}
-                          {test.status === 'succeeded' && (
-                            <div style={{ marginTop: 6 }}>
-                              <div style={{ color: 'var(--green)' }}>
-                                <i className="fa-solid fa-check" style={{ fontSize: 11 }} /> Test finished — the memory copy was discarded.
-                              </div>
-                              <TestResultBits result={test.result} />
-                            </div>
-                          )}
-                          {test.status === 'failed' && test.analyzing && (
-                            <div style={{ color: 'var(--amber)', marginTop: 6 }}>
-                              <Spinner size={11} color="var(--amber)" style={{ marginRight: 7, verticalAlign: -1 }} />
-                              Analyzing the failure… {selAgent ? `(${agName(selAgent)})` : ''}
-                            </div>
-                          )}
-                          {test.status === 'failed' && !test.analyzing && (
-                            <div style={{ color: 'var(--amber)', marginTop: 6 }}>
-                              <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} /> Test failed.
-                            </div>
-                          )}
-                          {test.status === 'cancelled' && (
-                            <div style={{ color: 'var(--text-faint)', marginTop: 6 }}>
-                              Test cancelled.
-                            </div>
-                          )}
-                        </div>
-                      </>
+                      </div>
                     ) : rev.lastTest ? (
                       /* §11: persisted last-test summary (test.yaml) — a resumed
                          draft shows the outcome instead of throwing it away */
-                      <div style={{ padding: '10px 20px 12px', font: "400 11.5px/1.8 var(--mono)", background: 'var(--bg-code)' }}>
+                      <div style={{ padding: '12px 20px 14px', font: "400 12px var(--sans)" }}>
                         {rev.lastTest.status === 'succeeded' ? (
-                          <>
-                            <div style={{ color: 'var(--green)' }}>
-                              <i className="fa-solid fa-check" style={{ fontSize: 11 }} /> Last test succeeded — {rev.lastTest.when}.
-                            </div>
-                            <TestResultBits result={rev.lastTest.result ?? null} />
-                          </>
+                          <div style={{ color: 'var(--green)' }}>
+                            <i className="fa-solid fa-check" style={{ fontSize: 11, marginRight: 7 }} /> Last test succeeded — {rev.lastTest.when}.
+                          </div>
                         ) : (
                           <div style={{ color: 'var(--amber)' }}>
-                            <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} /> Last test failed — {rev.lastTest.when}.
+                            <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11, marginRight: 7 }} /> Last test failed — {rev.lastTest.when}.
                           </div>
+                        )}
+                        {!!rev.lastTest.execId && execs.some((e) => e.id === rev.lastTest!.execId) && (
+                          <button
+                            className="ad-btn-ghost"
+                            onClick={() => go('execution', { execId: rev.lastTest!.execId! })}
+                            style={{ fontSize: 11.5, marginTop: 10 }}
+                          >
+                            <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10 }} /> View run
+                          </button>
                         )}
                       </div>
                     ) : (

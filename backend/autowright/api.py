@@ -19,7 +19,7 @@ from .engine import Engine
 from .events import hub
 from .scheduler import fire_trigger
 from .storage import size_label, store
-from .testexec import test_execs
+from . import testexec
 
 AUTH_TOKEN = pysecrets.token_hex(24)
 SECRET_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -354,7 +354,7 @@ def post_test(body: dict) -> dict:
     auto = None
     if body.get("autoId"):
         # A stale/unknown autoId must 404 — falling through to create mode
-        # would wipe the unrelated pending slot's workspace/result dirs.
+        # would delete the unrelated pending slot's test record.
         auto = _auto_or_404(body["autoId"])
     # The agent serves the §8 issue-analysis call only — a test without any
     # agent still executes; a failure then opens with the raw error instead.
@@ -367,13 +367,12 @@ def post_test(body: dict) -> dict:
     allowed = body.get("allowedSecrets")
     if allowed is None:
         allowed = auto["allowed_secrets"] if auto else []
-    test_id = test_execs.start(d, auto, agent, enabled, allowed, body.get("paramValues") or {})
-    return {"testId": test_id}
-
-
-@app.delete("/tests/{test_id}", dependencies=[Depends(auth)])
-def cancel_test(test_id: str) -> dict:
-    return {"ok": test_execs.cancel(test_id)}
+    try:
+        exec_id = testexec.start(engine, d, auto, agent, enabled, allowed,
+                                 body.get("paramValues") or {})
+    except RuntimeError as e:  # §19: one live test per draft container
+        raise HTTPException(409, str(e)) from e
+    return {"execId": exec_id}
 
 
 # ---------- declared packages (§6.2 — §19 /packages/*) ----------

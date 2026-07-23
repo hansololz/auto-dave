@@ -1,7 +1,7 @@
 // One central model drives everything (§4 top-level, §9 navigation).
 import { create } from 'zustand'
 import { api, connectInfo, openWs } from './api'
-import type { Agent, Auto, Blocker, Exec, ExecResult, LogLine, SecretMeta, Settings, StateSnapshot } from './types'
+import type { Agent, Auto, Blocker, Exec, LogLine, SecretMeta, Settings, StateSnapshot } from './types'
 
 export type Surface = 'onboard' | 'app' | 'create' | 'menubar'
 export type Page =
@@ -43,15 +43,13 @@ export interface Model {
   // §19 lazy logs, per execution: logKey(step, attempt) → fetched lines,
   // extended live by matching exec.log events (deduped by seq)
   execLogs: Record<string, Record<string, LogLine[]>>
-  // §11 test — live state fed by the §19 test.* WS events. `analyzing` is
-  // the window between a failed test and its §8 issue-analysis result; `issue`
-  // holds the analysis blockers until CreateFlow consumes them into its panel.
+  // §11 test — the live test execution the editor's Test card tracks. Steps,
+  // status, and logs live on the ordinary exec record (execFull[execId], kept
+  // fresh by exec.* events); only the analysis window lives here: `analyzing`
+  // is the gap between a failed test and its §8 issue-analysis result, `issue`
+  // holds the blockers until CreateFlow consumes them into its panel.
   test: {
-    testId: string
-    steps: { name: string; status: string }[]
-    lines: { t?: string; k: string; text: string }[]
-    status: 'executing' | 'succeeded' | 'failed' | 'cancelled'
-    result: ExecResult | null
+    execId: string
     analyzing: boolean
     issue: Blocker[] | null
   } | null
@@ -72,7 +70,7 @@ export interface Model {
   loadExec(execId: string): Promise<void>
   loadExecLogs(execId: string, step?: number, attempt?: number): Promise<void>
   loadAuto(autoId: string): Promise<void>
-  beginTest(testId: string): void
+  beginTest(execId: string): void
   clearTest(): void
   consumeTestIssue(): void
 }
@@ -189,9 +187,15 @@ export const useStore = create<Model>((set, get) => ({
           // Refresh the body only when someone has opened this execution —
           // unviewed executions would otherwise accumulate a full record each.
           if (full) void m.loadExec(ej.id)
+          // §11: a failed test enters its analysis window — the Test card shows
+          // "Analyzing…" until the test.issue event lands.
+          if (m.test?.execId === ej.id && ej.status === 'failed') {
+            set({ test: { ...m.test, analyzing: true } })
+          }
           // §7: the finished execution gets a summary toast (prototype pattern:
-          // "<name> finished — <chip>."). Cancelled executions are user-initiated — no toast.
-          if (ej.status === 'succeeded' || ej.status === 'failed') {
+          // "<name> finished — <chip>."). Cancelled executions are user-initiated —
+          // no toast; §11 tests report in the Test card instead.
+          if (!ej.test && (ej.status === 'succeeded' || ej.status === 'failed')) {
             const aj = msg.auto_json as Auto | null | undefined
             const name = aj?.name ?? m.autos.find((a) => a.id === ej.autoId)?.name ?? 'Automation'
             m.showToast(ej.status === 'failed'
@@ -235,30 +239,12 @@ export const useStore = create<Model>((set, get) => ({
       }
       return
     }
-    // §19 test.* — ignore events for a test we aren't showing (stale/cancelled)
-    if (ev === 'test.step' || ev === 'test.log' || ev === 'test.done' || ev === 'test.issue') {
+    // §19 test.issue — the §8 issue-analysis blockers for the tracked test;
+    // events for a test we aren't showing (stale/abandoned) are ignored.
+    if (ev === 'test.issue') {
       const t = m.test
-      if (!t || t.testId !== msg.testId) return
-      if (ev === 'test.step') {
-        const i = msg.i as number
-        const step = { name: msg.name as string, status: msg.status as string }
-        const steps = [...t.steps]
-        steps[i] = step
-        set({ test: { ...t, steps } })
-      } else if (ev === 'test.log') {
-        const line = msg.line as { t?: string; k: string; text: string }
-        set({ test: { ...t, lines: [...t.lines, line] } })
-      } else if (ev === 'test.done') {
-        const status = msg.status as 'succeeded' | 'failed' | 'cancelled'
-        set({
-          test: {
-            ...t, status, result: (msg.result as ExecResult | undefined) ?? null,
-            analyzing: status === 'failed', // §11: the issue-analysis call follows a failure
-          },
-        })
-      } else {
-        set({ test: { ...t, analyzing: false, issue: (msg.blockers as Blocker[]) ?? [] } })
-      }
+      if (!t || t.execId !== msg.execId) return
+      set({ test: { ...t, analyzing: false, issue: (msg.blockers as Blocker[]) ?? [] } })
       return
     }
     if (ev === 'harness.install') {
@@ -347,8 +333,9 @@ export const useStore = create<Model>((set, get) => ({
     } catch { /* deleted */ }
   },
 
-  beginTest(testId) {
-    set({ test: { testId, steps: [], lines: [], status: 'executing', result: null, analyzing: false, issue: null } })
+  beginTest(execId) {
+    set({ test: { execId, analyzing: false, issue: null } })
+    void get().loadExec(execId) // steps/status render off the ordinary record
   },
 
   clearTest() { set({ test: null }) },

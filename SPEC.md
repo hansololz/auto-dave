@@ -299,9 +299,9 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
   stepAgents/allowedSecrets stay untouched until the draft is saved as vN+1. A Draft
   execution honors the draft's grants when present, not the live ones.
 - **Create-mode drafts persist too**, in the single pending slot `<root>/draft/` (§5).
-  Opening the create flow creates the slot's container first — `draft/` with empty
-  `memory/`, `workspace/`, `result/` (`POST /draft/open`, §19) — before any drafting, so
-  §11 create-mode tests execute in `draft/workspace/` from the start. Leaving the create
+  Opening the create flow creates the slot's container first — `draft/` with an empty
+  `memory/` (`POST /draft/open`, §19) — before any drafting; §11 create-mode tests execute
+  as test execution records in the executions tree, not inside the slot. Leaving the create
   flow after a draft has landed (spec or steps present) keeps the full
   working state there — the same serialization as an edit-mode draft, plus the identity
   fields no automation record exists to hold yet (name, chosen agent, enabled agents,
@@ -336,10 +336,15 @@ Detail-page trigger status line (under the §9.2 TRIGGERS rows):
 ### 4.5 Execution (the stored record of one occurrence of an automation)
 
 ```
-id: uuid, autoId: uuid, ver ("v3" or "Draft"), status,
-trigger: Manual | Menu bar | Cron | Once | App start (future: Discord | iMessage | Pub/Sub) —
-  the label of what started the execution (§4.3 kinds map cron → "Cron", time → "Once",
-  app_start → "App start")
+id: uuid, autoId: uuid ("" on a create-mode test — no automation record exists yet),
+ver ("v3", "Draft", or "Test" — §11 test executions), status,
+test: bool — §11 test executions; excluded from the Executions list, the detail page's
+  RECENT EXECUTIONS, an automation's execution-derived display state (lastStatus / latest
+  result / live), and the scheduler's retry-once rule; deleted when the draft settles and
+  by starting the next test
+trigger: Manual | Menu bar | Cron | Once | App start | Test (future: Discord | iMessage |
+  Pub/Sub) — the label of what started the execution (§4.3 kinds map cron → "Cron",
+  time → "Once", app_start → "App start"; §11 tests are always "Test")
 dur, started ("Today, 8:00 AM"), startedMs — dur accumulates across in-place retry passes (§7);
   started never changes on retry
 steps: [{ name, file, status, dur, attempts: [{ n, status, dur, startedMs }] }] — file is the
@@ -491,16 +496,15 @@ site-packages/                 # §6.2 declared packages, installed by the app v
 harness-cwd/                   # empty cwd for harness CLI children (§6) — keeps their startup
                                # scans out of TCC-protected folders; never written to
 draft/                         # THE pending create-mode draft (§4.4) — a single slot: created
-                               # (with empty memory/workspace/result) the moment the create
-                               # flow opens, deleted when Create or Start over settles it; same
+                               # (with an empty memory/) the moment the create flow opens,
+                               # deleted when Create or Start over settles it; same
                                # container shape as automations/<uuid>/draft/ below, plus
                                # create-only identity keys in its automation/automation.yaml
                                # (name, agent_id, enabled_agents, triggers, created_at,
                                # updated_at — no automation record exists yet to hold them):
   automation/                  #   the working copy (version-folder shape)
   memory/                      #   scratch memory copied by §11 tests; starts empty
-  workspace/                   #   §11 create-mode test workspace — wiped per test
-  result/                      #   §11 create-mode test result dir — wiped per test
+  test.yaml                    #   §11 last-test summary — same shape as the edit-mode one
 automations/<uuid>/
   automation.yaml              # unversioned, mutable — user/operational state: id, name,
                                # current_version (pointer: current = versions/v<N>/),
@@ -528,16 +532,13 @@ automations/<uuid>/
                                # execution as a copy of memory/, reused by every later Draft
                                # execution and draft re-save, deleted with the draft — Draft
                                # executions never touch the live memory/ dir
-    workspace/                 # the §11 test workspace: wiped at each test start, kept
-                               # after the test for inspection, deleted with the draft
-    result/                    # the §11 test result dir (output files + result.yaml,
-                               # same shape as an execution's result/, §4.5): wiped at
-                               # each test start, deleted with the draft
     test.yaml                  # §11 last-test summary: status (succeeded | failed),
-                               # finished-at ISO timestamp, and on success the result
-                               # summary object — written when a test ends, wiped at each
-                               # test start, deleted with the draft; lets a resumed draft's
-                               # Test card show the last outcome instead of throwing it away
+                               # finished-at ISO timestamp, and the test execution's id —
+                               # written when a test ends, wiped at each test start, deleted
+                               # with the draft; lets a resumed draft's Test card show the
+                               # last outcome and link to the test's execution page. The
+                               # test's workspace/result/logs live on its execution record
+                               # (§4.5 test executions), not in this container.
   versions/vN/                 # one folder per version — immutable once written
     automation.yaml            # when, note, desc, param definitions (§4.2: name, kind,
                                # label, help, default, …) + ordered steps manifest:
@@ -608,7 +609,8 @@ executions/
                                # writes both together (yaml first). One table:
                                #   executions: id (uuid PK), automation_id, automation_name
                                #     (snapshot at execution time — display fallback only),
-                               #     version ("v3"/"Draft"), status, trigger, started_at /
+                               #     version ("v3"/"Draft"/"Test"), status, trigger,
+                               #     test (0/1 — §4.5 test executions), started_at /
                                #     finished_at (epoch ms; finished_at NULL while executing),
                                #     dur_ms, note, chip / chip_status (§4.5 — NULL when the
                                #     execution set no chip), error_step / error_message /
@@ -617,11 +619,14 @@ executions/
                                #   indexes: (started_at DESC, id), (automation_id, started_at),
                                #     (status, started_at)
   <execution-uuid>/
-    executions.yaml            # the full execution record (§4.5): header fields plus
-                               # params (snapshot), redacted_secrets, error, note, and
-                               # steps[] with per-step attempts[] ({n, status, started_at,
-                               # dur_ms, error? on failed attempts}); rewritten atomically
-                               # (temp+rename) on every transition
+    executions.yaml            # the full execution record (§4.5): header fields (incl. the
+                               # test flag) plus params (snapshot), redacted_secrets, error,
+                               # note, and steps[] with per-step attempts[] ({n, status,
+                               # started_at, dur_ms, error? on failed attempts}); rewritten
+                               # atomically (temp+rename) on every transition
+    steps/                     # §11 test executions only: the sent draft's step scripts as
+                               # executed — a real version folder serves that role for
+                               # ordinary executions
     logs/
       execution.ndjson         # execution-scoped log lines: package installs, secret
                                # failures, retry markers, the final failure line
@@ -655,6 +660,8 @@ per `automation_id` and kept current as executions complete; `resultChip`/`resul
 off that latest execution's header (§4.5) — never from `result/`. `skipped` records never count as the
 "latest" execution for this display state — they never ran, and §4.1's `lastStatus` vocabulary
 excludes them (a mid-execution trigger skip must not shadow the live execution's final status/chip).
+`test` records (§4.5) never count either — a draft test must not change what the automation's
+list row, detail page, or menu bar report about real executions.
 
 Executions load **headers-eagerly, bodies-lazily**: startup reads every header row from the
 `executions.db` index into an in-memory `executions` table — one header per execution with
@@ -1004,7 +1011,10 @@ destructive moments recoverable.
 
 **Execution page:** back link, title row with status badge and the header actions above;
 below the title a mono metadata line: full execution id (copyable) · trigger · version ·
-started · duration. Body is a two-column layout: a **STEPS sidebar** plus a parameters block —
+started · duration. A §4.5 `test` execution additionally shows a **"Draft test"** chip in the
+title row, never shows the "(deleted)" marker (a create-mode test has no automation by
+design), and hides Retry and Execute again — iteration on a draft happens from the editor's
+Test card; Cancel and Skip step still work while it is live. Body is a two-column layout: a **STEPS sidebar** plus a parameters block —
 per param: label, its help description, and the §4.2 one-line summary value ("Values as used
 by this execution."), and a main pane with **Results / Logs tabs** (auto-select Logs when no
 result). The STEPS sidebar's rows are **selectable**: each row shows the status dot (pulsing
@@ -1042,7 +1052,8 @@ No values and no files at all → the whole view stack (footer included) is repl
 placeholder card: "The latest execution didn't produce any result files."
 Deleted-automation handling: historical name, marked deleted.
 
-**Executions list:** all executions across automations; each row shows the automation name with
+**Executions list:** all executions across automations — except §4.5 `test` executions, which
+are reachable only from the §11 Test card's View-run button; each row shows the automation name with
 the full execution id (mono) on a second line beneath it, status badge, a trigger column combining trigger and version
 ("Manual · v3"), timestamps, durations; filter All / Succeeded / Failed. Rows carry no note
 text — skipped/cancelled notes appear on the detail page's RECENT EXECUTIONS rows and on the
@@ -1786,19 +1797,27 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   `default-build-instructions.md` as the fallback pre-fill for the Build instructions card.
   Collapsed hint and footer copy: built-in instructions the AI reads before writing anything,
   word for word — they update with the app, nothing for the user to maintain.
-- **Test** — executes the draft's **real steps** through the same engine path as a real
-  execution (there is no simulation mode). The card's header button reads **"Test the draft"**
-  ("Test again" once a test has happened this editing session; Cancel while a test is
-  executing) — never "Execute", which is reserved for real executions (§4.4 "Execute draft",
-  §7 "Execute again"). A test uses: in-editor param values and grants; the draft's own
-  directories — the same step executor as a real execution, pointed at the draft
-  container's `workspace/` and `result/` (§5: `automations/<uuid>/draft/` in edit mode,
-  the pending slot `<root>/draft/` in create mode) instead of an execution record's dirs,
-  both wiped at each test start and kept after the test so the outcome can be inspected,
-  deleted with the draft; and **scratch memory** — copied from the draft container's
-  `memory/` when it exists (edit mode falls back to the automation's memory dir; create
-  mode to empty) — the memory copy is discarded when the test ends, so a test can never
-  poison the memory the deployed version reads (§4.1). **Test parameter values (create and edit mode):** when the draft has params,
+- **Test** — executes the draft's **real steps** as a **test execution record** (§4.5:
+  `test: true`, `ver: "Test"`, `trigger: "Test"`) through the exact engine path a real
+  execution takes (there is no simulation mode): the record and its `steps/` (the sent
+  draft's scripts), `workspace/`, `result/`, and per-step-attempt logs all live under
+  `executions/<uuid>/`, progress streams over the ordinary `exec.*` WS events, and the
+  result, failure diagnostics, and secret redaction work exactly as in §7. The card's
+  header button reads **"Test the draft"** ("Test again" once a test outcome exists;
+  Cancel while a test is executing) — never "Execute", which is reserved for real
+  executions (§4.4 "Execute draft", §7 "Execute again"). A test uses: in-editor param
+  values and grants (never the stored automation's), and **scratch memory** — copied to a
+  temp dir from the draft container's `memory/` when it exists (edit mode falls back to
+  the automation's memory dir; create mode to empty) and discarded when the test ends, so
+  a test can never poison the memory the deployed version reads (§4.1). What distinguishes
+  a test record from a real execution: it never touches the automation's derived display
+  state or the one-execution-at-a-time gate (§5), it is excluded from the Executions list
+  and the §6 retry-once rule, it cannot be retried or re-executed from its execution page,
+  and its lifetime is the draft's — starting a new test deletes the previous test record
+  (one per draft container, and one **live** test per container: §19 answers 409), and a
+  settled draft (discard, save as vN+1, Create, Start over) deletes its test records.
+  Deleting the automation deletes them too.
+  **Test parameter values (create and edit mode):** when the draft has params,
   the card offers a collapsed "Set parameter values for this test" affordance; expanding it
   shows one editor per param (§4.2 kinds), prefilled in edit mode with the automation's
   current values (draft default when a param is new) and in create mode with the draft
@@ -1806,36 +1825,39 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   only — nothing is stored, and the read-only Parameters card is untouched. Left collapsed,
   the test uses the automation's stored values (edit) or the draft defaults (create), exactly
   like executing the draft. The collapse button reads "Use current values" in edit mode and
-  "Use defaults" in create mode. Side effects outside memory are real (emails send, files move, notifications
-  post per settings) and the card says so plainly. Step statuses (§4.6 vocabulary) and log
-  lines (secret values redacted, §6) stream into the card live over the §19 `test.*` WS
-  events; the test stops at the first failed step and is cancellable from the card. A test
-  writes **no execution record** — it exists to iterate on the draft; the detail page's "Execute
-  draft" (§4.4) remains the stored, `ver: Draft` path — but the result is produced exactly
-  like a real execution's: the test writes `result/result.yaml` (chips/values, when either
-  is non-empty) into `draft/result/`, and step scripts write output files there via
-  `result.path` (§6.1). A succeeded test shows green plus its result summary in the card —
-  chip + values, and the §4.5 files listing with the Show in Finder path (the draft
-  container's `result/`) — with no agent call. **The outcome is never thrown away with the
-  editing session:** a finished test writes the last-test summary `test.yaml` (§5 — status
-  succeeded | failed, finished-at, and on success the result summary object) into the draft
-  container, wiped at the next test start and deleted with the draft. It rides the draft
-  payload as `test` ({ status, when: §4.1 started-label, result? }) — on the automation's
-  `draft` object and on `GET /draft` — and a resumed draft's Test card renders it in place
-  of the empty hint: a status line ("Last test succeeded — <when>" green / "Last test
-  failed — <when>" amber) plus, on success, the same chip + values + files listing and
-  Show in Finder button; the header button reads "Test again". A live test always takes
-  over the card; the persisted summary is display-only (no logs, no step list, no issue
-  panel — those are session-ephemeral). On failure the card
-  shows "Analyzing the failure…" (agent label) while the backend makes the §8 issue-analysis
-  call, then opens the **Issue panel** — the same cards, fields, and editing as the Blocker
+  "Use defaults" in create mode. The resolved values are snapshotted on the test record, so
+  its execution page shows them like any execution's. Side effects outside memory are real
+  (emails send, files move, notifications post per settings) and the card says so plainly.
+  **The card itself stays compact — status + progress, no logs:** while the test executes it
+  shows a status line ("Executing — step 2 of 5 · <step name>"), a progress bar (terminal
+  steps over total), and a **"View run"** button opening the test's §7 execution page, where
+  the live step timeline, streaming logs, and (when finished) the full result views are the
+  ordinary execution-page surfaces — one run UI everywhere instead of a second, smaller one
+  in the card. When the test finishes the card shows the outcome line ("Test succeeded" green /
+  "Test failed" amber / "Test cancelled" faint) with the same View-run button. Navigating
+  away from the editor no longer cancels a live test — it is a real record, visible and
+  cancellable from its execution page; re-entering the editor re-attaches the card to a
+  still-executing test. **The outcome is never thrown away with the editing session:** a
+  finished test writes the last-test summary `test.yaml` (§5 — status succeeded | failed,
+  finished-at, and the test execution's id) into the draft container, wiped at the next test
+  start and deleted with the draft. It rides the draft payload as `test` ({ status, when:
+  §4.1 started-label, execId }) — on the automation's `draft` object and on `GET /draft` —
+  and a resumed draft's Test card renders it in place of the empty hint: a status line
+  ("Last test succeeded — <when>" green / "Last test failed — <when>" amber) plus the
+  View-run button while the record still exists (retention may outlive it — the button
+  hides when the record is gone); the header button reads "Test again". A live test always
+  takes over the card. On failure the card shows "Analyzing the failure…" (agent label)
+  while the backend makes the §8 issue-analysis call (log tails read from the record's log
+  files), then opens the **Issue panel** — the same cards, fields, and editing as the Blocker
   modal, headline "The test hit an issue"; its primary button **"Apply to the spec & sync
   the steps"** amends the in-editor spec (same `## Constraints & resolutions` rule) and starts a
   §8 sync, and "Previously resolved" carries across rounds — build-time blockers and execution-time
   issues are one convergent repair loop with two entry points. If the analysis call itself
   fails, the panel still opens with the failing step's raw error as the reason and an empty
-  fix for the user to fill in. Advisory: a failed test never blocks
-  saving.
+  fix for the user to fill in. A test that fails before any step (missing/disallowed secret,
+  package install) is a failed record like any other; its panel opens with the §4.5 error
+  message as the reason and the plain-word §7 reason as the fix. Advisory: a failed test
+  never blocks saving.
 
 Create (new) → version 1, `lastStatus: none`, navigate to detail, toast "Created — nothing has
 executed yet. Press Execute now when you're ready." Save (edit) → §4.4.
@@ -2009,7 +2031,7 @@ which would drop the WebSocket and all renderer state. The footer link sends pla
 - Layout: sidebar 212 px fixed; page gutter 30–32 px, max width 1200 px (Review page 1800 px,
   forms 620–720 px, settings 640 px); card padding 15–22 px; control padding 9–10 px vertical /
   14–18 px horizontal.
-- Scroll chaining: inner scroll panels embedded in the page flow (spec viewer, test log
+- Scroll chaining: inner scroll panels embedded in the page flow (spec viewer, execution log
   pane, etc.) chain to the page — reaching their bottom continues scrolling the page (browser
   default; no `overscroll-behavior: contain`). Only floating surfaces (popovers, dropdowns,
   modals) may contain overscroll.
@@ -2267,9 +2289,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `DELETE /draft` — the §4.4 pending create-mode slot (`<root>/draft/`): the same draft
   payload shape as `PUT /automations/{id}/draft` plus the identity fields (name, triggers
   ride the payload; agentId beside it); GET returns `draft: null` when the slot is empty
-- `POST /draft/open` — §4.4: make the pending slot's container dirs (`draft/` with empty
-  `memory/`, `workspace/`, `result/`) exist, never touching contents already there; the
-  create flow calls it on open so the slot exists before any drafting or test
+- `POST /draft/open` — §4.4: make the pending slot's container (`draft/` with an empty
+  `memory/`) exist, never touching contents already there; the create flow calls it on
+  open so the slot exists before any drafting or test
 - `POST /automations/{id}/restore` `{ v }` — copy vX to vN+1 (§5)
 - `POST /automations/{id}/memory/clear` — §6.3 pre-clear snapshot, then empty the §4.1 memory
   directory (backs §9.2 "Clear memory")
@@ -2279,20 +2301,24 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   — §6.3 restore (409 while live) · `DELETE /automations/{id}/memory/snapshots/{sid}` —
   delete the snapshot; unknown `sid` answers 404
 - `POST /tests` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets?, paramValues? }`
-  → `{ testId }` — the §11 Test: executes the sent draft's steps in the draft container's
-  `workspace/`/`result/` (§11: `automations/<uuid>/draft/` when `autoId` is given, else the
-  pending slot `<root>/draft/`; scratch memory copied, when `autoId` is given, from its
-  `draft/memory/` if present else its memory dir, else from the pending slot's `memory/`
-  if present else empty; no execution record); grant arrays
-  as in `/drafts`; param resolution uses the automation's stored values when `autoId` is given
+  → `{ execId }` — the §11 Test: starts a §4.5 **test execution record** of the sent draft's
+  steps (`test: true`, `ver: "Test"`, `trigger: "Test"`; a stale `autoId` answers 404; 409
+  while a test for the same draft container is executing; starting a test deletes the
+  container's previous test record). Scratch memory is copied to a temp dir — when `autoId`
+  is given, from its `draft/memory/` if present else its memory dir, else from the pending
+  slot's `memory/` if present else empty — and discarded at test end. Grant arrays as in
+  `/drafts`; param resolution uses the automation's stored values when `autoId` is given
   (else the draft's defaults), with `paramValues` (name → value, §5 matching rules) overriding
-  on top for this test only — never stored; progress via the `test.*` WS events; on failure the
-  backend makes the §8 issue-analysis call with `agentId` (default-agent fallback) and emits its
-  blockers in `test.issue`. A finished test writes the §11 last-test summary (`test.yaml`, §5)
-  into the draft container; it rides the draft payload as `test` ({ status: succeeded | failed,
-  when, result? }) on the automation's `draft` object and on `GET /draft`.
-  `DELETE /tests/{testId}` cancels (kills the live step subprocess or
-  the analysis harness process)
+  on top for this test only — never stored; the resolved values are snapshotted on the
+  record. Progress, logs, and the result flow over the ordinary `exec.*` events and
+  `/executions/*` endpoints; cancel and skip-step are `POST /executions/{id}/cancel` and
+  `/skip-step` like any execution (retry answers 409 — the draft may have changed). On
+  failure the backend makes the §8 issue-analysis call with `agentId` (default-agent
+  fallback), reading log tails from the record's log files, and emits its blockers in
+  `test.issue` (`{ execId, blockers }`). A finished test writes the §11 last-test summary
+  (`test.yaml`, §5) into the draft container; it rides the draft payload as `test`
+  ({ status: succeeded | failed, when, execId }) on the automation's `draft` object and on
+  `GET /draft`.
 - `POST /packages/check` `{ packages: [{ pip, import }] }` → `{ packages: [{ pip, import,
   status: installed | missing, version? }] }` — the fast §6.2 installed-check, never runs
   pip; `version` is the real installed version, present when installed (backs the §11
@@ -2412,9 +2438,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `stepIndex`/`attempt` — null for execution-level lines — and the per-file `seq` for
   fetch-vs-stream dedupe), `exec.finished`, `auto.changed`, `agents.changed`,
   `secrets.changed`, `settings.changed`, `draft.changed` (the §4.4 pending slot was kept
-  or discarded — clients re-`GET /state`), `draft.progress`, `test.step` (§11 test step
-  status change), `test.log` (one redacted NDJSON line), `test.done` (`{ status, result? }` —
-  result summary on success), `test.issue` (the §8 issue-analysis blockers, after a failed
-  test's analysis finishes),
+  or discarded — clients re-`GET /state`), `draft.progress`, `test.issue`
+  (`{ execId, blockers }` — the §8 issue-analysis blockers, after a failed test's analysis
+  finishes; §11 test executions otherwise stream over the ordinary `exec.*` events),
   `ollama.pull` (model-pull progress). Clients re-`GET /state` on
   reconnect.

@@ -195,8 +195,9 @@ export default function ExecutionPage() {
   }
 
   const canOpenAuto = !e.autoDeleted && !!auto
-  const retryPrimary = e.status === 'failed' && !e.autoDeleted
-  const againQuiet = ['succeeded', 'failed', 'cancelled', 'interrupted', 'skipped'].includes(e.status) && !e.autoDeleted
+  // §11: tests aren't re-executable from here — iteration lives in the editor's Test card.
+  const retryPrimary = e.status === 'failed' && !e.autoDeleted && !e.test
+  const againQuiet = ['succeeded', 'failed', 'cancelled', 'interrupted', 'skipped'].includes(e.status) && !e.autoDeleted && !e.test
   // §7: values as used by this execution — snapshotted on the record; older records fall back
   // to the automation's current params.
   const params = (full?.params?.length ? full.params : auto?.params) ?? []
@@ -236,7 +237,11 @@ export default function ExecutionPage() {
         >
           {e.autoName}
         </h1>
-        {e.autoDeleted && (
+        {e.test && (
+          /* §11 draft test — a create-mode test has no automation by design */
+          <Chip style={{ fontSize: 10.5, fontWeight: 600 }}>Draft test</Chip>
+        )}
+        {e.autoDeleted && !e.test && (
           <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>(deleted)</span>
         )}
         <Badge

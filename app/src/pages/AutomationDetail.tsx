@@ -654,13 +654,14 @@ export default function AutomationDetail() {
   const lr = auto.latest
   // §9.2 failure notice: latest execution (skipped ones never count as latest)
   // failed → its §4.5 error leads the LATEST RESULT card.
-  const latestExec = execs.find((e) => e.autoId === auto.id && e.status !== 'skipped')
+  const latestExec = execs.find((e) => e.autoId === auto.id && e.status !== 'skipped' && !e.test)
   const failedExec = latestExec?.status === 'failed' && latestExec.error ? latestExec : null
   const params = auto.params ?? []
   const steps = auto.steps ?? []
   const spec = auto.spec ?? []
   const olderVersions = (auto.versions ?? []).filter((v) => v.v !== auto.version)
-  const recentExecs = execs.filter((e) => e.autoId === auto.id).slice(0, 6)
+  // §11 test executions are draft-scoped — never listed among real executions
+  const recentExecs = execs.filter((e) => e.autoId === auto.id && !e.test).slice(0, 6)
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 30px 70px', animation: 'adFadeUp .4s ease' }}>

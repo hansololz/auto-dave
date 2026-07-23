@@ -11,7 +11,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DDL = """
 CREATE TABLE IF NOT EXISTS executions (
@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS executions (
   version          TEXT NOT NULL,
   status           TEXT NOT NULL,
   "trigger"        TEXT NOT NULL,
+  test             INTEGER NOT NULL DEFAULT 0,
   started_at       INTEGER NOT NULL,
   finished_at      INTEGER,
   dur_ms           INTEGER,
@@ -67,9 +68,9 @@ class ExecDB:
         with self.conn:
             self.conn.execute(
                 'INSERT INTO executions (id, automation_id, automation_name, version, status,'
-                ' "trigger", started_at, finished_at, dur_ms, note, chip, chip_status,'
+                ' "trigger", test, started_at, finished_at, dur_ms, note, chip, chip_status,'
                 " error_step, error_message, error_reason)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 " ON CONFLICT(id) DO UPDATE SET"
                 " automation_name=excluded.automation_name, status=excluded.status,"
                 " finished_at=excluded.finished_at, dur_ms=excluded.dur_ms, note=excluded.note,"
@@ -77,6 +78,7 @@ class ExecDB:
                 " error_step=excluded.error_step, error_message=excluded.error_message,"
                 " error_reason=excluded.error_reason",
                 (h["id"], h["auto_id"], h["auto_name"], h["ver"], h["status"], h["trigger"],
+                 1 if h.get("test") else 0,
                  _ms(h["started_at"]), _ms(h.get("finished_at")), h["dur_ms"], h["note"],
                  h.get("chip"), h.get("chip_status"),
                  err.get("step"), err.get("message"), err.get("reason")))
@@ -84,15 +86,15 @@ class ExecDB:
     def load_all(self) -> dict[str, dict]:
         out: dict[str, dict] = {}
         for row in self.conn.execute(
-                'SELECT id, automation_id, automation_name, version, status, "trigger",'
+                'SELECT id, automation_id, automation_name, version, status, "trigger", test,'
                 " started_at, finished_at, dur_ms, note, chip, chip_status,"
                 " error_step, error_message, error_reason FROM executions"):
-            (eid, auto_id, auto_name, ver, status, trigger,
+            (eid, auto_id, auto_name, ver, status, trigger, test,
              started, finished, dur_ms, note, chip, chip_status,
              err_step, err_message, err_reason) = row
             out[eid] = {
                 "id": eid, "auto_id": auto_id, "auto_name": auto_name, "ver": ver,
-                "status": status, "trigger": trigger,
+                "status": status, "trigger": trigger, "test": bool(test),
                 "started_at": _iso(started), "finished_at": _iso(finished),
                 "dur_ms": dur_ms, "note": note,
                 "chip": chip, "chip_status": chip_status,

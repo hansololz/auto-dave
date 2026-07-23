@@ -61,11 +61,12 @@ export interface ExecResult {
 }
 
 // §11 last-test summary — persisted in the draft container (`test.yaml`, §5),
-// rides the draft payload so a resumed draft's Test card shows the last outcome.
+// rides the draft payload so a resumed draft's Test card shows the last outcome
+// and can link to the test's execution page while the record still exists.
 export interface DraftTest {
   status: 'succeeded' | 'failed'
   when: string
-  result?: ExecResult | null
+  execId?: string | null
 }
 
 export interface VersionInfo {
@@ -170,7 +171,8 @@ export interface Exec {
   autoDeleted: boolean
   ver: string
   status: Status
-  trigger: 'Manual' | 'Menu bar' | 'Cron' | 'Once' | 'App start'  // §4.5 labels
+  trigger: 'Manual' | 'Menu bar' | 'Cron' | 'Once' | 'App start' | 'Test'  // §4.5 labels
+  test: boolean  // §4.5 test executions — §11 draft tests
   dur: string
   started: string
   startedMs: number
