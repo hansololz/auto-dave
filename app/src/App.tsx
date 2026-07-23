@@ -30,9 +30,9 @@ function NavToggle({ onClick, title }: { onClick: () => void; title: string }) {
       onClick={onClick}
       title={title}
       style={{
-        position: 'absolute', left: 82, top: 10, display: 'flex', alignItems: 'center',
+        position: 'absolute', left: 82, top: 6, display: 'flex', alignItems: 'center',
         justifyContent: 'center', width: 28, height: 28, borderRadius: 7,
-        color: 'var(--text-faint)',
+        color: 'var(--text-faint)', zIndex: 101,
       }}
     >
       <i className="fa-solid fa-table-columns" style={{ fontSize: 13 }} />
@@ -162,7 +162,7 @@ export default function App() {
       {!sidebarHidden && <Sidebar onCollapse={() => setCollapsed(true)} />}
       <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-content)', position: 'relative' }}>
         {sidebarHidden && (
-          <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 5 }}>
+          <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 101 }}>
             {inShell && <NavToggle onClick={() => setCollapsed(false)} title="Expand sidebar" />}
           </div>
         )}

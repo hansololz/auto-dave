@@ -1322,8 +1322,12 @@ their own 40 px sticky drag strip. Interactive controls inside drag regions stay
 (Automations, Executions, Agents, Secrets, Settings) with live count pills; content pane scrolls
 independently. The sidebar collapses completely via a panel toggle (`fa-table-columns`, native
 `title` tooltip) that keeps one fixed window position in both states — Claude-desktop-style: 28 px
-button at `left: 82, top: 10`, right of the traffic lights, tuned by eye. The window uses the
-default `hiddenInset` traffic-light position (no `trafficLightPosition` override). Expanded, it sits inside the sidebar's
+button at `left: 82, top: 6`, right of the traffic lights and vertically centered on them,
+tuned by eye. The button carries `zIndex: 101` so it stays clickable above
+the 18 px fixed drag strip (z 100); the collapsed-state sticky drag strip is also z 101 so its
+stacking context doesn't cap the button. The window uses
+`titleBarStyle: 'hidden'`, keeping the traffic lights at the macOS default position (no
+`trafficLightPosition` override, no inset). Expanded, it sits inside the sidebar's
 top 44 px drag row; collapsed, the sidebar is gone, the content pane spans the full window width
 behind the same 40 px sticky drag strip shell-less surfaces use, and the identical button in that
 strip expands it back. The collapsed state persists in `localStorage` (`ad-nav-collapsed`) and
@@ -2090,7 +2094,7 @@ which would drop the WebSocket and all renderer state. The footer link sends pla
   modal `0 24px 60px rgba(0,0,0,.5)`, menu-bar panel `0 18px 50px rgba(0,0,0,.55)`.
 - Selection allowlist: app chrome is unselectable (`user-select: none` on body); content
   surfaces (logs, results, spec text, scripts, paths) opt in with `.ad-copy`; inputs and
-  textareas always selectable. `.ad-drag` marks the hiddenInset title-bar drag region
+  textareas always selectable. `.ad-drag` marks the hidden-title-bar drag region
   (interactive children opt out with `no-drag`).
 - All hover and focus states are CSS classes in `tokens.css` — never JS mouse-state (a JS hover
   flag sticks when a re-render or layout shift moves the node under the cursor). Buttons:
