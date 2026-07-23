@@ -1340,7 +1340,10 @@ Music-style: a fixed 18 px full-width drag strip spans the whole window top (abo
 content, z-index 100), the sidebar's top 44 px is also draggable, and the content pane always
 carries its own 40 px sticky drag strip — every surface, both sidebar states — so page content
 sits at the same vertical offset whether the sidebar is collapsed or expanded; toggling never
-shifts the page vertically. Interactive controls inside drag regions stay clickable
+shifts the page vertically. Both shell strips are pure OS drag surfaces: they carry
+`pointer-events: none`, so DOM clicks pass through to whatever renders beneath them (drag-region
+collection ignores pointer-events, so window dragging still works); they must never hold
+children. Interactive controls inside drag regions stay clickable
 (`no-drag` on buttons/links/inputs); the window-fixed sidebar toggle sits outside any `.ad-drag`
 container but overlaps both strips, so it carries an explicit `no-drag` (`.ad-no-drag`) — and it
 must be rendered **after** the content pane in the DOM: Chromium collects drag regions in DOM
@@ -1959,8 +1962,10 @@ strictly read-only, powered by the §8 `question` job.
   workflow". Its background is **opaque** (the card background) with a soft shadow — it floats
   over scrolling content, so it must never be transparent. It renders only on Review with a
   loaded draft, and hides while the panel is open.
-- **Panel:** a right slide-over, 400 px wide, from the very window top to the window bottom
-  (the 18 px drag strip, z 100, sits above its top edge and stays draggable there); card
+- **Panel:** a right slide-over, 400 px wide, from the very window top to the window bottom;
+  its root carries `.ad-no-drag` (rendered after the §9 drag strips in DOM order, so its
+  no-drag rect wins and the strips are not draggable over the panel's width — clicks on its
+  header × always land); card
   background, 1 px left hairline, soft shadow; it **overlays** the content —
   the 1800 px review grid never reflows. Deliberate exception to the §9 popover rule: it does
   **not** close on outside mousedown — the point is reading an answer while editing behind

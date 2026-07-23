@@ -2783,7 +2783,7 @@ export default function CreateFlow() {
       )}
       {isReview && rev && askOpen && (
         <div
-          className="no-drag"
+          className="ad-no-drag"
           onAnimationEnd={(e) => { if (askClosing && e.target === e.currentTarget) finishAskClose() }}
           style={{
             position: 'fixed', top: 0, right: 0, bottom: 0, width: 400, zIndex: 60,

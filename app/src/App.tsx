@@ -156,14 +156,16 @@ export default function App() {
   const inShell = surface === 'app' || (surface === 'create' && createFrom !== 'onboard')
   return (
     <div style={{ height: '100vh', display: 'flex', background: 'var(--bg-window)' }}>
-      <div className="ad-drag" style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 18, zIndex: 100 }} />
+      <div className="ad-drag" style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 18, zIndex: 100, pointerEvents: 'none' }} />
       {inShell && (
         <div style={{ width: navCollapsed ? 0 : 212, flex: 'none', overflow: 'hidden', transition: 'width .22s ease' }}>
           <Sidebar />
         </div>
       )}
       <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: 'var(--bg-content)', position: 'relative' }}>
-        <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 101 }} />
+        {/* Pure OS drag surface (§9): pointer-transparent so overlays beneath it
+            (e.g. the Ask panel header) stay DOM-clickable; must never hold children. */}
+        <div className="ad-drag" style={{ position: 'sticky', top: 0, height: 40, zIndex: 101, pointerEvents: 'none' }} />
         {surface === 'create' ? <CreateFlow /> : <Content />}
       </div>
       {/* After the drag strips in DOM order (§9): drag regions are collected in
