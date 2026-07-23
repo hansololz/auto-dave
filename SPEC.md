@@ -1627,7 +1627,10 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   this document when it changes." — and clicking it expands the card, same as the other
   collapsed-section hints on this page). Editable as markdown-ish text (`#`, `##`, `-`,
   plain ↔ h1/h2/li/p blocks); the view state renders through the shared §4.5 Markdown
-  renderer. Also an
+  renderer. Both body states are height-stable: the rendered view and the in-place editor
+  each size to their content and share the same max height (440 px) with inner scrolling —
+  the editor is an auto-growing textarea (ask-box pattern, no manual resize handle), so
+  toggling Edit/Cancel/Save never jumps the card height. Also an
   "ask the agent" box ("Edit with agent") — a multiline textarea (1 row min) that grows with
   its content, never scrolls (Enter sends, Shift+Enter inserts a newline) and starts one §8 `edit` job (spec call only) with the
   selected drafting agent (the automation's agent, falling back to the default agent): the agent
@@ -1659,7 +1662,9 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   Framework-instructions cards), first prefixing every bare line — one that starts no markdown
   block (heading, list item, table row, code fence) and sits outside any fence — with "- " so
   plain one-rule-per-line text still renders as a bullet list instead of collapsing into one
-  paragraph; edit placeholder "Markdown — one rule per line: 'Prefer
+  paragraph; the edit state is an auto-growing textarea (ask-box pattern, no manual resize
+  handle, comfortable ~3-line minimum) sized to its content like the rendered view, so
+  toggling view/edit doesn't jump the card height; edit placeholder "Markdown — one rule per line: 'Prefer
   Python.' 'Never delete files — move them to the Trash.'", empty state "No instructions yet —
   press Edit to add standing rules." In
   create mode the card arrives pre-filled with the app's default best-practice rules (§8) —

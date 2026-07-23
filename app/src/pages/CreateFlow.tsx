@@ -1793,11 +1793,13 @@ export default function CreateFlow() {
                   ) : rev.specEdit ? (
                     <>
                       <textarea
-                        value={rev.specText} rows={19}
+                        value={rev.specText} rows={1}
+                        ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` } }}
                         onChange={(e) => up({ specText: e.target.value, touched: true })}
                         style={{
                           width: '100%', background: 'var(--bg-inset)', border: 'none', color: 'var(--text-2em)',
-                          font: "400 12.5px/1.7 var(--mono)", padding: '16px 20px', resize: 'vertical', outline: 'none', display: 'block',
+                          font: "400 12.5px/1.7 var(--mono)", padding: '12px 20px 18px', resize: 'none', outline: 'none', display: 'block',
+                          minHeight: 92, maxHeight: 440, overflowY: 'auto',
                         }}
                       />
                       <div style={{ padding: '9px 20px', borderTop: '1px solid var(--hairline-dim)', font: "400 11.5px/1.5 var(--sans)", color: 'var(--text-faintest)' }}>
@@ -2081,13 +2083,14 @@ export default function CreateFlow() {
                   )}
                   {instrOpenEff && rev.instrEdit && (
                     <textarea
-                      value={rev.instrDraft ?? rev.instr} rows={6}
+                      value={rev.instrDraft ?? rev.instr} rows={1}
+                      ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` } }}
                       onChange={(e) => up({ instrDraft: e.target.value })}
                       placeholder="Markdown — one rule per line: “Prefer Python.” “Never delete files — move them to the Trash.”"
                       style={{
                         width: '100%', background: 'var(--bg-inset)', border: 'none', borderTop: '1px solid var(--hairline)',
                         color: 'var(--text-2em)', font: "400 12.5px/1.7 var(--mono)", padding: '14px 20px',
-                        resize: 'vertical', outline: 'none', display: 'block',
+                        resize: 'none', outline: 'none', display: 'block', minHeight: 92, overflow: 'hidden',
                       }}
                     />
                   )}
