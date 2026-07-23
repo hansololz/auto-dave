@@ -25,7 +25,8 @@ Style rules:
   sentences between them only where a diagram cannot carry the meaning.
 - Terminology: an automation "executes"; an occurrence is an "execution" —
   never "run".
-- Target roughly 300-450 lines total.
+- Target roughly 350-550 lines total; the data model section may take up to
+  half of that.
 
 Required sections, in order:
 1. **What it is** — 2-3 sentences.
@@ -36,9 +37,23 @@ Required sections, in order:
 3. **File structure** — annotated tree (top 2 levels plus the key files),
    one-line note per entry.
 4. **Key files** — table: path | what it holds | when you would open it.
-5. **Data model** — markdown tables of the main entities and their fields
-   (automation, version, step, agent, secret, schedule, execution record),
-   plus where each is stored on disk.
+5. **Data model** — the core section. Markdown tables of every persisted
+   entity with its fields and its on-disk location. Derive the list from
+   backend/autowright/storage.py, paths.py, and app/src/types.ts — do not
+   guess from memory. Cover at least:
+   - automation (automation.yaml) and its triggers (kind: cron/time/app_start)
+   - version folder (manifest: steps, params, packages, spec, instructions)
+   - draft (per-automation) and the global pending create-mode draft slot
+   - execution record (header, steps, attempts) in executions.yaml, the
+     SQLite index executions.db, log lines (NDJSON shape), and the result
+     (result.yaml with values/files)
+   - agent (agents.yaml), secret metadata (secrets.yaml) vs secret value
+     (macOS Keychain), settings (settings.yaml)
+   - automation memory, memory snapshots, draft test summary (test.yaml)
+   - backend.json (port, token, version, pid)
+   Close with a short table of runtime-only structures (in-memory Store,
+   DraftJob + Blocker, EventHub) and a note that app/src/types.ts mirrors
+   the serialized API shapes (StateSnapshot envelope).
 6. **Action flows** — for each action below, a mermaid sequenceDiagram of the
    steps end-to-end (which process, which endpoint/file touched):
    - app launch (backend discovery via backend.json)
