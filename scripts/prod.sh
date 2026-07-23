@@ -69,6 +69,7 @@ echo "· packaging Autowright.app"
   --ignore '^/src($|/)' \
   --ignore '^/node_modules($|/)' \
   --ignore '^/drive[^/]*\.cjs$' \
+  --ignore '^/brand-electron\.cjs$' \
   --ignore '^/index\.html$' \
   --ignore '^/vite\.config\.ts$' \
   --ignore '^/tsconfig\.json$' \
