@@ -717,6 +717,14 @@ export default function CreateFlow() {
   // automation's stored values; non-null = the per-test overrides being edited.
   const [testParams, setTestParams] = useState<ParamDef[] | null>(null)
   const [confirmSpecCancel, setConfirmSpecCancel] = useState(false)
+  // §11 Ask panel — read-only Q&A thread about the workflow (§8 question job).
+  // Editor state only: never serialized into the draft, gone on leaving the page.
+  const [askOpen, setAskOpen] = useState(false)
+  const [askClosing, setAskClosing] = useState(false)
+  const [qaText, setQaText] = useState('')
+  const [qaDetail, setQaDetail] = useState<string | null>(null)
+  const [qa, setQa] = useState<{ q: string; a?: string; err?: string; busy?: boolean }[]>([])
+  const qaBusy = qa.some((e) => e.busy)
   // Blocker-modal apply travels through Modal's animated close (ConfirmModal pattern).
   const applyBlockedRef = useRef(false)
   const draftSnap = useRef<Rev | null>(null)
@@ -1017,7 +1025,7 @@ export default function CreateFlow() {
   // grants context and returns the rewritten spec. The steps stay untouched:
   // the new spec lands out of sync and the sync panel rebuilds them later.
   const sendAsk = async () => {
-    if (!rev || rev.syncBusy || rev.askBusy) return
+    if (!rev || rev.syncBusy || rev.askBusy || qaBusy) return
     if (!rev.ask.trim()) { showToast('Type the change you want first.'); return }
     const request = rev.ask.trim()
     askReqRef.current = request
@@ -1074,7 +1082,7 @@ export default function CreateFlow() {
   // §11: a blocked sync opens the repair modal; applying amends the in-editor
   // spec (specOverride) and repeats the sync with it.
   const runSync = async (specOverride?: SpecBlock[]) => {
-    if (!rev || rev.syncBusy || rev.askBusy) return
+    if (!rev || rev.syncBusy || rev.askBusy || qaBusy) return
     // A cancel must return the panel to the state it was in (§11) — a sync
     // started from a clean draft must not leave it marked out-of-sync.
     dirtyBeforeSync.current = rev.dirty
@@ -1243,6 +1251,94 @@ export default function CreateFlow() {
       ? 'Sync stopped — the workflow is still out of sync.'
       : 'Sync stopped — nothing changed.', 4200)
   }
+
+  // §11 Ask panel: one §8 `question` job at a time, polled on its own — it
+  // never touches rev, the draft, or Dirty gating. The other drafting jobs
+  // (spec/steps/sync/edit) block asking, and a pending question blocks them.
+  const otherJobBusy = !!rev && (rev.specBusy || rev.stepsBusy || rev.syncBusy || rev.askBusy)
+  const qaJobRef = useRef<string | null>(null)
+  const qaPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const stopQaPoll = () => { if (qaPollRef.current) { clearInterval(qaPollRef.current); qaPollRef.current = null } }
+  const settleQa = (patch: { a?: string; err?: string }) =>
+    setQa((t) => t.map((e) => (e.busy ? { ...e, busy: false, ...patch } : e)))
+  const sendQuestion = async () => {
+    if (!rev || qaBusy || otherJobBusy) return
+    const q = qaText.trim()
+    if (!q) return
+    setQaText('')
+    setQaDetail(null)
+    setQa((t) => [...t, { q, busy: true }])
+    try {
+      const { jobId } = await api.postDraftJob({
+        mode: 'question', text: q, ...(isEdit && auto ? { autoId: auto.id } : {}),
+        agentId, current: currentSerialized(),
+        enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
+      })
+      qaJobRef.current = jobId
+      stopQaPoll()
+      qaPollRef.current = setInterval(() => {
+        void (async () => {
+          try {
+            const j = await api.getDraftJob(jobId)
+            if (qaJobRef.current !== jobId) return
+            if (j.status === 'building') { setQaDetail(j.detail ?? null); return }
+            qaJobRef.current = null
+            stopQaPoll()
+            setQaDetail(null)
+            if (j.status === 'done') settleQa({ a: j.draft?.answer ?? '' })
+            else if (j.status === 'failed') settleQa({ err: j.error || 'The agent returned no answer.' })
+            // cancelled: cancelQuestion already dropped the pending entry
+          } catch (e) {
+            if (qaJobRef.current !== jobId) return
+            qaJobRef.current = null
+            stopQaPoll()
+            setQaDetail(null)
+            settleQa({ err: (e as Error).message })
+          }
+        })()
+      }, 700)
+    } catch (e) {
+      settleQa({ err: (e as Error).message })
+    }
+  }
+  // Cancel drops the pending entry and returns the question to the input (§11).
+  const cancelQuestion = () => {
+    const pending = qa.find((e) => e.busy)
+    if (!pending) return
+    stopQaPoll()
+    if (qaJobRef.current) void api.cancelDraftJob(qaJobRef.current).catch(() => { /* already gone */ })
+    qaJobRef.current = null
+    setQaDetail(null)
+    setQa((t) => t.filter((e) => !e.busy))
+    setQaText((cur) => cur || pending.q)
+  }
+  // Leaving the editor any way must not orphan an in-flight question job.
+  useEffect(() => () => {
+    stopQaPoll()
+    if (qaJobRef.current) void api.cancelDraftJob(qaJobRef.current).catch(() => { /* already gone */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // §11: one close routine — every dismissal (×, Esc) plays the slide-out exit
+  // (Modal's animated-close pattern), then unmounts on animationend. The
+  // timeout is the reduced-motion fallback; finishAskClose is idempotent.
+  const closeAsk = () => { if (askOpen) setAskClosing(true) }
+  const finishAskClose = () => { setAskOpen(false); setAskClosing(false) }
+  useEffect(() => {
+    if (!askClosing) return
+    const t = setTimeout(finishAskClose, 200)
+    return () => clearTimeout(t)
+  }, [askClosing]) // eslint-disable-line react-hooks/exhaustive-deps
+  // §11: the panel closes only via its × or Esc — never on outside mousedown.
+  useEffect(() => {
+    if (!askOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeAsk() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [askOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  const qaScrollRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = qaScrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [qa, qaDetail])
 
   // §11 repair modal apply — same door for both sources: write the edited cards
   // into the spec's "Constraints & resolutions" section, then sync the steps.
@@ -1832,7 +1928,7 @@ export default function CreateFlow() {
                         Cancel
                       </button>
                     </>) : (
-                      <button className="ad-btn-soft" disabled={rev.syncBusy} onClick={() => void sendAsk()} style={{ whiteSpace: 'nowrap' }}>
+                      <button className="ad-btn-soft" disabled={rev.syncBusy || qaBusy} onClick={() => void sendAsk()} style={{ whiteSpace: 'nowrap' }}>
                         Edit with agent
                       </button>
                     )}
@@ -2661,6 +2757,108 @@ export default function CreateFlow() {
             </>
           )}
         </Modal>
+      )}
+
+      {/* §11 Ask panel — floating Ask button + right slide-over Q&A (read-only) */}
+      {isReview && rev && !askOpen && (
+        <button
+          className="ad-btn-ghost no-drag" title="Ask about this workflow"
+          onClick={() => setAskOpen(true)}
+          style={{
+            position: 'fixed', right: 24, bottom: 24, width: 40, height: 40, padding: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: 10, zIndex: 60,
+            // floats over scrolling content — opaque, never transparent (§11)
+            background: 'var(--bg-card)', boxShadow: '0 6px 22px rgba(0,0,0,.4)',
+          }}
+        >
+          <i className="fa-solid fa-comment" style={{ fontSize: 14 }} />
+        </button>
+      )}
+      {isReview && rev && askOpen && (
+        <div
+          className="no-drag"
+          onAnimationEnd={(e) => { if (askClosing && e.target === e.currentTarget) finishAskClose() }}
+          style={{
+            position: 'fixed', top: 18, right: 0, bottom: 0, width: 400, zIndex: 60,
+            background: 'var(--bg-card)', borderLeft: '1px solid var(--border-card)',
+            boxShadow: '-18px 0 40px rgba(0,0,0,.35)',
+            display: 'flex', flexDirection: 'column',
+            animation: askClosing ? 'adSlideOutRight .12s ease both' : 'adSlideInRight .18s ease both',
+          }}>
+          <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', borderBottom: '1px solid var(--hairline)' }}>
+            <Eyebrow>ASK</Eyebrow>
+            <span style={{
+              flex: 1, minWidth: 0, font: "500 11px var(--mono)", color: 'var(--text-faintest)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {selAgent ? `${agName(selAgent)} · ${dispModel(selAgent)}` : 'No agent'}
+            </span>
+            <button
+              className="ad-btn-text dim" title="Close"
+              onClick={closeAsk}
+              style={{ font: "500 12px var(--sans)", padding: '0 2px', flex: 'none' }}
+            >
+              <i className="fa-solid fa-xmark" style={{ fontSize: 12 }} />
+            </button>
+          </div>
+          <div ref={qaScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {qa.length === 0 && (
+              <div style={{ font: "400 12.5px/1.6 var(--sans)", color: 'var(--text-faintest)', textAlign: 'center', padding: '26px 12px' }}>
+                Ask anything about this workflow — the steps, the spec, why the AI chose something.
+              </div>
+            )}
+            {qa.map((e, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="ad-copy" style={{
+                  font: "500 12.5px/1.5 var(--sans)", color: 'var(--text-2em)',
+                  background: 'var(--bg-inset)', border: '1px solid var(--hairline)',
+                  borderRadius: 9, padding: '8px 12px', alignSelf: 'flex-end', maxWidth: '92%',
+                }}>
+                  {e.q}
+                </div>
+                {e.busy ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px' }}>
+                    <Spinner size={13} />
+                    <span style={{ font: "400 12px var(--sans)", color: 'var(--text-muted)' }}>{qaDetail ?? 'Thinking…'}</span>
+                  </div>
+                ) : e.err ? (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '0 2px' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', flex: 'none', marginTop: 5 }} />
+                    <span style={{ font: "400 12px/1.6 var(--sans)", color: 'var(--text-2em)' }}>{e.err}</span>
+                  </div>
+                ) : (
+                  <div className="ad-copy" style={{ font: "400 12.5px/1.65 var(--sans)", color: 'var(--text-2em)' }}>
+                    <Markdown text={e.a ?? ''} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ flex: 'none', borderTop: '1px solid var(--hairline)', padding: '12px 14px', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <textarea
+              className="ad-input"
+              value={qaText} rows={1} disabled={otherJobBusy}
+              ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` } }}
+              onChange={(e) => setQaText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendQuestion() } }}
+              placeholder={otherJobBusy ? 'Wait for the current job to finish.' : 'Ask about this workflow…'}
+              style={{
+                flex: 1, color: 'var(--text)', font: "400 12.5px/1.5 var(--sans)", padding: '8px 12px',
+                resize: 'none', overflow: 'hidden', display: 'block',
+              }}
+            />
+            {qaBusy ? (
+              <button className="ad-btn-ghost" onClick={cancelQuestion} style={{ whiteSpace: 'nowrap', flex: 'none' }}>
+                Cancel
+              </button>
+            ) : (
+              <button className="ad-btn-soft" disabled={otherJobBusy || !qaText.trim()} onClick={() => void sendQuestion()} style={{ whiteSpace: 'nowrap' }}>
+                Ask
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

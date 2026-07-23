@@ -5,7 +5,8 @@ build instructions + the original spec (edit only) + the user's request → spec
 step code never travels here. Call 2 (create/sync; sync starts here): framework
 instructions + build instructions + the spec → manifest.yaml (params, triggers) + step files.
 `edit` makes call 1 only — the rewritten spec lands out of sync and a later `sync`
-job rebuilds the steps. Each call is followed by deterministic validation with
+job rebuilds the steps. `question` makes one read-only call whose raw response is
+the answer (§11 Ask panel) — no envelope. Each call is followed by deterministic validation with
 one automatic repair round; a valid ===BLOCKED=== envelope instead ends the job
 in the terminal `blocked` state with the agent's blocker list (§8).
 """
@@ -93,6 +94,9 @@ STEPS_REMINDER = ("=== RESPONSE REMINDER ===\n"
                   "Respond with manifest.yaml plus one file block per step "
                   "(no spec.md), ending with ===END=== exactly.")
 
+QUESTION_TASK = """=== TASK ===
+Answer the QUESTION above about this automation, in plain markdown prose written for the user — no file blocks, no envelope, no yaml. Ground the answer in the SPEC and the CURRENT steps shown above; when something isn't decided there, say so plainly."""
+
 
 def spec_as_md(current: dict | None) -> str:
     """The spec may arrive as §5 blocks (stored versions) or as a raw markdown
@@ -155,6 +159,20 @@ def build_spec_prompt(mode: str, user_text: str | None, current: dict | None,
     if user_text:
         parts.append("=== USER REQUEST ===\n" + user_text.strip())
     parts.append(SPEC_TASK)
+    return "\n\n".join(parts)
+
+
+def build_question_prompt(user_text: str | None, current: dict | None,
+                          grants: dict) -> str:
+    """§8 question call — the ordinary context stack (framework + grants + build
+    instructions + spec + current steps) closed by the user's QUESTION and a
+    plain-prose TASK. Read-only: the response is the answer, no envelope."""
+    parts = [_FRAMEWORK_SECTION, *_common_context(current, grants)]
+    parts.append("=== SPEC (spec.md) ===\n" + spec_as_md(current))
+    for s in (current or {}).get("steps", []):
+        parts.append(f"=== CURRENT step {s.get('file')} ({s.get('name')}) ===\n{s.get('code', '')}")
+    parts.append("=== QUESTION ===\n" + (user_text or "").strip())
+    parts.append(QUESTION_TASK)
     return "\n\n".join(parts)
 
 
@@ -374,7 +392,9 @@ class DraftJobs:
     def start(self, mode: str, agent: dict, user_text: str | None,
               current: dict | None, grants: dict) -> str:
         job_id = str(uuid.uuid4())
-        stage = "Writing the spec" if mode in ("create", "edit") else "Generating the steps"
+        stage = ("Answering the question" if mode == "question"
+                 else "Writing the spec" if mode in ("create", "edit")
+                 else "Generating the steps")
         job = {"id": job_id, "status": "building", "stage": stage, "detail": None,
                "error": None, "draft": None, "mode": mode, "_cancel": False, "_proc": {}}
         with self._lock:
@@ -443,6 +463,20 @@ class DraftJobs:
     def _pipeline(self, job: dict, mode: str, agent: dict, user_text: str | None,
                   current: dict | None, grants: dict) -> bool:
         """Makes the mode's calls; sets job status. Returns True when cancelled mid-flight."""
+        if mode == "question":
+            # §8 question call: one read-only call, the raw response IS the
+            # answer — no envelope, no blocker path, no repair round.
+            raw = harness.invoke(agent, build_question_prompt(user_text, current, grants),
+                                 timeout=300, proc_holder=job["_proc"],
+                                 on_chunk=self._answer_cb(job))
+            if job["_cancel"]:
+                return True
+            answer = raw.strip()
+            if not answer:
+                return self._fail(job, "The agent returned an empty answer.", [])
+            self._settle(job, "done", draft={"answer": answer})
+            return False
+
         spec_blocks = None
         if mode in ("create", "edit"):
             # ---- call 1: the spec ----
@@ -566,6 +600,31 @@ class DraftJobs:
                 state["last"] = now
                 if prefix:
                     detail = prefix + detail[0].lower() + detail[1:]
+                self._detail(job, detail)
+
+        return cb
+
+    def _answer_cb(self, job: dict):
+        """§8 question-call live progress: `Thinking…` until text arrives, then
+        `Writing the answer · N lines` — shape changes publish immediately,
+        line-count growth throttles to one publish per second."""
+        state = {"text": "", "shape": None, "last": 0.0}
+
+        def cb(chunk: str) -> None:
+            if job["_cancel"] or job["status"] != "building":
+                return
+            state["text"] += chunk
+            body = state["text"].strip()
+            if not body:
+                shape = detail = "Thinking…"
+            else:
+                shape = "answer"
+                lines = len(body.splitlines())
+                detail = f"Writing the answer · {lines} line{'s' if lines != 1 else ''}"
+            now = time.monotonic()
+            if shape != state["shape"] or now - state["last"] >= 1.0:
+                state["shape"] = shape
+                state["last"] = now
                 self._detail(job, detail)
 
         return cb

@@ -241,6 +241,14 @@ textarea:disabled, input:disabled { opacity: .45; }
   to { opacity: 0; transform: translateY(8px); }
 }
 @keyframes adFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes adSlideInRight {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes adSlideOutRight {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(14px); }
+}
 @keyframes adFadeOut { from { opacity: 1; } to { opacity: 0; } }
 @keyframes adSpin { to { transform: rotate(360deg); } }
 @keyframes adPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }

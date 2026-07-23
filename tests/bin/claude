@@ -61,6 +61,10 @@ blockers:
 def respond(prompt: str) -> str:
     if "question:" in prompt.lower() and "=== TASK ===" not in prompt:
         return "Mock answer: nothing new."
+    # §8 question call (§11 Ask panel) — plain markdown prose, no envelope.
+    if "=== QUESTION ===" in prompt:
+        return ("The workflow has two steps: **Check for changes** looks for anything new "
+                "since the last run, and **Build the result** summarizes what it found.")
     # §8 issue-analysis call (§11 Test) — always a blocker envelope.
     if "A test execution of this automation failed" in prompt:
         return BLOCKED_ENVELOPE

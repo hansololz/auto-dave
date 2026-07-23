@@ -1116,7 +1116,8 @@ also served to the create/edit page via §19 `GET /instructions`):
 **Modes:** `create` (both calls, from the user's description) · `edit` (call 1 only: apply a
 change request — the Review page's "ask the agent" box — to the in-editor draft's spec and
 return the rewritten spec; the steps are untouched and a later `sync` rebuilds them) · `sync`
-(call 2 only: regenerate steps to match the provided spec; the spec itself must not change).
+(call 2 only: regenerate steps to match the provided spec; the spec itself must not change) ·
+`question` (one read-only Q&A call — the §11 Ask panel; see "Question call" below).
 
 **Call 1 — write the spec** (`create`/`edit`; skipped on `sync`). Step code never travels in
 this call; the prompt just asks to update the spec from the user request. Both calls open with
@@ -1282,6 +1283,22 @@ package (the §6.2 ensure's progress hook). Line-count updates throttle to one p
 second; marker changes publish immediately. `detail` rides the job (§19 `GET /drafts`, beside
 `stage`) and every `draft.progress` WS event, and resets at each stage boundary. A harness
 that buffers its whole output simply yields no `detail` — the coarse stage labels remain.
+
+**Question call (§11 Ask panel).** `question` mode makes exactly one call and never writes
+anything — it exists so the user can ask about the workflow in plain words ("why does step 3
+need my Keychain?") and read an answer. The prompt is the ordinary context stack:
+`framework-instructions.md`, the call-2 grants context, the build instructions, the in-editor
+spec (as markdown), every current step (file, name, code — the same rendering the sync call's
+CURRENT sections use), and a closing `=== QUESTION ===` section with the user's text, followed
+by a TASK directive: answer the QUESTION about this automation in plain markdown prose for the
+user — **no file blocks, no envelope, no yaml** — grounded in the spec and steps above.
+The raw response text, trimmed, **is** the answer; there is no envelope parsing, no blocker
+path, and no repair round — the only failure is an empty response ("The agent returned an
+empty answer.") or a harness error. The answer rides the job payload as `draft: { answer }`.
+Stage label: "Answering the question"; the streamed `detail` line is `Thinking…` until text
+arrives, then `Writing the answer · N lines` (same 1 s throttle). Same 5-minute cap, same
+cancel semantics, same app-log logging as every drafting call. A question job never touches
+the draft container, the dirty flag, or any stored file.
 
 **Issue-analysis call (§11 Test).** When the user asks after a failed test (§11 "Analyze
 the failure" — never automatically), the backend makes one more call with the same drafting
@@ -1882,6 +1899,49 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   and the plain-word §7 reason as the fix, no agent call. Advisory: a failed test never
   blocks saving.
 
+**Ask panel (Review only).** A question-and-answer surface for the workflow being edited —
+strictly read-only, powered by the §8 `question` job.
+
+- **Entry:** a fixed **Ask button** floating at the Review page's bottom-right (24 px margins,
+  above the content, `no-drag`): a rounded-square quiet/bordered button — same shape language
+  as the §9.1 inline execute button but never accent-filled, so it doesn't compete with the
+  primary Create/Save — with a chat-bubble icon (fa-comment) and tooltip "Ask about this
+  workflow". Its background is **opaque** (the card background) with a soft shadow — it floats
+  over scrolling content, so it must never be transparent. It renders only on Review with a
+  loaded draft, and hides while the panel is open.
+- **Panel:** a right slide-over, 400 px wide, from below the 18 px drag strip to the window
+  bottom; card background, 1 px left hairline, soft shadow; it **overlays** the content —
+  the 1800 px review grid never reflows. Deliberate exception to the §9 popover rule: it does
+  **not** close on outside mousedown — the point is reading an answer while editing behind
+  it. It closes only via its header × or Esc. Header: `ASK` eyebrow + a mono agent tag (the
+  selected drafting agent, `name · model`) + the × button. **Motion:** enters sliding in from
+  the right (~14 px offset + fade, .18s ease both) and exits with the mirror slide-out (.12s
+  ease both — exits faster than entrances, like the Modal). Every dismissal path (× and Esc)
+  plays the exit through one close routine — the Modal's animated-close pattern: a closing
+  state, unmount on `animationend` (guarded to the panel element) with a timeout fallback for
+  reduced-motion setups. The Ask button reappears only after the exit completes.
+- **Thread:** scrolling body, newest at the bottom, auto-scrolled on new content. Each entry
+  is the question (quiet plain text) followed by its answer rendered through the shared §4.5
+  Markdown renderer, `.ad-copy` selectable. Empty state: "Ask anything about this workflow —
+  the steps, the spec, why the AI chose something." The thread is **editor state only** —
+  never serialized into the draft, gone on leaving the page (same lifetime as the spec-undo
+  snapshot).
+- **Input:** footer with an auto-growing textarea (ask-box pattern: Enter sends, Shift+Enter
+  newline, no resize handle, never scrolls). Sending starts one §8 `question` job with the
+  selected drafting agent and the in-editor draft as `current` (spec + steps + instructions,
+  §19) plus the in-editor grant arrays — answers match what's on screen, unsaved edits
+  included. While the job runs, the pending thread entry shows the one spinner plus the live
+  §8 `detail` line ("Thinking…" / "Writing the answer · N lines"); the send slot shows only a
+  ghost Cancel (`DELETE /drafts/{jobId}`) — no second spinner there — and cancelling drops the
+  pending entry and returns the question text to the input. One agent job at a time overall: while any drafting job is in flight
+  (spec/steps/sync/edit or another question), the input is disabled with the hint "Wait for
+  the current job to finish."; equally, a pending question blocks the other ask boxes through
+  the same busy gating.
+- **Failure:** the entry's answer slot shows a red-tinted line with the error message; the
+  question text stays visible in the thread. No blocker path (§8 question call has none).
+- A question never touches the draft, never marks the workflow out of sync, and never
+  interacts with Dirty gating or Save.
+
 Create (new) → version 1, `lastStatus: none`, navigate to detail, toast "Created — nothing has
 executed yet. Press Execute now when you're ready." Save (edit) → §4.4.
 
@@ -2367,8 +2427,10 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   import, status: installed | failed, version?, error? }] }` — `pip install --upgrade` for
   each named distribution in the shared directory (§6.2: wheels only, serialized); no
   manifest writes; a malformed name → 422
-- `POST /drafts` `{ mode: create|edit|sync, autoId?, text?, spec?, current?, agentId?,
-  enabledAgents?, allowedSecrets? }` → `{ jobId }` — the grant arrays, when present, override
+- `POST /drafts` `{ mode: create|edit|sync|question, autoId?, text?, spec?, current?, agentId?,
+  enabledAgents?, allowedSecrets? }` → `{ jobId }` — `question` requires a nonempty `text`
+  (422 otherwise) and its terminal payload is `draft: { answer }` (§8 question call); the
+  grant arrays, when present, override
   the stored automation's for the §8 grants context; when `enabledAgents` is absent and no
   stored automation exists (create mode), the agents grant defaults to **all** configured
   agents — matching the all-enabled seed the Review page starts from; progress via

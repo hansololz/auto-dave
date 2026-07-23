@@ -230,6 +230,7 @@ export interface DraftPayload {
   stepAgents?: string[]
   allowedSecrets?: string[]
   test?: DraftTest  // §11: last-test summary, GET responses only — never sent back
+  answer?: string   // §8 question call: the terminal payload is just { answer }
 }
 
 // §8 blocker envelope entry — a `blocked` job's payload.
@@ -252,7 +253,7 @@ export interface DraftJob {
   // the spec call completes (§11 drafting-on-Review renders it mid-job); a
   // blocked steps call keeps it there so the Blocker modal can amend it.
   draft: DraftPayload | null
-  mode: 'create' | 'edit' | 'sync'
+  mode: 'create' | 'edit' | 'sync' | 'question'
   // blocked jobs only: which call blocked
   blockedAt?: 'spec' | 'steps'
   blockers?: Blocker[]

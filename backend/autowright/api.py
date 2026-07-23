@@ -475,8 +475,10 @@ def delete_snapshot(auto_id: str, sid: str) -> dict:
 @app.post("/drafts", dependencies=[Depends(auth)])
 def post_draft(body: dict) -> dict:
     mode = body.get("mode")
-    if mode not in ("create", "edit", "sync"):
-        raise HTTPException(422, "mode must be create | edit | sync")
+    if mode not in ("create", "edit", "sync", "question"):
+        raise HTTPException(422, "mode must be create | edit | sync | question")
+    if mode == "question" and not (body.get("text") or "").strip():
+        raise HTTPException(422, "question mode needs a nonempty text")
     agent = _agent_or_404(body.get("agentId") or
                           next((a["id"] for a in store.agents if a.get("default")),
                                store.agents[0]["id"] if store.agents else ""))
