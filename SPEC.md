@@ -1014,27 +1014,31 @@ below the title a mono metadata line: full execution id (copyable) · trigger ·
 started · duration. A §4.5 `test` execution additionally shows a **"Draft test"** chip in the
 title row, never shows the "(deleted)" marker (a create-mode test has no automation by
 design), and hides Retry and Execute again — iteration on a draft happens from the editor's
-Test card; Cancel and Skip step still work while it is live. Body is a two-column layout: a **STEPS sidebar** plus a parameters block —
-per param: label, its help description, and the §4.2 one-line summary value ("Values as used
-by this execution."), and a main pane with **Results / Logs tabs** (auto-select Logs when no
-result). The STEPS sidebar's rows are **selectable**: each row shows the status dot (pulsing
+Test card; Cancel and Skip step still work while it is live. Body stacks top to bottom: the
+failure notice (failed executions only), a full-width **RESULT card**, then a single
+**execution card** that joins the **STEPS rail** (left) and the **LOGS pane** (right) with an
+internal divider — one card, since the rail's selection drives the pane. Beneath the steps the
+rail holds the **PARAMETERS block** — per param: label, its help description, and the §4.2
+one-line summary value ("Values as used by this execution."). The STEPS rail's rows are **selectable**: each row shows the status dot (pulsing
 while executing), name, a right-aligned attempt-count chip ("×2", mono, faint — only when the
 step has more than one attempt) and the latest attempt's duration — rows carry no actions;
 skipping lives in the header's Skip-step button. Above step 1 sits an **"Execution log"**
 pseudo-row (terminal icon in place of a status dot) selecting the execution-scoped log.
-Selecting any row switches the main pane to the Logs tab for that selection. While the
+Selecting any row changes which log the LOGS pane shows. While the
 execution is live the selection auto-follows the executing step until the user selects a row
 themselves (reset when navigating to another execution); when a failed execution loads, the
 failed step's latest attempt is auto-selected. On a failed
-execution a **failure notice** sits above the tabs: red-tinted card, "Failed at step
+execution a **failure notice** sits above the RESULT card: red-tinted card, "Failed at step
 `<name>`", the §4.5 possible reason as plain text when present, and the error message in mono.
-The Logs tab shows the selected step's log (header: step name, or "Execution" for the
+The LOGS pane shows the selected step's log (header: step name, or "Execution" for the
 pseudo-row, plus the redaction note "secrets redacted: `<name>`"); when the selected step has
 more than one attempt, a segmented **attempt control** sits in the header — one status-tinted
 pill per attempt ("Attempt 2 · Failed · 3s"), latest selected by default. The pane is the
 color-coded log view (kinds sys/out/wrn/err); logs load lazily per selected step/attempt
 (§19) and live lines stream in over WS (deduped by `seq`), with live auto-scroll and the
-blinking cursor on the live attempt. Empty state "No logs — this execution never started." The Results tab is a collapsible **Results section** holding a stack of individually
+blinking cursor on the live attempt. Empty state "No logs — this execution never started." The RESULT card, when the execution has no result, is a dashed placeholder ("No result") with a
+status-specific reason (still executing / failed before a result was built / cancelled / no
+result produced); with a result it is a collapsible **Results section** holding a stack of individually
 collapsible **result views**, each with a chevron + title header and right-aligned mono meta
 ("4 values", "4.1 KB") — everything expanded by default, collapse state per-session only
 (never persisted). The section header row carries the result chip when the execution set one — tinted

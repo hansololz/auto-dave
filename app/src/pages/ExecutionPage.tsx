@@ -1,5 +1,6 @@
-// Execution page (§7): selectable STEPS sidebar with per-attempt logs,
-// Execution-log pseudo-row, skip-live-step, Results/Logs tabs, live log
+// Execution page (§7): full-width Result card on top, then a single execution
+// card joining the selectable STEPS rail (with parameters) and the LOGS pane —
+// per-attempt logs, Execution-log pseudo-row, skip-live-step, live log
 // streaming with auto-scroll, Cancel / Retry / Execute again.
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
@@ -85,9 +86,7 @@ export default function ExecutionPage() {
   const e = full ?? (execId ? execs.find((x) => x.id === execId) : undefined)
   const auto = e ? autos.find((a) => a.id === e.autoId) : undefined
 
-  const [tab, setTab] = useState<'results' | 'logs'>('results')
   const [sel, setSel] = useState<Sel | null>(null)
-  const tabInit = useRef(false)
   const manualSel = useRef(false) // a user click stops the live auto-follow (§7)
   const logRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
@@ -99,20 +98,11 @@ export default function ExecutionPage() {
   // Mount / execId change: guard, reset, (re)fetch the full record.
   useEffect(() => {
     if (!execId) { go('executions'); return }
-    tabInit.current = false
     manualSel.current = false
     stickRef.current = true
-    setTab('results')
     setSel(null)
     void loadExec(execId)
   }, [execId])
-
-  // Auto-select Logs when there is no result yet (needs the full record to know).
-  useEffect(() => {
-    if (!full || tabInit.current) return
-    setTab(full.result ? 'results' : 'logs')
-    tabInit.current = true
-  }, [full])
 
   // Selection (§7): auto-follow the live step until the user picks a row; a
   // failed execution auto-selects the failed step's latest attempt.
@@ -148,7 +138,7 @@ export default function ExecutionPage() {
   useEffect(() => {
     const el = logRef.current
     if (el && liveSelected && stickRef.current) el.scrollTop = el.scrollHeight
-  }, [logs.length, liveSelected, tab])
+  }, [logs.length, liveSelected])
 
   if (!execId) return null
 
@@ -191,7 +181,6 @@ export default function ExecutionPage() {
     manualSel.current = true
     const attempt = step === null ? null : Math.max(1, steps[step]?.attempts.length ?? 1)
     setSel({ step, attempt })
-    setTab('logs')
   }
 
   const canOpenAuto = !e.autoDeleted && !!auto
@@ -288,10 +277,38 @@ export default function ExecutionPage() {
         {` · ${e.trigger}`}{e.ver ? ` · ${e.ver}` : ''} · started {e.started} · {e.dur}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: 16, alignItems: 'start' }}>
-        {/* Left column: selectable step timeline (+ parameters) */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, padding: '14px 0' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {e.status === 'failed' && e.error && (
+          <FailureNotice error={e.error} />
+        )}
+
+        {/* Full-width RESULT card (§7) — the execution's outcome, above the machinery */}
+        {!full ? (
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12,
+            padding: 26, display: 'flex', justifyContent: 'center',
+          }}>
+            <Spinner />
+          </div>
+        ) : result ? (
+          <ResultSection label="RESULT" result={result} execId={e.id} measure={620} />
+        ) : (
+          <div style={{
+            background: 'var(--bg-card)', border: '1px dashed rgba(255,255,255,.12)',
+            borderRadius: 12, padding: 22, textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>No result</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>{noResultWhy}</div>
+          </div>
+        )}
+
+        {/* Execution card (§7): STEPS rail + LOGS pane in one card — the rail's
+            selection drives the pane, so they share a border. */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '250px 1fr', alignItems: 'stretch',
+          background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, overflow: 'hidden',
+        }}>
+          <div style={{ padding: '14px 0', borderRight: '1px solid var(--hairline)', minWidth: 0 }}>
             <Eyebrow style={{ padding: '0 16px', marginBottom: 10 }}>STEPS</Eyebrow>
             {!full ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0 10px' }}><Spinner size={14} /></div>
@@ -302,158 +319,113 @@ export default function ExecutionPage() {
             ) : (
               <>
                 <ExecLogRow
-                  selected={tab === 'logs' && sel?.step === null && sel !== null}
+                  selected={sel !== null && sel.step === null}
                   onSelect={() => selectRow(null)}
                 />
                 {steps.map((s, i) => (
                   <StepRow
                     key={i}
                     step={s}
-                    selected={tab === 'logs' && sel?.step === i}
+                    selected={sel?.step === i}
                     onSelect={() => selectRow(i)}
                   />
                 ))}
               </>
             )}
-          </div>
-          {params.length > 0 && (
-            <div className="ad-copy" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, padding: '13px 16px' }}>
-              <Eyebrow style={{ marginBottom: 4 }}>PARAMETERS</Eyebrow>
-              {params.map((p) => (
-                <div key={p.name} style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '7px 0', borderTop: '1px solid var(--hairline-dim)' }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{p.label}</span>
-                  {p.help && <span style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-faintest)' }}>{p.help}</span>}
-                  <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2em)' }}>{paramSummary(p)}</span>
+            {params.length > 0 && (
+              <div className="ad-copy" style={{ margin: '14px 16px 0' }}>
+                <Eyebrow style={{ marginBottom: 4 }}>PARAMETERS</Eyebrow>
+                {params.map((p) => (
+                  <div key={p.name} style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '7px 0', borderTop: '1px solid var(--hairline-dim)' }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{p.label}</span>
+                    {p.help && <span style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-faintest)' }}>{p.help}</span>}
+                    <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2em)' }}>{paramSummary(p)}</span>
+                  </div>
+                ))}
+                <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-faintest)', paddingTop: 8, borderTop: '1px solid var(--hairline-dim)' }}>
+                  Values as used by this execution.
                 </div>
-              ))}
-              <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-faintest)', paddingTop: 8, borderTop: '1px solid var(--hairline-dim)' }}>
-                Values as used by this execution.
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right column: Results / Logs */}
-        <div style={{ minWidth: 0 }}>
-          {e.status === 'failed' && e.error && (
-            <FailureNotice error={e.error} style={{ marginBottom: 12 }} />
-          )}
-          <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
-            {(['results', 'logs'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                style={{
-                  borderRadius: 7, padding: '7px 14px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer',
-                  background: tab === t ? 'rgba(255,255,255,.08)' : 'transparent',
-                  color: tab === t ? 'var(--text)' : 'var(--text-faint)',
-                }}
-              >
-                {t === 'results' ? 'Results' : 'Logs'}
-              </button>
-            ))}
+            )}
           </div>
 
-          {tab === 'results' && (
-            !full ? (
-              <div style={{
-                background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12,
-                padding: 26, display: 'flex', justifyContent: 'center',
-              }}>
-                <Spinner />
-              </div>
-            ) : result ? (
-              <ResultSection label="RESULT" result={result} execId={e.id} measure={620} />
-            ) : (
-              <div style={{
-                background: 'var(--bg-card)', border: '1px dashed rgba(255,255,255,.12)',
-                borderRadius: 12, padding: 22, textAlign: 'center',
-              }}>
-                <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>No result</div>
-                <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>{noResultWhy}</div>
-              </div>
-            )
-          )}
-
-          {tab === 'logs' && (
-            <div style={{ background: 'var(--bg-code)', border: '1px solid var(--hairline)', borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                padding: '10px 16px', borderBottom: '1px solid var(--hairline-dim)',
-              }}>
-                <Eyebrow style={{ display: 'inline-block' }}>
-                  {sel?.step != null ? selStep?.name : 'Execution'}
-                  {liveSelected ? ' · LIVE' : ''}
-                </Eyebrow>
-                {/* §7 attempt control — pills only when the step retried */}
-                {attempts.length > 1 && (
-                  <span style={{ display: 'inline-flex', gap: 4 }}>
-                    {attempts.map((a) => {
-                      const active = sel?.attempt === a.n
-                      const b = badgeOf(a.status)
-                      return (
-                        <button
-                          key={a.n}
-                          onClick={() => { manualSel.current = true; setSel({ step: sel!.step, attempt: a.n }) }}
-                          style={{
-                            fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600,
-                            padding: '2px 8px', borderRadius: 6, cursor: 'pointer',
-                            color: active ? b.c : 'var(--text-faint)',
-                            background: active ? b.bg : 'rgba(255,255,255,.04)',
-                            border: 'none',
-                          }}
-                        >
-                          Attempt {a.n} · {b.label}{a.dur ? ` · ${a.dur}` : ''}
-                        </button>
-                      )
-                    })}
-                  </span>
-                )}
-                <div style={{ flex: 1 }} />
-                {e.redact && redactNote}
-              </div>
-              <div
-                className="ad-copy"
-                ref={logRef}
-                onScroll={() => {
-                  const el = logRef.current
-                  if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-                }}
-                style={{ maxHeight: 420, overflowY: 'auto', padding: '13px 16px', fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.75 }}
-              >
-                {!full ? (
-                  <Spinner size={14} />
-                ) : (
-                  <>
-                    {logs.map((l) => (
-                      <div key={l.seq} style={{ display: 'flex', gap: 12 }}>
-                        <span style={{ color: 'var(--text-faintest)', flex: 'none' }}>{l.t}</span>
-                        <span style={{
-                          color: logColor(l.k), whiteSpace: 'pre-wrap', minWidth: 0,
-                          fontStyle: l.k === 'sys' ? 'italic' : 'normal',
-                        }}>
-                          {l.text}
-                        </span>
-                      </div>
-                    ))}
-                    {logs.length === 0 && (
-                      <div style={{ color: 'var(--text-faintest)' }}>
-                        {steps.length === 0
-                          ? 'No logs — this execution never started.'
-                          : 'No log lines here.'}
-                      </div>
-                    )}
-                    {liveSelected && (
-                      <span style={{
-                        display: 'inline-block', width: 7, height: 13, background: 'var(--cyan)',
-                        animation: 'adBlink 1s step-end infinite', verticalAlign: 'middle', marginLeft: 2,
-                      }} />
-                    )}
-                  </>
-                )}
-              </div>
+          <div style={{ background: 'var(--bg-code)', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              padding: '10px 16px', borderBottom: '1px solid var(--hairline-dim)',
+            }}>
+              <Eyebrow style={{ display: 'inline-block' }}>
+                {sel?.step != null ? selStep?.name : 'Execution'}
+                {liveSelected ? ' · LIVE' : ''}
+              </Eyebrow>
+              {/* §7 attempt control — pills only when the step retried */}
+              {attempts.length > 1 && (
+                <span style={{ display: 'inline-flex', gap: 4 }}>
+                  {attempts.map((a) => {
+                    const active = sel?.attempt === a.n
+                    const b = badgeOf(a.status)
+                    return (
+                      <button
+                        key={a.n}
+                        onClick={() => { manualSel.current = true; setSel({ step: sel!.step, attempt: a.n }) }}
+                        style={{
+                          fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600,
+                          padding: '2px 8px', borderRadius: 6, cursor: 'pointer',
+                          color: active ? b.c : 'var(--text-faint)',
+                          background: active ? b.bg : 'rgba(255,255,255,.04)',
+                          border: 'none',
+                        }}
+                      >
+                        Attempt {a.n} · {b.label}{a.dur ? ` · ${a.dur}` : ''}
+                      </button>
+                    )
+                  })}
+                </span>
+              )}
+              <div style={{ flex: 1 }} />
+              {e.redact && redactNote}
             </div>
-          )}
+            <div
+              className="ad-copy"
+              ref={logRef}
+              onScroll={() => {
+                const el = logRef.current
+                if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+              }}
+              style={{ flex: 1, maxHeight: 420, overflowY: 'auto', padding: '13px 16px', fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.75 }}
+            >
+              {!full ? (
+                <Spinner size={14} />
+              ) : (
+                <>
+                  {logs.map((l) => (
+                    <div key={l.seq} style={{ display: 'flex', gap: 12 }}>
+                      <span style={{ color: 'var(--text-faintest)', flex: 'none' }}>{l.t}</span>
+                      <span style={{
+                        color: logColor(l.k), whiteSpace: 'pre-wrap', minWidth: 0,
+                        fontStyle: l.k === 'sys' ? 'italic' : 'normal',
+                      }}>
+                        {l.text}
+                      </span>
+                    </div>
+                  ))}
+                  {logs.length === 0 && (
+                    <div style={{ color: 'var(--text-faintest)' }}>
+                      {steps.length === 0
+                        ? 'No logs — this execution never started.'
+                        : 'No log lines here.'}
+                    </div>
+                  )}
+                  {liveSelected && (
+                    <span style={{
+                      display: 'inline-block', width: 7, height: 13, background: 'var(--cyan)',
+                      animation: 'adBlink 1s step-end infinite', verticalAlign: 'middle', marginLeft: 2,
+                    }} />
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </>,
