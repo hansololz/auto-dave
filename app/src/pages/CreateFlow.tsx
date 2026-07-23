@@ -285,7 +285,7 @@ const revDefaults = {
 // §11 drafting-on-Review: the Review page mounts empty the moment the create
 // job starts — the spec card spins on call 1 and the right column shows
 // skeletons until call 2 delivers.
-function seedDrafting(agents: Agent[]): Rev {
+function seedDrafting(agents: Agent[], secretNames: string[]): Rev {
   return {
     ...revDefaults,
     name: 'New automation', desc: '', note: '',
@@ -293,12 +293,12 @@ function seedDrafting(agents: Agent[]): Rev {
     triggers: [],
     instr: defaultBuildCache,
     enabledAgents: agents.map((g) => g.id),
-    allowedSecrets: [],
+    allowedSecrets: secretNames,
     specBusy: true,
   }
 }
 
-function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
+function seedFromPayload(d: DraftPayload, agents: Agent[], secretNames: string[]): Rev {
   return {
     ...revDefaults,
     name: d.name || 'New automation', desc: d.desc || '', note: d.note || '',
@@ -307,11 +307,11 @@ function seedFromPayload(d: DraftPayload, agents: Agent[]): Rev {
     triggers: d.triggers ?? [],
     instr: d.instr ?? defaultBuildCache, // backend seeds instr from default-build-instructions.md
     // §4.4: a resumed pending draft carries its grant selections; a fresh
-    // drafting-job payload has none — default to everything enabled.
+    // drafting-job payload has none — default to everything enabled/allowed.
     enabledAgents: d.stepAgents
       ? d.stepAgents.filter((id) => agents.some((g) => g.id === id))
       : agents.map((g) => g.id),
-    allowedSecrets: d.allowedSecrets ?? [],
+    allowedSecrets: d.allowedSecrets ?? secretNames,
     lastTest: d.test ?? null,
   }
 }
@@ -770,7 +770,7 @@ export default function CreateFlow() {
     void api.getPendingDraft().then(({ draft, agentId: gid }) => {
       if (dead || !draft || seededRef.current || revRef.current) return
       seededRef.current = true
-      const seeded = seedFromPayload(draft, agents)
+      const seeded = seedFromPayload(draft, agents, secrets.map((s) => s.name))
       // A draft kept mid-steps-generation resumes spec-only — mark it out of
       // sync so the §11 sync panel offers the rebuild.
       setRev({ ...seeded, touched: true, ...(seeded.steps.length ? {} : { dirty: true }) })
@@ -901,13 +901,13 @@ export default function CreateFlow() {
     if (!request) { setAskHint(true); return }
     setAskHint(false)
     setPhase('review')
-    setRev(seedDrafting(agents))
+    setRev(seedDrafting(agents, secrets.map((s) => s.name)))
     try {
       const { jobId } = await api.postDraftJob({ mode: 'create', text: request, agentId })
       startPoll(
         jobId,
         (d) => setRev({
-          ...seedFromPayload(d, agents),
+          ...seedFromPayload(d, agents, secrets.map((s) => s.name)),
           // §11 title: the manifest name replaces the spec-title provisional
           name: d.name || (d.spec ?? []).find((b) => b.k === 'h1')?.text || 'New automation',
         }),

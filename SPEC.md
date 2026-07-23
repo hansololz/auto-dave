@@ -1824,7 +1824,10 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   secrets missing from Keychain, each produce warnings with fix affordances. A used-but-not-allowed
   secret is a grant gap (Dirty gating above): it locks saving until the secret is re-allowed or a
   sync rewrites the steps. A missing-from-Keychain secret only warns — adding the value through the
-  fix row also allows it. "X of Y allowed". Collapsible card, defaults open, forced open while a
+  fix row also allows it. "X of Y allowed". **Default state: on a new automation (create mode)
+  every Keychain secret starts allowed** — the same all-on seed as agent enablement; the user
+  unchecks what a workflow shouldn't reach. Edit mode restores the stored grants (and a resumed
+  draft its own selections, §4.4). Collapsible card, defaults open, forced open while a
   warning shows.
 - **PACKAGES** card — in the **right column**, below the Parameters card: display-only like
   Triggers and Parameters — the drafting pipeline owns the list; the user's only write is the
@@ -2472,9 +2475,10 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   enabledAgents?, allowedSecrets? }` → `{ jobId }` — `question` requires a nonempty `text`
   (422 otherwise) and its terminal payload is `draft: { answer }` (§8 question call); the
   grant arrays, when present, override
-  the stored automation's for the §8 grants context; when `enabledAgents` is absent and no
-  stored automation exists (create mode), the agents grant defaults to **all** configured
-  agents — matching the all-enabled seed the Review page starts from; progress via
+  the stored automation's for the §8 grants context; when `enabledAgents` / `allowedSecrets`
+  is absent and no stored automation exists (create mode), the agents grant defaults to **all**
+  configured agents and the secrets grant to **all** stored secrets — matching the all-on
+  seeds the Review page starts from; progress via
   WS; `GET /drafts/{jobId}` → state (`status`, `stage`, live §8 `detail` line) + validated §8
   draft payload — on a create job the payload
   carries call 1's validated spec as soon as the spec call completes (the §11 spec card renders

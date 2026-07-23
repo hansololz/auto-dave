@@ -505,7 +505,9 @@ def post_draft(body: dict) -> dict:
         enabled_ids = auto["enabled_agents"] if auto else [a["id"] for a in store.agents]
     allowed = body.get("allowedSecrets")
     if allowed is None:
-        allowed = auto["allowed_secrets"] if auto else []
+        # create defaults to every stored secret — the same all-on seed the
+        # Review page's secrets card starts from
+        allowed = auto["allowed_secrets"] if auto else [s["name"] for s in store.secrets]
     grants = {
         "agents": [_agent_grant(g) for g in store.agents if g["id"] in enabled_ids],
         "secrets": [_secret_grant(n) for n in allowed],
