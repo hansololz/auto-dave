@@ -1322,12 +1322,12 @@ their own 40 px sticky drag strip. Interactive controls inside drag regions stay
 (Automations, Executions, Agents, Secrets, Settings) with live count pills; content pane scrolls
 independently. The sidebar collapses completely via a panel toggle (`fa-table-columns`, native
 `title` tooltip) that keeps one fixed window position in both states — Claude-desktop-style: 28 px
-button at `left: 82, top: 6`, right of the traffic lights and vertically centered on them,
-tuned by eye. The button carries `zIndex: 101` so it stays clickable above
+button at `left: 82, top: 9`, right of the traffic lights, tuned by eye.
+The button carries `zIndex: 101` so it stays clickable above
 the 18 px fixed drag strip (z 100); the collapsed-state sticky drag strip is also z 101 so its
 stacking context doesn't cap the button. The window uses
-`titleBarStyle: 'hidden'`, keeping the traffic lights at the macOS default position (no
-`trafficLightPosition` override, no inset). Expanded, it sits inside the sidebar's
+`titleBarStyle: 'hidden'` with `trafficLightPosition: { x: 14, y: 14 }` — nudged down-right from
+the macOS default, holding that one fixed position in every window state. Expanded, it sits inside the sidebar's
 top 44 px drag row; collapsed, the sidebar is gone, the content pane spans the full window width
 behind the same 40 px sticky drag strip shell-less surfaces use, and the identical button in that
 strip expands it back. The collapsed state persists in `localStorage` (`ad-nav-collapsed`) and

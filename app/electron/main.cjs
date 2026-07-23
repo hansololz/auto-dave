@@ -91,6 +91,9 @@ function createWindow(hash) {
     minWidth: 980,
     minHeight: 640,
     titleBarStyle: 'hidden',
+    // §9: one fixed position in every state — 12px lights centered on the nav
+    // toggle's y=20 midline (top 6 + 28/2), nudged right of the macOS default.
+    trafficLightPosition: { x: 14, y: 14 },
     backgroundColor: '#0b0e12',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   })

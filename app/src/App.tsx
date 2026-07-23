@@ -30,7 +30,7 @@ function NavToggle({ onClick, title }: { onClick: () => void; title: string }) {
       onClick={onClick}
       title={title}
       style={{
-        position: 'absolute', left: 82, top: 6, display: 'flex', alignItems: 'center',
+        position: 'absolute', left: 82, top: 9, display: 'flex', alignItems: 'center',
         justifyContent: 'center', width: 28, height: 28, borderRadius: 7,
         color: 'var(--text-faint)', zIndex: 101,
       }}
