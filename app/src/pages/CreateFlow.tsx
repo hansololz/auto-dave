@@ -2786,7 +2786,7 @@ export default function CreateFlow() {
           className="no-drag"
           onAnimationEnd={(e) => { if (askClosing && e.target === e.currentTarget) finishAskClose() }}
           style={{
-            position: 'fixed', top: 18, right: 0, bottom: 0, width: 400, zIndex: 60,
+            position: 'fixed', top: 0, right: 0, bottom: 0, width: 400, zIndex: 60,
             background: 'var(--bg-card)', borderLeft: '1px solid var(--border-card)',
             boxShadow: '-18px 0 40px rgba(0,0,0,.35)',
             display: 'flex', flexDirection: 'column',

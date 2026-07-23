@@ -1949,8 +1949,9 @@ strictly read-only, powered by the §8 `question` job.
   workflow". Its background is **opaque** (the card background) with a soft shadow — it floats
   over scrolling content, so it must never be transparent. It renders only on Review with a
   loaded draft, and hides while the panel is open.
-- **Panel:** a right slide-over, 400 px wide, from below the 18 px drag strip to the window
-  bottom; card background, 1 px left hairline, soft shadow; it **overlays** the content —
+- **Panel:** a right slide-over, 400 px wide, from the very window top to the window bottom
+  (the 18 px drag strip, z 100, sits above its top edge and stays draggable there); card
+  background, 1 px left hairline, soft shadow; it **overlays** the content —
   the 1800 px review grid never reflows. Deliberate exception to the §9 popover rule: it does
   **not** close on outside mousedown — the point is reading an answer while editing behind
   it. It closes only via its header × or Esc. Header: `ASK` eyebrow + a mono agent tag (the
