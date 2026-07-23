@@ -25,7 +25,7 @@ Style rules:
   sentences between them only where a diagram cannot carry the meaning.
 - Terminology: an automation "executes"; an occurrence is an "execution" —
   never "run".
-- Target roughly 350-550 lines total; the data model section may take up to
+- Target roughly 450-700 lines total; the data model section may take up to
   half of that.
 
 Required sections, in order:
@@ -37,23 +37,36 @@ Required sections, in order:
 3. **File structure** — annotated tree (top 2 levels plus the key files),
    one-line note per entry.
 4. **Key files** — table: path | what it holds | when you would open it.
-5. **Data model** — the core section. Markdown tables of every persisted
-   entity with its fields and its on-disk location. Derive the list from
-   backend/autowright/storage.py, paths.py, and app/src/types.ts — do not
-   guess from memory. Cover at least:
-   - automation (automation.yaml) and its triggers (kind: cron/time/app_start)
-   - version folder (manifest: steps, params, packages, spec, instructions)
-   - draft (per-automation) and the global pending create-mode draft slot
-   - execution record (header, steps, attempts) in executions.yaml, the
-     SQLite index executions.db, log lines (NDJSON shape), and the result
-     (result.yaml with values/files)
-   - agent (agents.yaml), secret metadata (secrets.yaml) vs secret value
-     (macOS Keychain), settings (settings.yaml)
-   - automation memory, memory snapshots, draft test summary (test.yaml)
-   - backend.json (port, token, version, pid)
-   Close with a short table of runtime-only structures (in-memory Store,
-   DraftJob + Blocker, EventHub) and a note that app/src/types.ts mirrors
-   the serialized API shapes (StateSnapshot envelope).
+5. **Data model** — the core section. Derive everything from
+   backend/autowright/storage.py, paths.py, execdb.py, and app/src/types.ts —
+   do not guess from memory. Three parts:
+
+   5a. **On-disk data tree** — one annotated tree of the ENTIRE data
+   directory as it looks for an app with real content: Application Support
+   root, automations/<id>/ (automation.yaml, versions/vN/, draft/,
+   executions/, memory/), the global pending draft slot, agents.yaml,
+   secrets.yaml, settings.yaml, backend.json, and the logs dir. One-line
+   note per entry saying what it stores.
+
+   5b. **File-by-file reference** — for EVERY persisted file, in this order:
+   automation.yaml, version manifest, draft, test.yaml, executions.yaml,
+   executions.db, execution NDJSON logs, result.yaml, memory + snapshot.yaml,
+   agents.yaml, secrets.yaml, settings.yaml, backend.json. For each file give:
+   - a realistic example of its full contents in a fenced yaml/json block
+     (NDJSON: a few example lines; executions.db: its table schema instead),
+     showing every field with plausible values — field names and enum values
+     (trigger kinds cron/time/app_start, statuses, etc.) taken from the code;
+   - a field table: field | type | meaning (skip only if the example plus a
+     sentence already makes every field obvious);
+   - a one-line "who touches it": which process/component writes it and which
+     reads it (scheduler, engine, executor, drafting agent, harness CLI,
+     API/renderer, launchd), and why it needs to exist — what breaks or is
+     forgotten without it.
+
+   5c. **Runtime-only structures** — short table (in-memory Store,
+   DraftJob + Blocker, EventHub) plus a note that app/src/types.ts mirrors
+   the serialized API shapes (StateSnapshot envelope), and that secret
+   values live only in the macOS Keychain — secrets.yaml holds metadata.
 6. **Action flows** — for each action below, a mermaid sequenceDiagram of the
    steps end-to-end (which process, which endpoint/file touched):
    - app launch (backend discovery via backend.json)
