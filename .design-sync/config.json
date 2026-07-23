@@ -1,0 +1,39 @@
+{
+  "projectId": "599c934e-bde5-4d84-a8c3-8f7aeb7dfd5a",
+  "shape": "package",
+  "readmeHeader": ".design-sync/conventions.md",
+  "pkg": "autowright",
+  "globalName": "AutowrightUI",
+  "entry": "app/ds-entry.ts",
+  "cssEntry": ".ds-css/tokens.css",
+  "buildCmd": "./.ds-sync/node_modules/.bin/esbuild app/src/tokens.css --bundle --outdir=app/.ds-css --loader:.woff2=file --loader:.woff=file --loader:.ttf=file --loader:.eot=file --loader:.svg=file",
+  "overrides": {
+    "ConfirmModal": { "cardMode": "single", "viewport": "560x380" },
+    "Modal": { "cardMode": "single", "viewport": "640x420" },
+    "Toast": { "cardMode": "single", "viewport": "560x220" }
+  },
+  "componentSrcMap": {
+    "MiniBadge": "src/ui.tsx",
+    "Badge": "src/ui.tsx",
+    "Logo": "src/ui.tsx",
+    "Chip": "src/ui.tsx",
+    "FailureNotice": "src/ui.tsx",
+    "Eyebrow": "src/ui.tsx",
+    "Spinner": "src/ui.tsx",
+    "ProgressBar": "src/ui.tsx",
+    "GreenCheck": "src/ui.tsx",
+    "Toggle": "src/ui.tsx",
+    "RadioRing": "src/ui.tsx",
+    "BtnPrimary": "src/ui.tsx",
+    "BtnGhost": "src/ui.tsx",
+    "MenuRow": "src/ui.tsx",
+    "Toast": "src/ui.tsx",
+    "CountPill": "src/ui.tsx",
+    "PageTitle": "src/ui.tsx",
+    "Modal": "src/ui.tsx",
+    "ConfirmModal": "src/ui.tsx",
+    "PyCode": "src/ui.tsx",
+    "Markdown": "src/result.tsx",
+    "SpecMarkdown": "src/result.tsx"
+  }
+}
