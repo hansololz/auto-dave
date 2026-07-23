@@ -46,8 +46,8 @@ export interface Model {
   // §11 test — the live test execution the editor's Test card tracks. Steps,
   // status, and logs live on the ordinary exec record (execFull[execId], kept
   // fresh by exec.* events); only the analysis window lives here: `analyzing`
-  // is the gap between a failed test and its §8 issue-analysis result, `issue`
-  // holds the blockers until CreateFlow consumes them into its panel.
+  // is the gap between a user-requested analysis and its §8 result, `issue`
+  // holds the blockers until CreateFlow consumes them into the card's block.
   test: {
     execId: string
     analyzing: boolean
@@ -71,6 +71,7 @@ export interface Model {
   loadExecLogs(execId: string, step?: number, attempt?: number): Promise<void>
   loadAuto(autoId: string): Promise<void>
   beginTest(execId: string): void
+  setTestAnalyzing(on: boolean): void
   clearTest(): void
   consumeTestIssue(): void
 }
@@ -187,11 +188,6 @@ export const useStore = create<Model>((set, get) => ({
           // Refresh the body only when someone has opened this execution —
           // unviewed executions would otherwise accumulate a full record each.
           if (full) void m.loadExec(ej.id)
-          // §11: a failed test enters its analysis window — the Test card shows
-          // "Analyzing…" until the test.issue event lands.
-          if (m.test?.execId === ej.id && ej.status === 'failed') {
-            set({ test: { ...m.test, analyzing: true } })
-          }
           // §7: the finished execution gets a summary toast (prototype pattern:
           // "<name> finished — <chip>."). Cancelled executions are user-initiated —
           // no toast; §11 tests report in the Test card instead.
@@ -336,6 +332,11 @@ export const useStore = create<Model>((set, get) => ({
   beginTest(execId) {
     set({ test: { execId, analyzing: false, issue: null } })
     void get().loadExec(execId) // steps/status render off the ordinary record
+  },
+
+  setTestAnalyzing(on) {
+    const t = get().test
+    if (t) set({ test: { ...t, analyzing: on } })
   },
 
   clearTest() { set({ test: null }) },

@@ -729,7 +729,7 @@ def test_draft_test_is_a_test_execution_record(store, monkeypatch):
     a = store.create_automation(ver, "Draft Tester", None)
     store.save_draft(a, ver)
 
-    eid = tr.start(engine, ver, a, None, [], [], {})
+    eid = tr.start(engine, ver, a, [], [], {})
     wait_done(engine, eid)
     dd = store.auto_dir(a) / "draft"
     wait_test_summary(dd)
@@ -758,7 +758,7 @@ def test_draft_test_is_a_test_execution_record(store, monkeypatch):
     assert dj["test"]["execId"] == eid
 
     # §11 keep-latest: the next test deletes the previous record …
-    eid2 = tr.start(engine, ver, a, None, [], [], {})
+    eid2 = tr.start(engine, ver, a, [], [], {})
     wait_done(engine, eid2)
     wait_test_summary(dd)
     assert eid not in store.execs and eid2 in store.execs
@@ -785,7 +785,7 @@ def test_create_mode_test_records_without_automation(store, monkeypatch):
                  'result.value("Summary", "done")\n'),
     }]
 
-    eid = tr.start(engine, ver, None, None, [], [], {})
+    eid = tr.start(engine, ver, None, [], [], {})
     wait_done(engine, eid)
     slot = paths.pending_draft_dir()
     wait_test_summary(slot)

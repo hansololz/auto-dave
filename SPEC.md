@@ -1271,8 +1271,9 @@ second; marker changes publish immediately. `detail` rides the job (§19 `GET /d
 `stage`) and every `draft.progress` WS event, and resets at each stage boundary. A harness
 that buffers its whole output simply yields no `detail` — the coarse stage labels remain.
 
-**Issue-analysis call (§11 Test).** When a test's step fails, the backend makes one
-more call with the same drafting agent: `framework-instructions.md` + the spec + the failing
+**Issue-analysis call (§11 Test).** When the user asks after a failed test (§11 "Analyze
+the failure" — never automatically), the backend makes one more call with the same drafting
+agent: `framework-instructions.md` + the spec + the failing
 step's code + its error and log tail + earlier steps' log tails (the cause is often upstream)
 → TASK: analyze the failure and return a **blocker envelope** — the same `===BLOCKED===`
 format, `reason` holding what happened. One envelope shape means one parser, one validation
@@ -1846,18 +1847,23 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   ("Last test succeeded — <when>" green / "Last test failed — <when>" amber) plus the
   View-run button while the record still exists (retention may outlive it — the button
   hides when the record is gone); the header button reads "Test again". A live test always
-  takes over the card. On failure the card shows "Analyzing the failure…" (agent label)
-  while the backend makes the §8 issue-analysis call (log tails read from the record's log
-  files), then opens the **Issue panel** — the same cards, fields, and editing as the Blocker
-  modal, headline "The test hit an issue"; its primary button **"Apply to the spec & sync
-  the steps"** amends the in-editor spec (same `## Constraints & resolutions` rule) and starts a
-  §8 sync, and "Previously resolved" carries across rounds — build-time blockers and execution-time
-  issues are one convergent repair loop with two entry points. If the analysis call itself
-  fails, the panel still opens with the failing step's raw error as the reason and an empty
-  fix for the user to fill in. A test that fails before any step (missing/disallowed secret,
-  package install) is a failed record like any other; its panel opens with the §4.5 error
-  message as the reason and the plain-word §7 reason as the fix. Advisory: a failed test
-  never blocks saving.
+  takes over the card. **On failure nothing analyzes by itself:** the card shows the "Test
+  failed" line plus an **"Analyze the failure"** button beside View run — the §8
+  issue-analysis call (log tails read from the record's log files) runs only when the user
+  asks (§19 `POST /tests/{execId}/analyze`). While it runs the card shows "Analyzing the
+  failure…" (agent label). The resulting blockers render **inline in the Test card — never
+  a modal**: headline "The test hit an issue", the Blocker modal's editable reason/fix/details
+  fields rendered bare — no card border around them, the Test card already provides the
+  frame — the "Previously resolved" list, a quiet Dismiss, and the primary button
+  **"Apply to the spec & sync the steps"**, which amends the in-editor spec (same
+  `## Constraints & resolutions` rule) and starts a §8 sync — build-time blockers and
+  execution-time issues stay one convergent repair loop, with the build-time entry keeping
+  its modal. If the analysis call itself fails, the inline block still appears with the
+  failing step's raw error as the reason and an empty fix for the user to fill in. A test
+  that fails before any step (missing/disallowed secret, package install) analyzes
+  deterministically — the block appears at once with the §4.5 error message as the reason
+  and the plain-word §7 reason as the fix, no agent call. Advisory: a failed test never
+  blocks saving.
 
 Create (new) → version 1, `lastStatus: none`, navigate to detail, toast "Created — nothing has
 executed yet. Press Execute now when you're ready." Save (edit) → §4.4.
@@ -2300,7 +2306,7 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `{ name }` — rename; null/"" clears · `POST /automations/{id}/memory/snapshots/{sid}/restore`
   — §6.3 restore (409 while live) · `DELETE /automations/{id}/memory/snapshots/{sid}` —
   delete the snapshot; unknown `sid` answers 404
-- `POST /tests` `{ autoId?, draft, agentId?, enabledAgents?, allowedSecrets?, paramValues? }`
+- `POST /tests` `{ autoId?, draft, enabledAgents?, allowedSecrets?, paramValues? }`
   → `{ execId }` — the §11 Test: starts a §4.5 **test execution record** of the sent draft's
   steps (`test: true`, `ver: "Test"`, `trigger: "Test"`; a stale `autoId` answers 404; 409
   while a test for the same draft container is executing; starting a test deletes the
@@ -2312,10 +2318,14 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   on top for this test only — never stored; the resolved values are snapshotted on the
   record. Progress, logs, and the result flow over the ordinary `exec.*` events and
   `/executions/*` endpoints; cancel and skip-step are `POST /executions/{id}/cancel` and
-  `/skip-step` like any execution (retry answers 409 — the draft may have changed). On
-  failure the backend makes the §8 issue-analysis call with `agentId` (default-agent
-  fallback), reading log tails from the record's log files, and emits its blockers in
-  `test.issue` (`{ execId, blockers }`). A finished test writes the §11 last-test summary
+  `/skip-step` like any execution (retry answers 409 — the draft may have changed). A
+  failed test is **not** analyzed automatically — `POST /tests/{execId}/analyze`
+  `{ draft, agentId? }` starts the §8 issue-analysis call on demand (`agentId` with the
+  default-agent fallback; the sent draft supplies the spec and step code, log tails read from the
+  record's log files; a failure before any step synthesizes the blocker from the record's
+  §4.5 error with no agent call) and emits the blockers in `test.issue`
+  (`{ execId, blockers }`); it answers 404 for an unknown or non-test record and 409
+  unless the record's status is failed. A finished test writes the §11 last-test summary
   (`test.yaml`, §5) into the draft container; it rides the draft payload as `test`
   ({ status: succeeded | failed, when, execId }) on the automation's `draft` object and on
   `GET /draft`.
@@ -2439,7 +2449,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   fetch-vs-stream dedupe), `exec.finished`, `auto.changed`, `agents.changed`,
   `secrets.changed`, `settings.changed`, `draft.changed` (the §4.4 pending slot was kept
   or discarded — clients re-`GET /state`), `draft.progress`, `test.issue`
-  (`{ execId, blockers }` — the §8 issue-analysis blockers, after a failed test's analysis
-  finishes; §11 test executions otherwise stream over the ordinary `exec.*` events),
+  (`{ execId, blockers }` — the §8 issue-analysis blockers, after a user-requested
+  `POST /tests/{execId}/analyze` finishes; §11 test executions otherwise stream over the
+  ordinary `exec.*` events),
   `ollama.pull` (model-pull progress). Clients re-`GET /state` on
   reconnect.

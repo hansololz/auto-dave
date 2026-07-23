@@ -89,6 +89,9 @@ export const api = {
   // §19 test: starts a §4.5 test execution record of the sent draft's steps;
   // progress via the ordinary exec.* events, cancel via POST /executions/{id}/cancel
   postTest: (body: Record<string, unknown>) => req<{ execId: string }>('POST', '/tests', body),
+  // §19 on-demand failure analysis — blockers ride the test.issue WS event
+  analyzeTest: (execId: string, body: Record<string, unknown>) =>
+    req('POST', `/tests/${execId}/analyze`, body),
   // §6.2 declared packages: fast installed-check / blocking ensure (§19)
   checkPackages: (packages: { pip: string; import: string }[]) =>
     req<{ packages: import('./types').PackageDep[] }>('POST', '/packages/check', { packages }),

@@ -356,11 +356,6 @@ def post_test(body: dict) -> dict:
         # A stale/unknown autoId must 404 — falling through to create mode
         # would delete the unrelated pending slot's test record.
         auto = _auto_or_404(body["autoId"])
-    # The agent serves the §8 issue-analysis call only — a test without any
-    # agent still executes; a failure then opens with the raw error instead.
-    aid = body.get("agentId") or next((a["id"] for a in store.agents if a.get("default")),
-                                      store.agents[0]["id"] if store.agents else "")
-    agent = next((a for a in store.agents if a["id"] == aid), None)
     enabled = body.get("enabledAgents")
     if enabled is None:
         enabled = auto["enabled_agents"] if auto else []
@@ -368,11 +363,29 @@ def post_test(body: dict) -> dict:
     if allowed is None:
         allowed = auto["allowed_secrets"] if auto else []
     try:
-        exec_id = testexec.start(engine, d, auto, agent, enabled, allowed,
+        exec_id = testexec.start(engine, d, auto, enabled, allowed,
                                  body.get("paramValues") or {})
     except RuntimeError as e:  # §19: one live test per draft container
         raise HTTPException(409, str(e)) from e
     return {"execId": exec_id}
+
+
+@app.post("/tests/{exec_id}/analyze", dependencies=[Depends(auth)])
+def analyze_test(exec_id: str, body: dict) -> dict:
+    """§19: the §8 issue-analysis call, on demand only — never at test end.
+    Blockers ride the test.issue WS event."""
+    # An analysis without any agent still answers — the deterministic raw-error
+    # fallback rides test.issue instead of an agent's blockers.
+    aid = body.get("agentId") or next((a["id"] for a in store.agents if a.get("default")),
+                                      store.agents[0]["id"] if store.agents else "")
+    agent = next((a for a in store.agents if a["id"] == aid), None)
+    try:
+        testexec.analyze_start(exec_id, body.get("draft") or {}, agent)
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(409, str(e)) from e
+    return {"ok": True}
 
 
 # ---------- declared packages (§6.2 — §19 /packages/*) ----------

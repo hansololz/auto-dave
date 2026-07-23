@@ -305,19 +305,33 @@ def test_test_stored_values_and_flagged_record(client, monkeypatch):
     assert aj["lastStatus"] == "none" and aj["latest"] is None
 
 
-def test_test_run_failure_emits_issue(client, monkeypatch):
-    # §11: a failed step → exec.finished failed → §8 issue-analysis blockers in
-    # test.issue, keyed by the exec id.
+def test_test_failure_analyzes_on_demand_only(client, monkeypatch):
+    # §11: a failed test is never analyzed automatically — the §8 issue-analysis
+    # call runs on POST /tests/{execId}/analyze and its blockers ride test.issue.
     events = _capture_events(monkeypatch)
     d = _echo_draft(steps=[{"file": "01-boom.py", "name": "Boom", "desc": "",
                             "code": "raise KeyError('missing')\n"}])
-    r = client.post("/tests", json={"draft": d, "agentId": "mock"})
+    r = client.post("/tests", json={"draft": d})
     assert r.status_code == 200
     eid = r.json()["execId"]
     assert _until_finished(events, eid)["exec_json"]["status"] == "failed"
+    time.sleep(0.3)
+    assert not any(e["ev"] == "test.issue" for e in events)  # nothing analyzed by itself
+
+    assert client.post(f"/tests/{eid}/analyze",
+                       json={"draft": d, "agentId": "mock"}).status_code == 200
     issue = _until(events, "test.issue")
     assert issue["execId"] == eid
     assert issue["blockers"][0]["reason"] == "The task needs access to physical mail."
+
+
+def test_test_analyze_guards(client, monkeypatch):
+    # §19: 404 for an unknown record, 409 unless the test failed.
+    events = _capture_events(monkeypatch)
+    assert client.post("/tests/nope/analyze", json={"draft": {}}).status_code == 404
+    eid = client.post("/tests", json={"draft": _echo_draft()}).json()["execId"]
+    _until_finished(events, eid)  # succeeded
+    assert client.post(f"/tests/{eid}/analyze", json={"draft": _echo_draft()}).status_code == 409
 
 
 def test_test_cancel(client, monkeypatch):

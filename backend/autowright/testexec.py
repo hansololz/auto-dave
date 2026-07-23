@@ -5,8 +5,9 @@ engine path a real execution takes — record, workspace/result/logs, and the
 scripts land in the record's steps/ dir, memory is a scratch copy discarded at
 the end, one test record per draft container (409 while one is live, previous
 record deleted at start), the last-test summary lands in the container's
-test.yaml, and a failed test triggers the §8 issue-analysis call whose blockers
-ride the `test.issue` event."""
+test.yaml, and a failed test can be analyzed on demand (§19
+POST /tests/{execId}/analyze — never automatically): the §8 issue-analysis
+call's blockers ride the `test.issue` event."""
 from __future__ import annotations
 
 import shutil
@@ -37,7 +38,7 @@ blockers:
 ===END==="""
 
 
-def start(engine: Engine, draft: dict, auto: dict | None, agent: dict | None,
+def start(engine: Engine, draft: dict, auto: dict | None,
           enabled_agents: list, allowed_secrets: list, param_values: dict) -> str:
     """Create and launch the test execution record; returns its exec id.
     Raises RuntimeError while the container already has a live test (§19 409)."""
@@ -96,32 +97,51 @@ def start(engine: Engine, draft: dict, auto: dict | None, agent: dict | None,
         engine._live[h["id"]] = state
     hub.publish("exec.started", execId=h["id"], autoId=container_id,
                 exec_json=store.exec_json(h))
-    t = threading.Thread(target=_run, args=(engine, shadow, ver, h, state, dbase, scratch, agent),
+    t = threading.Thread(target=_run, args=(engine, shadow, ver, h, state, dbase, scratch),
                          daemon=True)
     t.start()
     return h["id"]
 
 
 def _run(engine: Engine, shadow: dict, ver: dict, h: dict, state: dict,
-         dbase: Path, scratch: Path, agent: dict | None) -> None:
+         dbase: Path, scratch: Path) -> None:
     try:
         engine._execute(shadow, ver, h, state)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)  # §11: the memory copy is discarded
     if h["status"] in ("succeeded", "failed"):
         # §5 test.yaml — the last-test summary a resumed draft's Test card
-        # shows; deleted with the draft.
+        # shows; deleted with the draft. A failed test is NOT analyzed here —
+        # analysis runs only on demand (analyze_start).
         save_yaml(dbase / "test.yaml", {
             "status": h["status"],
             "when": datetime.now().isoformat(timespec="seconds"),
             "exec_id": h["id"],
         })
-    if h["status"] != "failed" or state["cancel"]:
-        return
+
+
+def analyze_start(exec_id: str, draft: dict, agent: dict | None) -> None:
+    """§19 POST /tests/{execId}/analyze: start the §8 issue-analysis call for a
+    failed test record. LookupError → 404, RuntimeError → 409."""
+    with store.lock:
+        h = store.execs.get(exec_id)
+        if not h or not h.get("test"):
+            raise LookupError("test execution not found")
+        if h["status"] != "failed":
+            raise RuntimeError("only a failed test can be analyzed")
+        h = store.exec_full(exec_id)
+    steps = [{**s, "file": s.get("file") or f"{i:02d}-step.py"}
+             for i, s in enumerate(draft.get("steps", []), 1)]
+    ver = {"steps": steps, "spec": draft.get("spec") or []}
+    threading.Thread(target=_analyze_run, args=(ver, h, agent), daemon=True).start()
+
+
+def _analyze_run(ver: dict, h: dict, agent: dict | None) -> None:
     failed_at = next((i for i, s in enumerate(h["steps"]) if s["status"] == "failed"), None)
-    if failed_at is None:
-        # A failure before any step (§11: secret/package preflight) — no step to
-        # analyze; the §4.5 error becomes the blocker deterministically.
+    if failed_at is None or failed_at >= len(ver["steps"]):
+        # A failure before any step (§11: secret/package preflight) — or a draft
+        # that shrank since the test — no step to analyze; the §4.5 error
+        # becomes the blocker deterministically.
         err = h.get("error") or {}
         blockers = [{"reason": err.get("message") or "the test failed",
                      "fix": err.get("reason") or "", "details": ""}]
@@ -129,7 +149,7 @@ def _run(engine: Engine, shadow: dict, ver: dict, h: dict, state: dict,
         err_msg = (h.get("error") or {}).get("message") or "the step failed"
         blockers = _analyze(ver, h, failed_at, err_msg, agent)
         if blockers is None:
-            # §8: analysis dropped — the panel opens with the raw error instead.
+            # §8: analysis dropped — the block opens with the raw error instead.
             blockers = [{"reason": err_msg, "fix": "", "details": ""}]
     hub.publish("test.issue", execId=h["id"], blockers=blockers)
 

@@ -107,11 +107,13 @@ function WarnBanner({ text }: { text: string }) {
 /** §11 blocker cards — one per blocker, three labeled, editable fields pre-filled
  * from the agent's answer; the user edits any of them (usually the fix). Fields
  * auto-grow with their content (ask-box pattern) above per-field minimum heights. */
-function BlockerCards({ blockers, onChange }: {
-  blockers: Blocker[]; onChange?: (i: number, patch: Partial<Blocker>) => void
+function BlockerCards({ blockers, onChange, bare }: {
+  // §11: `bare` drops the bordered card wrapper — the inline Test-card block
+  // already provides the frame; the modal keeps the bordered cards.
+  blockers: Blocker[]; onChange?: (i: number, patch: Partial<Blocker>) => void; bare?: boolean
 }) {
   const field = (label: string, value: string, minLines: number, set: (v: string) => void, opts?: { placeholder?: string }) => (
-    <div style={{ padding: '10px 16px 0' }}>
+    <div style={{ padding: bare ? '10px 0 0' : '10px 16px 0' }}>
       <Eyebrow>{label}</Eyebrow>
       <textarea
         className="ad-input amber"
@@ -130,12 +132,12 @@ function BlockerCards({ blockers, onChange }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
       {blockers.map((b, i) => (
-        <div key={i} style={{
+        <div key={i} style={bare ? { textAlign: 'left', paddingBottom: 4 } : {
           ...cardStyle, borderColor: 'oklch(0.8 0.13 85 / .35)', paddingBottom: 14, textAlign: 'left',
           borderLeft: '3px solid oklch(0.8 0.13 85 / .6)',
         }}>
           {blockers.length > 1 && (
-            <Eyebrow style={{ color: 'var(--amber)', padding: '12px 16px 0' }}>BLOCKER {i + 1}</Eyebrow>
+            <Eyebrow style={{ color: 'var(--amber)', padding: bare ? '12px 0 0' : '12px 16px 0' }}>BLOCKER {i + 1}</Eyebrow>
           )}
           {field('REASON', b.reason, 2, (v) => onChange?.(i, { reason: v }))}
           {field('HOW TO FIX', b.fix, 3, (v) => onChange?.(i, { fix: v }), { placeholder: 'What should change so this can be built' })}
@@ -697,7 +699,7 @@ function ParamEditor({ p, upd }: { p: ParamDef; upd: (patch: Record<string, unkn
 
 export default function CreateFlow() {
   const store = useStore()
-  const { agents, secrets, autos, execs, execFull, createFrom, autoId, go, setSurface, showToast, loadAuto, test, beginTest, clearTest, consumeTestIssue } = store
+  const { agents, secrets, autos, execs, execFull, createFrom, autoId, go, setSurface, showToast, loadAuto, test, beginTest, setTestAnalyzing, clearTest, consumeTestIssue } = store
   const isEdit = createFrom === 'edit'
   const isOnboard = createFrom === 'onboard'
   const auto = isEdit ? autos.find((a) => a.id === autoId) ?? null : null
@@ -1408,12 +1410,12 @@ export default function CreateFlow() {
   const runTest = async () => {
     if (!rev || rev.steps.length === 0 || testLive || busyRewrite) return
     clearTest()
+    if (rev.repair?.source === 'test') up({ repair: null }) // a fresh test replaces the shown analysis
     try {
       const { execId } = await api.postTest({
         draft: serializeDraft(rev),
         ...(isEdit && auto ? { autoId: auto.id } : {}), // edit: scratch memory copies the automation's
         ...(testParams ? { paramValues: testParamValues(testParams) } : {}), // §11 test-only values
-        agentId, // the drafting agent also handles the §8 issue analysis on failure
         enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
       beginTest(execId)
@@ -1423,6 +1425,13 @@ export default function CreateFlow() {
   }
   const cancelTest = () => {
     if (test && testLive) void api.cancelExec(test.execId).catch(() => { /* already done */ })
+  }
+  // §11: analysis runs only when asked — blockers come back on test.issue.
+  const runAnalyze = () => {
+    if (!rev || !test) return
+    setTestAnalyzing(true)
+    void api.analyzeTest(test.execId, { draft: serializeDraft(rev), agentId })
+      .catch((e) => { setTestAnalyzing(false); showToast((e as Error).message) })
   }
 
   // ---------- render ----------
@@ -2502,13 +2511,57 @@ export default function CreateFlow() {
                                 <ProgressBar pct={(testDone / testSteps.length) * 100} />
                               </div>
                             )}
-                            <button
-                              className="ad-btn-ghost"
-                              onClick={() => go('execution', { execId: test.execId })}
-                              style={{ fontSize: 11.5, marginTop: 10 }}
-                            >
-                              <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10 }} /> View run
-                            </button>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                              {testExec.status === 'failed' && !test.analyzing && rev.repair?.source !== 'test' && (
+                                <button className="ad-btn-soft" onClick={runAnalyze} style={{ fontSize: 11.5 }}>
+                                  <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 10 }} /> Analyze the failure
+                                </button>
+                              )}
+                              <button
+                                className="ad-btn-ghost"
+                                onClick={() => go('execution', { execId: test.execId })}
+                                style={{ fontSize: 11.5 }}
+                              >
+                                <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10 }} /> View run
+                              </button>
+                            </div>
+                            {/* §11: the analysis renders inline — same editable
+                                blocker cards as the modal, never a popup */}
+                            {rev.repair?.source === 'test' && (
+                              <div style={{ marginTop: 14, borderTop: '1px solid var(--hairline)', paddingTop: 13 }}>
+                                <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 5 }}>
+                                  {rev.repair.blockers.length > 1
+                                    ? `The test hit ${rev.repair.blockers.length} issues`
+                                    : 'The test hit an issue'}
+                                </div>
+                                <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-muted)', marginBottom: 11 }}>
+                                  A step failed when the draft executed. Edit the fix below, then apply it to the spec and sync the steps.
+                                </div>
+                                <BlockerCards
+                                  bare
+                                  blockers={rev.repair.blockers}
+                                  onChange={(i, patch) => setRev((r) => r && r.repair && ({
+                                    ...r,
+                                    repair: { ...r.repair, blockers: r.repair.blockers.map((b, k) => (k === i ? { ...b, ...patch } : b)) },
+                                  }))}
+                                />
+                                {rev.resolved.length > 0 && (
+                                  <div style={{ margin: '12px 0 0', font: "400 11.5px/1.7 var(--sans)", color: 'var(--text-faint)' }}>
+                                    <Eyebrow>PREVIOUSLY RESOLVED</Eyebrow>
+                                    {rev.resolved.map((s, i) => <div key={i}>– {s}</div>)}
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
+                                  <BtnGhost onClick={() => up({ repair: null })}>Dismiss</BtnGhost>
+                                  <BtnPrimary
+                                    onClick={applyRepair}
+                                    disabled={rev.repair.blockers.some((b) => !b.reason.trim() || !b.fix.trim())}
+                                  >
+                                    Apply to the spec & sync the steps
+                                  </BtnPrimary>
+                                </div>
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
@@ -2570,12 +2623,12 @@ export default function CreateFlow() {
         />
       )}
 
-      {/* §11: the repair modal — one convergent loop, three entry points: a
-          create job blocked at the steps call ('create'), a blocked sync
-          ('sync'), and a failed test's issue analysis ('test'). Applying
-          amends the in-editor spec and runs a sync; closing a 'create'/'sync'
-          repair leaves the workflow out of sync with the banner up. */}
-      {rev?.repair && (
+      {/* §11: the repair modal — build-time entry points only: a create job
+          blocked at the steps call ('create') and a blocked sync ('sync'). A
+          failed test's analysis ('test') renders inline in the Test card, never
+          here. Applying amends the in-editor spec and runs a sync; closing a
+          'create'/'sync' repair leaves the workflow out of sync, banner up. */}
+      {rev?.repair && rev.repair.source !== 'test' && (
         <Modal
           onClose={() => { if (applyBlockedRef.current) { applyBlockedRef.current = false; applyRepair() } else up({ repair: null }) }}
           width={620} zIndex={80} cardStyle={{ padding: 22, maxHeight: '80vh', overflowY: 'auto' }}
@@ -2583,16 +2636,12 @@ export default function CreateFlow() {
           {(close) => (
             <>
               <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
-                {rev.repair!.source === 'test'
-                  ? (rev.repair!.blockers.length > 1 ? `The test hit ${rev.repair!.blockers.length} issues` : 'The test hit an issue')
-                  : (rev.repair!.blockers.length > 1 ? `Your AI hit ${rev.repair!.blockers.length} blockers` : 'Your AI hit a blocker')}
+                {rev.repair!.blockers.length > 1 ? `Your AI hit ${rev.repair!.blockers.length} blockers` : 'Your AI hit a blocker'}
               </div>
               <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)', marginBottom: 14 }}>
-                {rev.repair!.source === 'test'
-                  ? 'A step failed when the draft executed. Edit the fix below, then apply it to the spec and sync the steps.'
-                  : rev.repair!.source === 'create'
-                    ? 'It couldn’t build the steps as the spec asks. Edit the fix below, then apply it to the spec and rebuild.'
-                    : 'It couldn’t sync the steps with the spec. Edit the fix below, then apply it to the spec and sync again.'}
+                {rev.repair!.source === 'create'
+                  ? 'It couldn’t build the steps as the spec asks. Edit the fix below, then apply it to the spec and rebuild.'
+                  : 'It couldn’t sync the steps with the spec. Edit the fix below, then apply it to the spec and sync again.'}
               </div>
               <BlockerCards
                 blockers={rev.repair!.blockers}
@@ -2613,9 +2662,8 @@ export default function CreateFlow() {
                   onClick={() => { applyBlockedRef.current = true; close() }}
                   disabled={rev.repair!.blockers.some((b) => !b.reason.trim() || !b.fix.trim())}
                 >
-                  {rev.repair!.source === 'test' ? 'Apply to the spec & sync the steps'
-                    : rev.repair!.source === 'create' ? 'Apply to the spec & rebuild the steps'
-                      : 'Apply to the spec & sync again'}
+                  {rev.repair!.source === 'create' ? 'Apply to the spec & rebuild the steps'
+                    : 'Apply to the spec & sync again'}
                 </BtnPrimary>
               </div>
             </>
