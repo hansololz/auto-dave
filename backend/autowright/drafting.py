@@ -79,9 +79,13 @@ packages:                              # extra PyPI packages beyond the allowed 
   - { pip: pandas, import: pandas }    # bare distribution name, NO version; omit the key when none are needed
 triggers:                              # cron entries only (see Triggers above); omit the whole key if the spec names no time (no triggers -> manual / menu bar only)
   - cron: "0 8 * * *"
-steps:                                 # ordered; file names NN-name.py, two-digit, gapless from 01
-  - { file: 01-fetch.py, name: ..., desc: ... }
-  - { file: 02-judge.py, name: ..., desc: ..., agent: true, why: one line — why judgment is needed }
+steps:                                 # ordered; file names NN-name.py, two-digit, gapless from 01;
+                                       # secrets: granted secret names the step uses (omit when none);
+                                       # agents: granted agent names an agent step may call,
+                                       # first = agent.ask default (omit to use the automation's default)
+  - { file: 01-fetch.py, name: ..., desc: ..., secrets: [API_TOKEN] }
+  - { file: 02-judge.py, name: ..., desc: ..., agent: true, why: one line — why judgment is needed,
+      agents: [Agent name] }
 ===FILE: 01-fetch.py===
 (python source)
 ===END===
@@ -124,7 +128,9 @@ def _common_context(current: dict | None, grants: dict) -> list[str]:
         f"{_grants_yaml(grants.get('agents', []))}\n"
         "Allowed secrets (yaml: name, description; reference by secrets.NAME):\n"
         f"{_grants_yaml(grants.get('secrets', []))}\n"
-        "Use these entries to decide which agents and secrets the automation should use."
+        "One rule decides which agents and secrets each step uses: when the SPEC or BUILD "
+        "INSTRUCTIONS name a choice, follow them; otherwise pick the most appropriate "
+        "entries yourself."
     ]
     # §8: instructions travel with every call as context only — never returned by
     # the agent. In create mode the API seeds DEFAULT_INSTRUCTIONS when none given.
@@ -144,11 +150,12 @@ def build_spec_prompt(mode: str, user_text: str | None, current: dict | None,
         _FRAMEWORK_SECTION,
         "=== AVAILABLE AGENTS (yaml: name, description, harness, model — they can power "
         "judgment steps when the automation is later built; don't promise AI judgment in "
-        "the spec unless this list is nonempty. Use these entries to decide which agents "
-        "the automation should use) ===\n"
+        "the spec unless this list is nonempty. When the user or the BUILD INSTRUCTIONS "
+        "name which agent to use, follow that; otherwise pick the most appropriate "
+        "entries yourself) ===\n"
         f"{_grants_yaml(grants.get('agents', []))}",
-        "=== AVAILABLE SECRETS (yaml: name, description — use these entries to decide "
-        "which secrets the automation should use) ===\n"
+        "=== AVAILABLE SECRETS (yaml: name, description — same rule: a secret named by "
+        "the user or the BUILD INSTRUCTIONS wins; otherwise pick by judgment) ===\n"
         f"{_grants_yaml(grants.get('secrets', []))}",
     ]
     if (current or {}).get("instr"):
@@ -261,8 +268,10 @@ def validate_spec(files: dict[str, str]) -> tuple[dict, list[str]]:
     return {"md": md, "blocks": blocks}, []
 
 
-def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
-    """§8 call-2 validation. Returns (draft dict sans spec, errors)."""
+def validate_steps(files: dict[str, str], grants: dict | None = None) -> tuple[dict, list[str]]:
+    """§8 call-2 validation. Returns (draft dict sans spec, errors). `grants`
+    holds the call's agent/secret grant entries — per-step `agents`/`secrets`
+    lists must name entries from them."""
     errors: list[str] = []
     if "manifest.yaml" not in files:
         errors.append("manifest.yaml is missing")
@@ -323,9 +332,33 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
             errors.append(f"step file {fname!r} doesn't follow NN-name.py")
         elif int(m.group(1)) != i:
             errors.append(f"step file {fname!r} out of order — expected {i:02d}-…")
+    # §8 rule 7/6: per-step agents/secrets must name granted entries — the
+    # grants yaml is what the agent chose from, so anything else is a typo.
+    granted_agents = {g.get("name") for g in (grants or {}).get("agents", [])}
+    granted_secrets = {g.get("name") for g in (grants or {}).get("secrets", [])}
     for s in steps:
-        if isinstance(s, dict) and s.get("agent") and not (s.get("why") or "").strip():
+        if not isinstance(s, dict):
+            continue
+        if s.get("agent") and not (s.get("why") or "").strip():
             errors.append(f"step {s.get('name')}: agent: true requires a why")
+        ags = s.get("agents")
+        if ags is not None:
+            if not s.get("agent"):
+                errors.append(f"step {s.get('name')}: agents is only valid on agent: true steps")
+            elif not isinstance(ags, list) or not all(isinstance(x, str) for x in ags):
+                errors.append(f"step {s.get('name')}: agents must be a list of granted agent names")
+            else:
+                for x in ags:
+                    if x not in granted_agents:
+                        errors.append(f"step {s.get('name')}: agent {x!r} isn't among the granted agents")
+        secs = s.get("secrets")
+        if secs is not None:
+            if not isinstance(secs, list) or not all(isinstance(x, str) for x in secs):
+                errors.append(f"step {s.get('name')}: secrets must be a list of allowed secret names")
+            else:
+                for x in secs:
+                    if x not in granted_secrets:
+                        errors.append(f"step {s.get('name')}: secret {x!r} isn't among the allowed secrets")
 
     norm_steps = []
     for s in steps:
@@ -340,7 +373,10 @@ def validate_steps(files: dict[str, str]) -> tuple[dict, list[str]]:
             errors.append(f"{s.get('file')}: syntax error — {e.msg} (line {e.lineno})")
         norm_steps.append({
             "file": s.get("file"), "name": s.get("name", ""), "desc": s.get("desc", ""),
-            "agent": bool(s.get("agent")), "why": s.get("why", ""), "code": code,
+            "agent": bool(s.get("agent")), "why": s.get("why", ""),
+            "agents": list(s.get("agents") or []) if s.get("agent") else [],
+            "secrets": list(s.get("secrets") or []),
+            "code": code,
         })
     trigs = manifest.get("triggers") or []
     norm_trigs: list[dict] = []
@@ -507,7 +543,8 @@ class DraftJobs:
         # ---- call 2: steps, params, schedule ----
         self._stage(job, "Generating the steps")
         draft, errors, blockers = self._call_with_repair(
-            job, agent, build_steps_prompt(mode, spec_md, current, grants), validate_steps)
+            job, agent, build_steps_prompt(mode, spec_md, current, grants),
+            lambda files: validate_steps(files, grants))
         if job["_cancel"]:
             return True
         if blockers:

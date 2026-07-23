@@ -162,8 +162,14 @@ snapshots: [{ id, name, reason, when, version, size, files }] — the §6.3 memo
   the version about to execute), size = humanized byte label, files = file count
 snapshotSettings: { preVersion, preClear, preRestore } — booleans, the §6.3 automatic-snapshot
   toggles (all default true)
-steps: [{ name, desc, code, agent?, agentId?, why? }] — code is human-readable script; agent marks
-  a step that makes a query-only runtime model call (§6) — the script itself still does any changes
+steps: [{ name, desc, code, agent?, why?, agents?, secrets? }] — code is human-readable script; agent
+  marks a step that makes query-only runtime model calls (§6) — the script itself still does any
+  changes. agents (agent steps only): ordered list of §8 grant names the step may call — the first
+  is agent.ask's default, the others are addressable per call by name; empty/absent falls back to
+  the automation's first enabled agent. secrets: secret names the step uses — a step's effective
+  secrets are this list unioned with the secrets.NAME references in its code. Both lists are chosen
+  by the drafting agent per the §8 selection rule (the SPEC and build instructions win when they
+  name a choice; the drafting agent's own judgment otherwise)
 spec: block list [{ k: h1|h2|p|li, text }] — the human-readable spec
 specMeta: "v3 · updated Yesterday" (shared time label)
 versions: [{ v, when, note, spec, steps, instr, params }] — prior-version history, newest-first
@@ -547,7 +553,7 @@ automations/<uuid>/
   versions/vN/                 # one folder per version — immutable once written
     automation.yaml            # when, note, desc, param definitions (§4.2: name, kind,
                                # label, help, default, …) + ordered steps manifest:
-                               # steps: [{file, name, desc, agent?, agent_id, why}]
+                               # steps: [{file, name, desc, agent?, why?, agents?, secrets?}]
                                # + declared packages (§6.2, absent when none):
                                # packages: [{pip: pandas, import: pandas}]
     spec.md                    # the version's spec as plain markdown (h1/h2/li/p blocks)
@@ -754,10 +760,13 @@ never used for lookups.
   macOS notifications itself via `osascript -e 'display notification …'` — works headless with no
   UI process; the Electron app never posts.
 - **Secrets & Keychain** — scripts reference secrets by name; values injected at runtime — each
-  step receives only the secrets its own code references — and redacted from logs; a missing
-  secret stops the execution before any step.
+  step receives only the secrets it declares in the manifest (`secrets`) plus those its own code
+  references — and redacted from logs; a missing secret stops the execution before any step.
 - **Agent steps are query-only.** A step's runtime agent call is a pure question → text-answer
-  function; only step scripts make changes. The engine invokes the harness one-shot and
+  function; only step scripts make changes. A step may name several enabled agents (`agents`,
+  §8 grant names) and address each per call (`agent.ask(…, agent="Name")`); the engine resolves
+  the names against the automation's enabled agents at execution time, falling back to the
+  first enabled agent when the step names none. The engine invokes the harness one-shot and
   non-interactive with the strongest tool-disabling flags each harness supports: Claude Code
   `claude -p --tools "" --strict-mcp-config --no-session-persistence`, Codex
   `codex exec --sandbox read-only --skip-git-repo-check`; Gemini CLI and OpenCode expose no
@@ -804,10 +813,12 @@ The engine's executor injects these globals — scripts may also `import autowri
 - `notify(text)` — requests the end-of-execution notification (engine still applies the §4.9 setting
   and the one-notification rule). The notification title is the automation name, overridable by a
   param literally named `notification_title`.
-- `agent.ask(prompt, data=None) -> str` — the §6 query-only runtime call, only in steps marked
-  `agent: true`; executor invokes the step's harness one-shot, redaction-scans the prompt first.
-  Convenience aliases `agent.read(data, prompt)` / `agent.write(data, prompt)` wrap it. Agent-step
-  calls time out at 120 s (drafting calls use the §8 5-minute cap).
+- `agent.ask(prompt, data=None, agent=None) -> str` — the §6 query-only runtime call, only in
+  steps marked `agent: true`; executor invokes one of the step's agents one-shot,
+  redaction-scans the prompt first. `agent` picks among the step's `agents` by grant name (§8);
+  omitted, the first is used; naming an agent the step doesn't carry raises. Convenience
+  aliases `agent.read(data, prompt, agent=None)` / `agent.write(data, prompt, agent=None)` wrap
+  it. Agent-step calls time out at 120 s (drafting calls use the §8 5-minute cap).
 - `fetch_page(url) -> str` — HTTP GET honoring the §6 web policies (timeout, per-site spacing,
   retries, robots.txt, UA).
 
@@ -1093,8 +1104,10 @@ also served to the create/edit page via §19 `GET /instructions`):
   file-block envelope (the per-call TASK directive
   names the exact files), the blocker envelope and when to use it, the task-solving ladder
   (deterministic code with curated libraries first; an agent step only when judgment is truly
-  needed, its prompt kept small enough for a local model — narrow question, strict output
-  format, reply validated in code), the `autowright` SDK reference with worked examples (a typical
+  needed — narrow question, strict output format, reply validated in code), the agent/secret
+  selection rule (one rule only: when the SPEC or build instructions name which agent or secret
+  a step should use, follow them; otherwise the drafting agent picks the most appropriate
+  granted entries by its own judgment), the `autowright` SDK reference with worked examples (a typical
   memory-diff last step; a validated `agent.ask` call), the curated package list, the parameter
   kinds table (§4.2), trigger- and step-design duties, the **failure-diagnostics duty** (a step
   that can't proceed raises an exception whose message names what it was doing, the exact input
@@ -1132,13 +1145,13 @@ around the name, plain words). Sections in order:
    `harness`, and `model` (the literal `harness default` when the §4.7 model is null). An empty
    list renders the literal `none`. The header states its intent for the spec call: these
    agents can power judgment steps when the automation is later built — the spec must not
-   promise AI judgment when the list is empty — and instructs the agent to use the entries to
-   decide which agents the automation should use. The same yaml rendering applies to the
-   call-2 grants context.
+   promise AI judgment when the list is empty — and states the §8 selection rule (choices
+   named in the spec or build instructions win; otherwise the drafting agent's own judgment).
+   The same yaml rendering applies to the call-2 grants context.
 3. **Available secrets** — the allowed secrets as a yaml list, one entry per secret with
    `name` and `description` (the §4.8 desc, omitted when empty) — never values, memory
-   contents, or execution logs; empty list renders `none`. The header instructs the agent to
-   use the entries to decide which secrets the automation should use. For both grant lists the
+   contents, or execution logs; empty list renders `none`. The header states the same
+   selection rule for secrets. For both grant lists the
    §19 body's grant arrays (the in-editor toggles) win over the stored automation's; absent
    both, the drafting agent's own entry and no secrets.
 4. **Build instructions** — the user's standing rules (or the seeded default), context only;
@@ -1175,18 +1188,22 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
      - { name: sources, kind: list, label: Manga URLs, help: ..., validate: true }
    packages:                         # §6.2 declared packages — beyond curated only, bare
      - { pip: pandas, import: pandas }   # distribution name, no version; omit the key when none are needed
-   steps:                            # ordered; file names NN-name.py, two-digit, gapless
-     - { file: 01-fetch.py, name: Fetch pages, desc: ... }
+   steps:                            # ordered; file names NN-name.py, two-digit, gapless;
+                                     # secrets: granted secret names the step uses (optional);
+                                     # agents: granted agent names an agent step may call,
+                                     # first = agent.ask default (optional)
+     - { file: 01-fetch.py, name: Fetch pages, desc: ..., secrets: [API_TOKEN] }
      - { file: 02-classify.py, name: Classify updates, desc: ..., agent: true,
-         why: needs judgment on chapter titles }
+         why: needs judgment on chapter titles, agents: [Fast local] }
    ===FILE: 01-fetch.py===
    ...python source...
    ===END===
    ```
 3. **Grants** — one section: enabled agents and allowed secrets, both rendered as the same
    yaml lists as call 1 (`agent: true` steps allowed only if the agent list is nonempty;
-   secrets referenced by `secrets.NAME`), closing with the instruction to use the entries to
-   decide which agents and secrets the automation should use.
+   secrets referenced by `secrets.NAME`), closing with the selection rule: when the SPEC or
+   build instructions name which agent or secret a step should use, follow them; otherwise
+   pick the most appropriate granted entries by judgment.
 4. **Build instructions** — as in call 1.
 5. **Mode** — `create`: include a suggested `name`; `sync`: current param
    definitions and step scripts travel as reference ("rewrite them to match the SPEC, changing
@@ -1214,10 +1231,14 @@ On `edit` the job ends here — its draft payload is just `{ spec }`.
    `packages: [{ pip, import, status: installed | failed, version?, error? }]`. An install
    failure does **not** fail the job — the draft lands with the failure visible in the §11
    Packages card.
-6. Step code is scanned for `secrets.NAME` references → drives the Review-screen secret warnings
-   (§11). Unknown or un-allowed secret references are Review warnings, not validation failures.
-7. Steps carry only `agent: true` as the query-only marker (§6); the backend assigns `agent_id`
-   from the automation's enabled agents. `why` is required when `agent` is true.
+6. Per-step `secrets` lists must name allowed secrets — an unknown name is a validation error.
+   Step code is additionally scanned for `secrets.NAME` references → drives the Review-screen
+   secret warnings (§11). Unknown or un-allowed secret references in code are Review warnings,
+   not validation failures.
+7. `agent: true` is the query-only marker (§6); `why` is required with it, and the optional
+   `agents` list (agent steps only) must name enabled-agent grants — the engine resolves the
+   names against the automation's enabled agents at execution time; no per-step agent id is
+   ever assigned or stored.
 8. `triggers` is optional and cron-only: a list of `{ cron: expr }` or
    `{ cron: expr, tz: zone }` entries — expression valid per the §4.3 dialect, `tz` a known
    IANA zone included only when the spec names one. The agent derives them from the spec's
@@ -1447,11 +1468,11 @@ Sections top to bottom:
   Edits apply immediately (§19 PATCH `snapshotSettings`) — no version, no AI.
 - **STEPS** card — read-only step rows (number, name, desc, view/hide script with §11 `PyCode`
   highlighting; agent steps show the "Why an agent" note when expanded). Step tags are
-  display-only — never menus: an agent step carries a tag with the assigned agent's name (robot
-  icon, tooltip = the step's `why`; the step's `agentId` resolved against the agents list, name
-  fallback "agent" if the agent no longer exists), and a step whose code references
-  `secrets.NAME` carries one key-icon tag per secret name. Agents and secrets are changed on
-  the edit page.
+  display-only — never menus: an agent step carries one robot-icon tag per name in its `agents`
+  list (tooltip = the step's `why`; an empty list shows a single tag naming the automation's
+  first enabled agent, fallback "agent"), and a step carries one key-icon tag per secret it
+  uses (its `secrets` list unioned with the `secrets.NAME` references in its code). Agents and
+  secrets are changed on the edit page.
 - **SPEC panel** — collapsible (expand/collapse header toggle), expanded by default; the automation's spec blocks rendered through the shared §4.5 Markdown renderer, footer: "The AI regenerates the steps from this
   document when you edit it. Every change mints a new version — older ones live in the Version
   menu on the edit page."
@@ -1782,15 +1803,15 @@ secrets, instructions, framework; right column: steps, triggers, parameters, pac
   behaviors) and, test-only, in the Test card panel below. Empty state:
   "No settings needed — your AI didn't ask for any."
 - **Steps** — readable scripts with per-step read-only tags (same tag language as the §9.2
-  detail page — never menus): an agent step shows a tag with its assigned agent's name (robot
-  icon; the tag turns red when no enabled agent covers the step — it keeps the assigned
-  agent's name when that agent still exists, and reads "no agent" only when no name can be
-  resolved), a step whose code references
-  `secrets.NAME` shows one key-icon tag per secret name, and a step that imports a declared
+  detail page — never menus): an agent step shows one robot-icon tag per name in its `agents`
+  list (a tag turns red when its name matches no enabled agent; an empty list shows one tag
+  naming the automation's first enabled agent, and reads "no agent" in red when none is
+  enabled), a step shows one key-icon tag per secret it uses (its `secrets` list unioned with
+  the `secrets.NAME` references in its code), and a step that imports a declared
   §6.2 package (its top-level `import` name appears in the step's code) shows one box-icon tag
-  per package, labeled with the import name. Which agent a step calls is decided by
-  the draft's `agentId` (fallback: first enabled agent) — changing it happens through the
-  agent-enablement card plus sync, not per step. An expanded step ("view script") renders its
+  per package, labeled with the import name. Which agents a step calls is decided by
+  the drafting agent per the §8 selection rule — changing it happens through the spec or
+  build instructions plus sync (or the agent-enablement card), not per step. An expanded step ("view script") renders its
   `code` with Python syntax highlighting — a self-contained tokenizer (`PyCode` in `ui.tsx`, no
   dependency) coloring keywords, constants, strings, numbers, comments, decorators, builtins,
   `def`/`class` names, and call names over the base mono `.ad-copy` `pre`. Language is always
@@ -1972,7 +1993,7 @@ the line reads "No description yet — add one in Edit to tell the drafting AI w
 is for." —
 and a **USED BY** row of clickable automation chips (fallback "Not used by any automation yet.").
 USED BY means actual reference, not permission: an automation is listed when the agent is its
-writer (`agent_id`) or a current-version step carries the agent's `agent_id`. The
+writer (`agent_id`) or a current-version step names the agent's grant name in its `agents` list. The
 `enabled_agents` grant alone never counts — same rule as secrets, whose usage is step-code
 references, not `allowed_secrets` (§12 Secrets).
 There is no Edit button —

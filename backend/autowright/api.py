@@ -87,7 +87,7 @@ def _agents_json() -> list[dict]:
     for ag in store.agents:
         used = [a["name"] for a in store.autos.values()
                 if a["agent_id"] == ag["id"]
-                or any(s.get("agent_id") == ag["id"]
+                or any(harness.grant_name(ag) in (s.get("agents") or [])
                        for s in a["versions"].get(a["current_version"], {}).get("steps", []))]
         out.append({**ag, "usedBy": used})
     return out
@@ -110,7 +110,7 @@ def _secrets_json() -> list[dict]:
 def _agent_grant(g: dict) -> dict:
     """§8 grants yaml entry: name, description, harness, model — the fields the
     drafting agent weighs when deciding which agents to use; ids stay internal."""
-    e = {"name": g.get("name") or g.get("harness", "")}
+    e = {"name": harness.grant_name(g)}
     if g.get("desc"):
         e["description"] = g["desc"]
     e["harness"] = g.get("harness", "")

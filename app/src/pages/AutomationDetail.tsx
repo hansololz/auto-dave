@@ -374,10 +374,11 @@ function ParamRow({ autoId, p, last }: { autoId: string; p: ParamDef; last: bool
 
 // ---------- steps ----------
 
-function StepRow({ s, n, open, onToggle, last, agentName }: {
-  s: Step; n: number; open: boolean; onToggle: () => void; last: boolean; agentName: string
+function StepRow({ s, n, open, onToggle, last, agentNames }: {
+  s: Step; n: number; open: boolean; onToggle: () => void; last: boolean; agentNames: string[]
 }) {
-  const stepSecrets = [...new Set([...(s.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]))]
+  const stepSecrets = [...new Set([...(s.secrets ?? []),
+    ...[...(s.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1])])]
   return (
     <div style={{ borderBottom: last ? 'none' : '1px solid var(--hairline-dim)' }}>
       <div className="ad-hover-row" onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '12px 18px', cursor: 'pointer' }}>
@@ -385,8 +386,9 @@ function StepRow({ s, n, open, onToggle, last, agentName }: {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</span>
-            {s.agent && (
+            {s.agent && agentNames.map((nm) => (
               <span
+                key={nm}
                 className="ad-btn-accent-ghost"
                 title={s.why ?? undefined}
                 style={{
@@ -394,9 +396,9 @@ function StepRow({ s, n, open, onToggle, last, agentName }: {
                   padding: '2px 8px', fontFamily: 'var(--mono)', fontSize: 10, whiteSpace: 'nowrap',
                 }}
               >
-                <i className="fa-solid fa-robot" style={{ fontSize: 8.5 }} /> {agentName}
+                <i className="fa-solid fa-robot" style={{ fontSize: 8.5 }} /> {nm}
               </span>
-            )}
+            ))}
             {stepSecrets.map((name) => (
               <span
                 key={name}
@@ -1126,9 +1128,12 @@ export default function AutomationDetail() {
                 open={stepOpen === i}
                 onToggle={() => setStepOpen(stepOpen === i ? null : i)}
                 last={i === steps.length - 1}
-                agentName={(() => {
-                  const g = s.agentId ? agents.find((z) => z.id === s.agentId) : undefined
-                  return g ? (g.name || g.harness) : 'agent'
+                agentNames={(() => {
+                  // §9.2: one tag per name in the step's agents list; empty →
+                  // the automation's first enabled agent, fallback "agent".
+                  if (s.agents?.length) return s.agents
+                  const first = auto.stepAgents.map((id) => agents.find((z) => z.id === id)).find((g) => !!g)
+                  return [first ? (first.name || first.harness) : 'agent']
                 })()}
               />
             ))}

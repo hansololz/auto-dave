@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import keychain, notify, packages as pkglib
+from . import harness, keychain, notify, packages as pkglib
 from .events import hub
 from .executor import CTRL
 from .storage import SECRET_REF_RE, Store, resolve_param_value
@@ -79,13 +79,16 @@ def build_redactions(secret_values: dict[str, str]) -> dict[str, str]:
     return redactions
 
 
-def agent_for_step(agents: dict[str, dict], enabled: list, s: dict) -> dict | None:
-    """§6: the step's named agent when it's enabled, else the first enabled
-    agent, else None. Shared by executions and §11 tests."""
-    cand = s.get("agent_id") or s.get("agentId")
-    if cand and cand in agents and cand in enabled:
-        return agents[cand]
-    return next((agents[a] for a in enabled if a in agents), None)
+def agents_for_step(agents: dict[str, dict], enabled: list, s: dict) -> list[dict]:
+    """§6: the step's named agents (§8 grant names) resolved against the
+    enabled agents, in the step's order; falls back to the first enabled agent
+    when none resolve. Shared by executions and §11 tests."""
+    pool = [agents[a] for a in enabled if a in agents]
+    by_name: dict[str, dict] = {}
+    for g in pool:  # duplicate grant names: the first enabled agent wins
+        by_name.setdefault(harness.grant_name(g), g)
+    named = [by_name[n] for n in s.get("agents") or [] if n in by_name]
+    return named or pool[:1]
 
 
 def ensure_declared_packages(declared: list, log) -> str | None:
@@ -390,10 +393,12 @@ class Engine:
         redactions: dict[str, str] = {}
         failed = False
         try:
-            # §6: a missing secret stops the execution before any step.
+            # §6: a missing secret stops the execution before any step —
+            # declared (`secrets` in the manifest) and code-referenced alike.
             needed: set[str] = set()
             for s in ver["steps"]:
                 needed |= set(SECRET_REF_RE.findall(s.get("code", "")))
+                needed |= set(s.get("secrets") or [])
             secret_values: dict[str, str] = {}
             for name in sorted(needed):
                 if name not in auto["allowed_secrets"]:
@@ -473,20 +478,20 @@ class Engine:
                 self._step_event(h, i)
                 self._log(h, "sys", f"▸ Step {i + 1} — {s['name']}", redactions)
                 t0 = time.time()
-                agent_cfg = None
+                agent_cfgs: list[dict] = []
                 rc = 1
                 notify_holder: dict = {}
                 if s.get("agent"):
-                    agent_cfg = self._agent_for_step(auto, s)
-                    if agent_cfg is None:
+                    agent_cfgs = self._agents_for_step(auto, s)
+                    if not agent_cfgs:
                         msg = f"Step {i + 1} needs an agent, but none is enabled — the execution fails here."
                         self._log(h, "err", msg, redactions)
                         notify_holder["error"] = {
                             "message": msg,
                             "reason": "No enabled agent can serve this step — enable one for this automation."}
-                if not (s.get("agent") and agent_cfg is None):
+                if not (s.get("agent") and not agent_cfgs):
                     rc = self._execute_step(auto, ver, h, s, i + 1, vdir, params, secret_values,
-                                            agent_cfg, state, redactions, result, notify_holder)
+                                            agent_cfgs, state, redactions, result, notify_holder)
                 if notify_holder.get("text"):
                     notify_text = notify_holder["text"]
                 if notify_holder.get("result_touched"):
@@ -588,12 +593,12 @@ class Engine:
                 except Exception:  # noqa: BLE001
                     pass
 
-    def _agent_for_step(self, auto: dict, s: dict) -> dict | None:
+    def _agents_for_step(self, auto: dict, s: dict) -> list[dict]:
         agents = {a["id"]: a for a in self.store.agents}
-        return agent_for_step(agents, auto["enabled_agents"], s)
+        return agents_for_step(agents, auto["enabled_agents"], s)
 
     def _execute_step(self, auto: dict, ver: dict, h: dict, s: dict, step_index: int, vdir: Path,
-                  params: dict, secret_values: dict, agent_cfg: dict | None,
+                  params: dict, secret_values: dict, agent_cfgs: list[dict],
                   state: dict, redactions: dict, result: dict, notify_holder: dict) -> int:
         script = vdir / (s.get("file") or "")
         if not script.exists():
@@ -601,10 +606,11 @@ class Engine:
             self._log(h, "err", msg, redactions)
             notify_holder["error"] = {"type": "MissingScript", "message": msg}
             return 1
-        # §6 secret scoping: a step only receives the secrets its own source
-        # references. The full value map stays engine-side for log redaction;
-        # reading an uninjected secret raises in the executor and fails the execution.
-        step_refs = set(SECRET_REF_RE.findall(s.get("code", "")))
+        # §6 secret scoping: a step only receives the secrets it declares in the
+        # manifest plus those its own source references. The full value map stays
+        # engine-side for log redaction; reading an uninjected secret raises in
+        # the executor and fails the execution.
+        step_refs = set(SECRET_REF_RE.findall(s.get("code", ""))) | set(s.get("secrets") or [])
         step_secrets = {k: v for k, v in secret_values.items() if k in step_refs}
         ctx = {
             "params": params,
@@ -616,7 +622,7 @@ class Engine:
             else str(self._memory_dir(auto, h["ver"])),
             "workspace": str(self.store.exec_dir(h["id"]) / "workspace"),
             "result_dir": str(self.store.exec_dir(h["id"]) / "result"),
-            "agent": agent_cfg,
+            "agents": agent_cfgs,
             "is_agent_step": bool(s.get("agent")),
             "agent_timeout": 120,
             "execution": {

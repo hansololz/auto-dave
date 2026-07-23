@@ -335,6 +335,12 @@ def ollama_model_installed(model: str, installed: list[str]) -> bool:
     return ":" not in model and f"{model}:latest" in installed
 
 
+def grant_name(agent: dict) -> str:
+    """§8 grant name of an agent record — the name steps and grants yaml use
+    to refer to it (falls back to the harness name when the agent is unnamed)."""
+    return agent.get("name") or agent.get("harness", "")
+
+
 # Provider ids (§19 install/login/signin endpoints, §10 cards) ↔ harness names.
 # Ollama is an installable provider but never a harness (§4.7) — it's the
 # local-model runtime OpenCode drives.

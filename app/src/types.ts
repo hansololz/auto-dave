@@ -28,7 +28,8 @@ export interface Step {
   code: string
   file?: string
   agent?: boolean
-  agentId?: string | null
+  agents?: string[]   // §8 grant names the step may call — the first is agent.ask's default
+  secrets?: string[]  // secret names the step uses beyond its code references
   why?: string
 }
 

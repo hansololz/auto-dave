@@ -149,22 +149,30 @@ class Agent:
     def __init__(self, ctx: dict):
         self._ctx = ctx
 
-    def ask(self, prompt: str, data=None) -> str:
-        return self._ask(prompt, data)
+    def ask(self, prompt: str, data=None, agent: str | None = None) -> str:
+        return self._ask(prompt, data, agent)
 
     # prototype scripts use agent.read(page, q) / agent.write(rows, q)
-    def read(self, data, prompt: str) -> str:
-        return self._ask(prompt, data)
+    def read(self, data, prompt: str, agent: str | None = None) -> str:
+        return self._ask(prompt, data, agent)
 
-    def write(self, data, prompt: str) -> str:
-        return self._ask(prompt, data)
+    def write(self, data, prompt: str, agent: str | None = None) -> str:
+        return self._ask(prompt, data, agent)
 
-    def _ask(self, prompt: str, data) -> str:
-        cfg = self._ctx.get("agent")
+    def _ask(self, prompt: str, data, name: str | None = None) -> str:
         if not self._ctx.get("is_agent_step"):
             raise RuntimeError("agent calls are only available in steps marked as agent steps")
-        if not cfg:
+        cfgs = self._ctx.get("agents") or []
+        if not cfgs:
             raise RuntimeError("no enabled agent for this step")
+        if name is None:
+            cfg = cfgs[0]
+        else:
+            # §6: pick among the step's agents by §8 grant name.
+            cfg = next((c for c in cfgs if _harness.grant_name(c) == name), None)
+            if cfg is None:
+                avail = ", ".join(_harness.grant_name(c) for c in cfgs)
+                raise RuntimeError(f"agent {name!r} isn't available to this step — it can call: {avail}")
         full = str(prompt) if data is None else f"question: {prompt}\n\ndata:\n{data}"
         # §6: secret values must never enter a prompt — scan before sending.
         # Multi-line values are also checked line by line, so a partial paste
@@ -176,7 +184,8 @@ class Agent:
             probes = [val] + [p for p in val.splitlines() if p.strip()] if "\n" in val else [val]
             if any(p in full for p in probes):
                 raise RuntimeError(f"prompt contains the value of secret {name} — refusing to send")
-        emit("log", k="sys", text=f"agent query → {cfg.get('harness')} ({len(full)} chars)")
+        emit("log", k="sys",
+             text=f"agent query → {_harness.grant_name(cfg)} ({cfg.get('harness')}, {len(full)} chars)")
         if len(full) > 200_000:
             raise RuntimeError("agent prompt too large (200k char cap)")
         try:

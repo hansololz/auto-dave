@@ -65,7 +65,7 @@ def seed(store: Store) -> None:
                  'json.dump(links, open("links.json", "w"))  # workspace hands step 2 the list\n'},
         {"file": "02-check-each-site-for-new-chapters.py", "name": "Check each site for new chapters",
          "desc": "Visits each manga's page and has an agent read off the newest chapter number and title.",
-         "agent": True, "agent_id": None,
+         "agent": True,
          "why": "Manga sites all lay out their pages differently — plain code can't reliably find the newest chapter in arbitrary HTML. The agent reads each page and returns just the chapter info.",
          "code": 'import json\nlinks = json.load(open("links.json"))\nfound = []\n'
                  'for url in links:\n    page = fetch_page(url)                     # plain HTTP GET\n'
@@ -206,7 +206,7 @@ def seed(store: Store) -> None:
                  'json.dump(rows, open("rows.json", "w"))\n'},
         {"file": "02-write-the-summary.py", "name": "Write the summary",
          "desc": "Has an agent turn the numbers into a short readable summary.",
-         "agent": True, "agent_id": None,
+         "agent": True,
          "why": "Writing readable prose from raw numbers is judgment, not rules — the agent drafts the summary from the week's rows. The gathering and sending around it stay plain code.",
          "code": 'import json\nrows = json.load(open("rows.json"))\n'
                  'summary = agent.write(rows,\n    "3–4 sentences — what changed this week and why it matters")\n'

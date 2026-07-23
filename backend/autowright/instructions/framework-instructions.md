@@ -44,11 +44,20 @@ Work down this ladder and stop at the first rung that does the job:
    `dateutil` for messy dates, `requests`/`httpx` for HTTP beyond `fetch_page`.
    Less hand-written code, fewer ways to break.
 2. **Agent step** (`agent: true`) — only when a step needs judgment code cannot
-   express (classify, summarize, compare meaning). The user may route agent
-   steps to a small local model, so write every prompt a small model can
-   answer: pre-extract the data in code first, ask one narrow question, demand
-   a strict output format, and validate the reply in code. If only a big hosted
-   model could answer, the question is too broad — narrow it or split it.
+   express (classify, summarize, compare meaning). Keep every call sharp:
+   pre-extract the data in code first, ask one narrow question, demand a
+   strict output format, and validate the reply in code.
+
+## Choosing agents and secrets
+
+Each step declares what it uses in `manifest.yaml`: `agents` (agent steps only —
+the granted agent names the step may call; the first is `agent.ask`'s default,
+and a step may list several and pick one per call with `agent.ask(...,
+agent="Name")`) and `secrets` (the granted secret names the step uses). One
+rule decides both choices: when the SPEC or BUILD INSTRUCTIONS name which agent
+or secret to use, follow them; otherwise pick whichever granted entries fit the
+step best, by your own judgment. Omit `agents` to let the step use the
+automation's default agent; omit `secrets` when the step uses none.
 
 ## Step scripts and the autowright SDK
 
@@ -71,7 +80,9 @@ result.path               # dir for output files; a result.md there renders as
 notify(text)              # title = the automation name; a param literally named
                           #   notification_title overrides it
 fetch_page(url)
-agent.ask(prompt, data)   # only in steps marked agent: true
+agent.ask(prompt, data)   # only in steps marked agent: true; agent="Name"
+                          #   picks among the step's declared agents (default:
+                          #   the first)
 ```
 
 A typical last step, end to end — load what earlier steps left in the workspace
@@ -98,8 +109,7 @@ else:
     memory.save("seen_ids", seen + [e["id"] for e in new])
 ```
 
-An agent call, kept small enough for a local model — narrow question, strict
-format, reply validated in code:
+An agent call — narrow question, strict format, reply validated in code:
 
 ```python
 answer = agent.ask(
@@ -243,7 +253,8 @@ Design for them, never re-implement them:
 - **Notifications & results:** exactly one result per execution; at most one
   notification, at the end, via `notify(text)` — the user's settings decide
   whether it is shown.
-- **Secrets & Keychain:** reference by name (`secrets.NAME`); values are
+- **Secrets & Keychain:** declare each step's secrets in its manifest entry
+  (`secrets: [NAME]`) and reference them by name (`secrets.NAME`); values are
   injected at runtime and redacted from logs; a missing secret stops the
   execution before any step. Never print or store them.
 

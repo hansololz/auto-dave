@@ -39,11 +39,17 @@ function amendSpec(spec: SpecBlock[], blockers: Blocker[]): SpecBlock[] {
 const blockerLine = (b: Blocker) => `${b.reason.trim()} — ${b.fix.trim()}`
 
 interface SecretRef { name: string; steps: number[] }
+// A step's secrets are its declared `secrets` list unioned with the
+// `secrets.NAME` references in its code (§4.1).
+function stepSecretNames(s: Step): string[] {
+  const names = new Set<string>(s.secrets ?? [])
+  for (const m of (s.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)) names.add(m[1])
+  return [...names]
+}
 function secretRefsOf(steps: Step[]): SecretRef[] {
   const refs: SecretRef[] = []
   steps.forEach((s, i) => {
-    for (const m of (s.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)) {
-      const nm = m[1]
+    for (const nm of stepSecretNames(s)) {
       let e = refs.find((z) => z.name === nm)
       if (!e) { e = { name: nm, steps: [] }; refs.push(e) }
       if (!e.steps.includes(i)) e.steps.push(i)
@@ -357,13 +363,6 @@ function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr
   }
 }
 
-function finalizeSteps(steps: Step[], enabled: string[]): Step[] {
-  return steps.map((s) => ({
-    ...s,
-    agentId: s.agent ? (s.agentId && enabled.includes(s.agentId) ? s.agentId : enabled[0] ?? null) : null,
-  }))
-}
-
 // §4.3 cron-subset replace: a sync's drafted crons take over the schedule — an
 // entry matching an existing cron on (expr, tz) keeps its id and off state,
 // and one-shot `time` and `app_start` triggers survive untouched.
@@ -384,7 +383,7 @@ function serializeDraft(r: Rev): DraftPayload {
     name: r.name, desc: r.desc, note: r.note,
     params: r.params,
     packages: r.packages.map(({ pip, import: imp }) => ({ pip, import: imp })),
-    steps: finalizeSteps(r.steps, r.enabledAgents),
+    steps: r.steps,
     spec: r.spec,
     instr: r.instr,
     triggers: r.triggers,
@@ -414,17 +413,19 @@ function Tag({ title, icon, bg, border, color, children }: {
   )
 }
 
-function StepRow({ step, i, open, onToggle, availAgents, allAgents, pkgImports }: {
+function StepRow({ step, i, open, onToggle, availAgents, pkgImports }: {
   step: Step; i: number; open: boolean; onToggle: () => void
   availAgents: Agent[]
-  allAgents: Agent[]    // full roster — resolves the assigned agent's name even when disabled
   pkgImports: string[]  // §6.2 declared package import names — tagged when the step imports one
 }) {
-  const asg = step.agent
-    ? (step.agentId ? availAgents.find((g) => g.id === step.agentId) ?? null : availAgents[0] ?? null)
-    : null
-  const orig = !asg && step.agentId ? allAgents.find((g) => g.id === step.agentId) ?? null : null
-  const stepSecrets = [...new Set([...(step.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]))]
+  // §4.1: one tag per name in the step's `agents` list; an empty list falls
+  // back to the automation's first enabled agent ("no agent" when none is).
+  const agentTags: { nm: string | null; ag: Agent | null }[] = step.agent
+    ? ((step.agents ?? []).length
+      ? (step.agents ?? []).map((nm) => ({ nm, ag: availAgents.find((g) => agName(g) === nm) ?? null }))
+      : [{ nm: availAgents[0] ? agName(availAgents[0]) : null, ag: availAgents[0] ?? null }])
+    : []
+  const stepSecrets = stepSecretNames(step)
   const stepPkgs = pkgImports.filter((n) => new RegExp(`\\b(?:import|from)\\s+${n}\\b`).test(step.code || ''))
   return (
     <div style={{ borderBottom: '1px solid var(--hairline-dim)' }}>
@@ -436,21 +437,22 @@ function StepRow({ step, i, open, onToggle, availAgents, allAgents, pkgImports }
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ font: "600 12.5px var(--sans)" }}>{step.name}</div>
-            {step.agent && (
+            {agentTags.map(({ nm, ag }, j) => (
               <Tag
-                title={asg
-                  ? `This step calls ${agName(asg)} · ${dispModel(asg)} mid-execution`
-                  : orig
-                    ? `${agName(orig)} isn’t enabled for steps — this step would fail`
+                key={j}
+                title={ag
+                  ? `This step calls ${agName(ag)} · ${dispModel(ag)} mid-execution`
+                  : nm
+                    ? `${nm} isn’t enabled for steps — this step would fail`
                     : 'No agent is enabled for steps — this step would fail'}
                 icon="fa-robot"
-                bg={asg ? 'oklch(0.74 0.155 52 / .1)' : 'oklch(0.7 0.19 25 / .14)'}
-                border={asg ? 'oklch(0.74 0.155 52 / .3)' : 'oklch(0.7 0.19 25 / .4)'}
-                color={asg ? 'oklch(0.78 0.13 52)' : 'var(--red-text)'}
+                bg={ag ? 'oklch(0.74 0.155 52 / .1)' : 'oklch(0.7 0.19 25 / .14)'}
+                border={ag ? 'oklch(0.74 0.155 52 / .3)' : 'oklch(0.7 0.19 25 / .4)'}
+                color={ag ? 'oklch(0.78 0.13 52)' : 'var(--red-text)'}
               >
-                {asg ? agName(asg) : orig ? agName(orig) : 'no agent'}
+                {nm ?? 'no agent'}
               </Tag>
-            )}
+            ))}
             {stepSecrets.map((name) => (
               <Tag
                 key={name}
@@ -968,8 +970,12 @@ export default function CreateFlow() {
 
   // ---- review: derived ----
   const availAgents = rev ? rev.enabledAgents.map((id) => agents.find((g) => g.id === id)).filter((g): g is Agent => !!g) : []
-  const resolveAg = (s: Step): Agent | null =>
-    s.agentId ? availAgents.find((g) => g.id === s.agentId) ?? null : availAgents[0] ?? null
+  // §4.1: a step's callable agents — its named grants resolved against the
+  // enabled agents, falling back to the first enabled agent when none named.
+  const resolveAgs = (s: Step): Agent[] => {
+    const named = (s.agents ?? []).map((nm) => availAgents.find((g) => agName(g) === nm)).filter((g): g is Agent => !!g)
+    return named.length ? named : availAgents.slice(0, 1)
+  }
   const agentStepIdx = rev ? rev.steps.map((s, i) => (s.agent ? i : -1)).filter((i) => i >= 0) : []
   // Memoized: this regex-scans every step's code and would otherwise re-run on
   // every keystroke anywhere in the editor.
@@ -983,7 +989,10 @@ export default function CreateFlow() {
   // have. Re-checking the grant clears it instantly; toggles alone never dirty.
   const agentGap = !!rev && agentStepIdx.some((i) => {
     const s = rev.steps[i]
-    return s.agentId ? !rev.enabledAgents.includes(s.agentId) : rev.enabledAgents.length === 0
+    const names = s.agents ?? []
+    return names.length
+      ? names.some((nm) => !availAgents.some((g) => agName(g) === nm))
+      : rev.enabledAgents.length === 0
   })
   const secretGap = secNotAllowed.length > 0
   // §11: the spec, agents, and secrets cards default open; the spec card is
@@ -1103,10 +1112,7 @@ export default function CreateFlow() {
         (d) => {
           setRev((r) => {
             if (!r) return r
-            const steps = (d.steps ?? r.steps).map((s) => ({
-              ...s,
-              agentId: s.agent && s.agentId && !r.enabledAgents.includes(s.agentId) ? r.enabledAgents[0] ?? null : s.agentId,
-            }))
+            const steps = d.steps ?? r.steps
             return {
               ...r, syncBusy: false, genStage: null, dirty: false, specUndo: null,
               steps, params: d.params ?? r.params, packages: d.packages ?? [], stepOpen: null,
@@ -1990,7 +1996,7 @@ export default function CreateFlow() {
                       )}
                       {agents.map((g) => {
                         const on = rev.enabledAgents.includes(g.id)
-                        const used = agentStepIdx.filter((i) => { const r = resolveAg(rev.steps[i]); return !!r && r.id === g.id })
+                        const used = agentStepIdx.filter((i) => resolveAgs(rev.steps[i]).some((r) => r.id === g.id))
                         return (
                           <div
                             key={g.id}
@@ -2338,7 +2344,7 @@ export default function CreateFlow() {
                         key={i} step={s} i={i}
                         open={rev.stepOpen === i}
                         onToggle={() => up({ stepOpen: rev.stepOpen === i ? null : i })}
-                        availAgents={availAgents} allAgents={agents}
+                        availAgents={availAgents}
                         pkgImports={rev.packages.map((p) => p.import)}
                       />
                     ))}

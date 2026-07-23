@@ -185,8 +185,8 @@ def test_draft_edit_honors_in_editor_grants(client):
     assert j["draft"]["spec"] is not None
     assert "steps" not in j["draft"]
     logged = paths.app_log().read_text(encoding="utf-8")
-    assert "the automation should use) ===\n- name: Claude Code" in logged
-    assert ("which secrets the automation should use) ===\n- name: MY_SECRET" in logged)
+    assert "pick the most appropriate entries yourself) ===\n- name: Claude Code" in logged
+    assert ("otherwise pick by judgment) ===\n- name: MY_SECRET" in logged)
     assert "Also check on weekends" in logged      # the USER REQUEST reached the prompt
     assert "Build the automation that implements" not in logged  # no steps call on edit
 

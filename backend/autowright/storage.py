@@ -308,8 +308,11 @@ class Store:
             entry: dict[str, Any] = {"file": fname, "name": s["name"], "desc": s.get("desc", "")}
             if s.get("agent"):
                 entry["agent"] = True
-                entry["agent_id"] = s.get("agent_id")
                 entry["why"] = s.get("why", "")
+                if s.get("agents"):
+                    entry["agents"] = list(s["agents"])
+            if s.get("secrets"):
+                entry["secrets"] = list(s["secrets"])
             manifest_steps.append(entry)
             keep.add(fname)
             atomic_write_text(vd / fname, s.get("code", ""))
@@ -463,7 +466,7 @@ class Store:
         d = self.load_pending_draft()
         if d is None:
             return {"draft": None, "agentId": None}
-        steps = [self.step_json(None, s) for s in d.get("steps", [])]
+        steps = [self.step_json(s) for s in d.get("steps", [])]
         return {"draft": {
             "name": d.get("name"), "desc": d.get("desc", ""), "note": d.get("note"),
             "params": d.get("params", []), "packages": d.get("packages", []),
@@ -770,7 +773,7 @@ class Store:
         for a in self.autos.values():
             cur = a["versions"].get(a["current_version"], {})
             for s in cur.get("steps", []):
-                if name in SECRET_REF_RE.findall(s.get("code", "")):
+                if name in s.get("secrets", []) or name in SECRET_REF_RE.findall(s.get("code", "")):
                     used.append(a["name"])
                     break
         return used
@@ -924,21 +927,21 @@ class Store:
             when_label = ("created" if n == 1 else "updated") + f" {dt.strftime('%b')} {dt.day}"
         return {"v": n, "when": when_label, "note": ver.get("note"),
                 "spec": ver.get("spec", []), "instr": ver.get("instr") or "",
-                "steps": [self.step_json(a, s) for s in ver.get("steps", [])],
+                "steps": [self.step_json(s) for s in ver.get("steps", [])],
                 "params": ver.get("params", []),
                 "packages": ver.get("packages", []),
                 **({"stepAgents": ver["step_agents"]} if ver.get("step_agents") is not None else {}),
                 **({"allowedSecrets": ver["allowed_secrets"]} if ver.get("allowed_secrets") is not None else {}),
                 **({"triggers": ver["triggers"]} if ver.get("triggers") is not None else {})}
 
-    def step_json(self, a: dict | None, s: dict) -> dict:
-        """One step-serialization for versions, drafts, and the pending slot —
-        `a` (when given) supplies the enabled-agents fallback for agent steps."""
+    def step_json(self, s: dict) -> dict:
+        """One step-serialization for versions, drafts, and the pending slot."""
         out = {"name": s.get("name", ""), "desc": s.get("desc", ""), "code": s.get("code", ""), "file": s.get("file")}
+        if s.get("secrets"):
+            out["secrets"] = list(s["secrets"])
         if s.get("agent"):
-            enabled = a["enabled_agents"] if a else []
             out["agent"] = True
-            out["agentId"] = s.get("agent_id") or (enabled[0] if enabled else None)
+            out["agents"] = list(s.get("agents") or [])
             out["why"] = s.get("why", "")
         return out
 
@@ -1021,7 +1024,7 @@ class Store:
                 "params": self.merged_params(a, cur),
                 "memory": self.memory_stats(a),
                 "snapshots": [self.snapshot_json(m) for m in self.list_snapshots(a)],
-                "steps": [self.step_json(a, s) for s in cur.get("steps", [])],
+                "steps": [self.step_json(s) for s in cur.get("steps", [])],
                 "spec": cur.get("spec", []),
                 "packages": cur.get("packages", []),
                 "versions": [self.version_json(a, n, v)

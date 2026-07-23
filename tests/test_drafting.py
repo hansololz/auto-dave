@@ -213,8 +213,8 @@ def test_spec_prompt_carries_framework_instructions_and_request():
 
 def test_prompts_carry_grants_yaml():
     # §8: grants render as yaml lists — name/description/harness/model per agent,
-    # name/description per secret — in both calls, so the drafting agent can
-    # decide which agents and secrets the automation should use.
+    # name/description per secret — in both calls, closed by the selection rule
+    # (spec/instructions win; otherwise the drafting agent's own judgment).
     grants = {"agents": [{"name": "Claude Code", "description": "Best for coding judgment",
                           "harness": "Claude Code", "model": "harness default"},
                          {"name": "Local", "harness": "OpenCode", "model": "gemma4:e4b"}],
@@ -227,7 +227,7 @@ def test_prompts_carry_grants_yaml():
                 "- name: Local\n  harness: OpenCode\n  model: gemma4:e4b") in p
         assert ("- name: MAIL_PASSWORD\n  description: Gmail app password\n"
                 "- name: CRM_API_KEY") in p
-        assert "decide which agents" in p and "secrets" in p
+        assert "pick the most appropriate" in p and "secrets" in p
 
 
 def test_prompts_carry_blocker_contract():
@@ -377,3 +377,35 @@ def test_progress_detail_spec_call_and_repair_prefix():
     cb = jobs._progress_cb(job, prefix="Second try — ")
     cb("===FILE: spec.md===\n# Title\n\n- a bullet\n")
     assert job["detail"] == "Second try — writing the spec · 3 lines"
+
+
+def test_step_agents_and_secrets_validate_against_grants():
+    # §8 rules 6/7: per-step `agents`/`secrets` must name granted entries; both
+    # ride the normalized steps.
+    files = {
+        "manifest.yaml": ("desc: d\nnote: n\nsteps:\n"
+                          "  - { file: 01-a.py, name: A, desc: x, secrets: [TOKEN] }\n"
+                          "  - { file: 02-b.py, name: B, desc: y, agent: true, why: w, agents: [Fast] }\n"),
+        "01-a.py": "log('a')\n",
+        "02-b.py": "log('b')\n",
+    }
+    grants = {"agents": [{"name": "Fast", "harness": "Codex", "model": "harness default"}],
+              "secrets": [{"name": "TOKEN"}]}
+    draft, errors = validate_steps(files, grants)
+    assert errors == []
+    assert draft["steps"][0]["secrets"] == ["TOKEN"]
+    assert draft["steps"][0]["agents"] == []
+    assert draft["steps"][1]["agents"] == ["Fast"]
+
+    # Names outside the grants are validation errors.
+    bad = dict(files, **{"manifest.yaml": files["manifest.yaml"]
+                         .replace("[Fast]", "[Nope]").replace("[TOKEN]", "[NOPE]")})
+    _, errors = validate_steps(bad, grants)
+    assert any("Nope" in e for e in errors)
+    assert any("NOPE" in e for e in errors)
+
+    # `agents` only makes sense on agent steps.
+    bad2 = dict(files, **{"manifest.yaml": files["manifest.yaml"]
+                          .replace("secrets: [TOKEN]", "agents: [Fast]")})
+    _, errors = validate_steps(bad2, grants)
+    assert any("only valid on agent" in e for e in errors)

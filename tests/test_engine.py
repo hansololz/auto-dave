@@ -805,3 +805,51 @@ def test_create_mode_test_records_without_automation(store, monkeypatch):
     # Settling the slot deletes its test records too.
     store.delete_pending_draft()
     assert eid not in store.execs
+
+
+def test_agent_step_multiple_agents_pick_by_name(store):
+    """§6: a step's `agents` grant names resolve in order — the first serves
+    plain agent.ask, and agent.ask(..., agent="Name") picks another."""
+    from autowright.engine import Engine
+
+    store.agents = [
+        {"id": "f", "name": "Fast", "harness": "Claude Code", "model": "x", "default": True},
+        {"id": "s", "name": "Slow", "harness": "Claude Code", "model": "y", "default": False},
+    ]
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"] = [
+        {"file": "01-ask.py", "name": "Ask", "desc": "", "agent": True, "why": "judgment",
+         "agents": ["Slow", "Fast"],
+         "code": 'a = agent.ask("question: one")\n'
+                 'b = agent.ask("question: two", agent="Fast")\n'
+                 'result.status("ok")\n'},
+    ]
+    a = store.create_automation(ver, "Multi", None, enabled_agents=["f", "s"])
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "succeeded"
+    logs = [l["text"] for l in read_all_logs(store, h["id"])]
+    assert any(t.startswith("agent query → Slow") for t in logs)
+    assert any(t.startswith("agent query → Fast") for t in logs)
+
+
+def test_declared_step_secrets_injected(store):
+    """§6: a secret declared in the step manifest is injected even when the
+    code never references it as a literal secrets.NAME."""
+    from autowright import keychain
+    from autowright.engine import Engine
+
+    keychain.set_secret("MY_TOKEN", "sekret")
+    engine = Engine(store)
+    ver = make_version()
+    ver["steps"] = [
+        {"file": "01-use.py", "name": "Use", "desc": "", "secrets": ["MY_TOKEN"],
+         "code": 'v = getattr(secrets, "MY" + "_TOKEN")\n'
+                 'log(f"got {len(v)} chars")\nresult.status("ok")\n'},
+    ]
+    a = store.create_automation(ver, "Sec", None, allowed_secrets=["MY_TOKEN"])
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "succeeded"
+    assert any("got 6 chars" in l["text"] for l in read_all_logs(store, h["id"]))
