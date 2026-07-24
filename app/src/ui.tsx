@@ -343,6 +343,20 @@ export function CountPill({ n, active }: { n: number; active?: boolean }) {
   )
 }
 
+/** §9 page-header action cluster — every page's top-right actions render in this
+ * one flex row (10 px gap). Order left → right by rising prominence: dim text →
+ * ghost → danger-ghost → the single primary; only an icon-only overflow ellipsis
+ * may follow the primary, at the far right edge. */
+export function HeaderActions({ children, style }: {
+  children: React.ReactNode; style?: React.CSSProperties
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none', ...style }}>
+      {children}
+    </div>
+  )
+}
+
 export function PageTitle({ children, right, style }: {
   children: React.ReactNode; right?: React.ReactNode; style?: React.CSSProperties
 }) {

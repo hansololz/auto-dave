@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { logKey, useStore } from '../store'
-import { Badge, badgeOf, Chip, Eyebrow, FailureNotice, logColor, paramSummary, Spinner } from '../ui'
+import { Badge, badgeOf, Chip, Eyebrow, FailureNotice, HeaderActions, logColor, paramSummary, Spinner } from '../ui'
 import { ResultSection } from '../result'
 import type { ExecStep, LogLine } from '../types'
 
@@ -214,14 +214,17 @@ export default function ExecutionPage() {
 
   return shell(
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0 4px', flexWrap: 'wrap' }}>
+      {/* §7: the row never wraps — the name ellipsizes so the actions stay on
+        * the title line at the same height as every other page header. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0 4px' }}>
         <h1
           className={canOpenAuto ? 'ad-link-title' : undefined}
           onClick={() => { if (canOpenAuto) go('automation', { autoId: e.autoId }) }}
-          title={canOpenAuto ? 'Open automation' : undefined}
+          title={canOpenAuto ? `Open automation — ${e.autoName}` : e.autoName}
           style={{
             fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0,
             cursor: canOpenAuto ? 'pointer' : 'default',
+            minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}
         >
           {e.autoName}
@@ -238,39 +241,41 @@ export default function ExecutionPage() {
           style={executing ? { animation: 'adPulse 1.4s ease-in-out infinite' } : undefined}
         />
         <div style={{ flex: 1 }} />
-        {executing && liveIdx >= 0 && (
-          <button
-            className="ad-btn-ghost"
-            onClick={() => skipStep(liveIdx)}
-            title="Skip this step — kills it and continues with the next one"
-          >
-            <i className="fa-solid fa-forward-step" style={{ fontSize: 10, marginRight: 6 }} />
-            Skip step
-          </button>
-        )}
-        {executing && (
-          <button className="ad-btn-danger-ghost" onClick={cancelExecution}>
-            Cancel
-          </button>
-        )}
-        {retryPrimary && (
-          <button
-            className="ad-btn-primary"
-            onClick={retry}
-            title="Retries this execution from the failed step. Steps that already succeeded keep their results."
-          >
-            Retry
-          </button>
-        )}
-        {againQuiet && (
-          <button
-            className="ad-btn-ghost"
-            onClick={executeAgain}
-            title="Executes the automation again from the start"
-          >
-            Execute again
-          </button>
-        )}
+        <HeaderActions>
+          {executing && liveIdx >= 0 && (
+            <button
+              className="ad-btn-ghost"
+              onClick={() => skipStep(liveIdx)}
+              title="Skip this step — kills it and continues with the next one"
+            >
+              <i className="fa-solid fa-forward-step" style={{ fontSize: 10, marginRight: 6 }} />
+              Skip step
+            </button>
+          )}
+          {executing && (
+            <button className="ad-btn-danger-ghost" onClick={cancelExecution}>
+              Cancel
+            </button>
+          )}
+          {againQuiet && (
+            <button
+              className="ad-btn-ghost"
+              onClick={executeAgain}
+              title="Executes the automation again from the start"
+            >
+              Execute again
+            </button>
+          )}
+          {retryPrimary && (
+            <button
+              className="ad-btn-primary"
+              onClick={retry}
+              title="Retries this execution from the failed step. Steps that already succeeded keep their results."
+            >
+              Retry
+            </button>
+          )}
+        </HeaderActions>
       </div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--text-faint)', marginBottom: 18 }}>
         <span className="ad-copy">{e.id}</span>

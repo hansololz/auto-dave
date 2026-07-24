@@ -4,8 +4,8 @@ import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto, ParamDef, SnapshotSettings, Step, Trigger } from '../types'
 import {
-  Badge, BtnGhost, BtnPrimary, ConfirmModal, EXECUTING_TOAST, Eyebrow, FailureNotice, MenuRow,
-  MiniBadge, Modal, PyCode, Toggle, menuStyle, nextIn, usePopover, validUrl,
+  Badge, BtnGhost, BtnPrimary, ConfirmModal, EXECUTING_TOAST, Eyebrow, FailureNotice, HeaderActions,
+  MenuRow, MiniBadge, Modal, PyCode, Toggle, menuStyle, nextIn, usePopover, validUrl,
 } from '../ui'
 import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, timeAt, triggerShort, tzSuffix } from '../cron'
 import { ResultSection, SpecMarkdown } from '../result'
@@ -671,7 +671,15 @@ export default function AutomationDetail() {
 
       {/* title row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 13, margin: '14px 0 6px' }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0 }}>{auto.name}</h1>
+        <h1
+          title={auto.name}
+          style={{
+            fontSize: 20, fontWeight: 600, letterSpacing: '-.01em', margin: 0,
+            minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}
+        >
+          {auto.name}
+        </h1>
         <div ref={verRef} style={{ position: 'relative' }}>
           <button className="ad-btn-pill" onClick={() => setVerOpen(!verOpen)}>
             <span>v{auto.version}</span>
@@ -731,34 +739,36 @@ export default function AutomationDetail() {
         </div>
         <Badge status={auto.lastStatus} style={{ animation: badgeAnim(auto.lastStatus) }} />
         <div style={{ flex: 1 }} />
-        <BtnPrimary onClick={() => doExecute()} style={{ flex: 'none' }}>
-          <i className={execIconCls} style={{ fontSize: 10 }} /> {execLabel}
-        </BtnPrimary>
-        <button className="ad-btn-ghost" onClick={() => setSurface('create', 'edit')} style={{ flex: 'none' }}>
-          Edit
-        </button>
-        <div ref={actRef} style={{ position: 'relative', flex: 'none' }}>
-          <button
-            className="ad-btn-ghost"
-            onClick={() => setActOpen(!actOpen)}
-            title="More actions"
-            style={{ padding: '8px 11px' }}
-          >
-            <i className="fa-solid fa-ellipsis" style={{ fontSize: 12 }} />
+        <HeaderActions>
+          <button className="ad-btn-ghost" onClick={() => setSurface('create', 'edit')}>
+            Edit
           </button>
-          {actOpen && (
-            <div style={{ ...menuStyle, top: 'calc(100% + 6px)', right: 0, minWidth: 210 }}>
-              <MenuRow onClick={() => { setActOpen(false); setExportValues(true); setExportAsk(true) }}>
-                <i className="fa-solid fa-file-export" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
-                Export…
-              </MenuRow>
-              <MenuRow danger onClick={() => { setActOpen(false); setDelAsk(true) }}>
-                <i className="fa-solid fa-trash-can" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
-                Delete automation…
-              </MenuRow>
-            </div>
-          )}
-        </div>
+          <BtnPrimary onClick={() => doExecute()}>
+            <i className={execIconCls} style={{ fontSize: 10 }} /> {execLabel}
+          </BtnPrimary>
+          <div ref={actRef} style={{ position: 'relative' }}>
+            <button
+              className="ad-btn-ghost"
+              onClick={() => setActOpen(!actOpen)}
+              title="More actions"
+              style={{ padding: '8px 11px' }}
+            >
+              <i className="fa-solid fa-ellipsis" style={{ fontSize: 12 }} />
+            </button>
+            {actOpen && (
+              <div style={{ ...menuStyle, top: 'calc(100% + 6px)', right: 0, minWidth: 210 }}>
+                <MenuRow onClick={() => { setActOpen(false); setExportValues(true); setExportAsk(true) }}>
+                  <i className="fa-solid fa-file-export" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
+                  Export…
+                </MenuRow>
+                <MenuRow danger onClick={() => { setActOpen(false); setDelAsk(true) }}>
+                  <i className="fa-solid fa-trash-can" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
+                  Delete automation…
+                </MenuRow>
+              </div>
+            )}
+          </div>
+        </HeaderActions>
       </div>
 
       {/* §4.3 trigger status chip */}

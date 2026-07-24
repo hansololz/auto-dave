@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto, ImportSummary } from '../types'
-import { Badge, BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, MiniBadge, Modal, PageTitle, resultChipColors, EXECUTING_TOAST } from '../ui'
+import { Badge, BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, HeaderActions, MiniBadge, Modal, PageTitle, resultChipColors, EXECUTING_TOAST } from '../ui'
 
 // §5.1/§9.1 import summary modal — only the sections that apply render.
 function ImportSummaryModal({ name, autoId, summary, onClose }: {
@@ -182,7 +182,7 @@ export default function AutomationsList() {
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease' }}>
       <PageTitle
         right={(
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <HeaderActions>
             <BtnGhost onClick={() => { void doImport() }}>
               Import…
             </BtnGhost>
@@ -196,7 +196,7 @@ export default function AutomationsList() {
             >
               New automation
             </BtnPrimary>
-          </div>
+          </HeaderActions>
         )}
       >
         Automations

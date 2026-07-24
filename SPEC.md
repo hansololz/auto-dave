@@ -1095,16 +1095,20 @@ destructive moments recoverable.
 - **Header actions** on the execution page: while executing, **Skip step** (quiet bordered,
   tooltip "Skip this step — kills it and continues with the next one"; skips the currently
   executing step) beside **Cancel**. A failed execution
-  gets a primary accent **Retry** (tooltip "Retries this execution from the failed step.
-  Steps that already succeeded keep their results.") plus a quiet bordered "Execute again"
-  (tooltip "Executes the automation again from the start" — a plain fresh execution).
+  gets a quiet bordered "Execute again" (tooltip "Executes the automation again from the
+  start" — a plain fresh execution) and, rightmost per the §9 header-action order, a primary
+  accent **Retry** (tooltip "Retries this execution from the failed step. Steps that already
+  succeeded keep their results.").
   Succeeded / cancelled / interrupted executions get only the quiet "Execute again".
 - Trigger labels: Manual, Menu bar, Cron, Once (§4.5). `interrupted` covers e.g. "Mac went to sleep" — applied
   by startup recovery when a restarted backend finds stale `executing` executions; a sleep the
   backend process survives simply resumes the execution. `skipped`/`cancelled` executions may carry a
   note ("previous execution still in progress").
 
-**Execution page:** back link, title row with status badge and the header actions above;
+**Execution page:** back link, title row with status badge and the header actions above — the
+row never wraps: the automation name is a single line that shrinks with ellipsis (full name in
+its tooltip), so the actions always sit on the title line at the same height as every other
+page's header buttons (same rule as the §11 Review title);
 below the title a mono metadata line: full execution id (copyable) · trigger · version ·
 started · duration. A §4.5 `test` execution additionally shows a **"Draft test"** chip in the
 title row, never shows the "(deleted)" marker (a create-mode test has no automation by
@@ -1468,6 +1472,17 @@ plain window background renders. If boot is still pending after 300 ms, a center
 spinner appears with "Connecting…" (or "Waiting for the Autowright backend…" once a connection
 attempt has failed; boot retries every 1.2 s). Fast boots therefore show no splash flash.
 
+**Page-header actions.** Every page's top-right header actions render in one shared cluster
+(`HeaderActions` — flex row, 10 px gap, vertically centered), whether the page uses the shared
+`PageTitle` right slot or a hand-rolled title row. Order left → right by rising prominence:
+dim text buttons, then ghost, then danger-ghost, then the single accent primary — the primary
+is always rightmost, with one exception: an icon-only overflow ellipsis (⋯) sits at the far
+right edge, after the primary. At most one primary per header, and a list page's main create
+action is that primary (New automation, Add agent, Add secret). Icons appear only on stateful
+primaries (e.g. Execute now / Executing…) and icon-only buttons — text secondaries carry no
+icons. Filters (the Executions page's segmented All / Succeeded / Failed control) are not
+actions and sit alone in the right slot.
+
 ### 9.1 Automations list
 
 1200 px page, "Automations" title + New button. When the §4.4 pending create-mode slot
@@ -1500,9 +1515,10 @@ and Autowright executes them on your schedule." with accent CTA "Create your fir
 
 ### 9.2 Automation detail
 
-Back link ("‹ Automations"), title row: name, version chip dropdown (§4.4 Execute once + footer
-explainer), status badge, Execute now (accent), Edit, ellipsis menu (**Export…**, then Delete
-automation… in red). Export… opens a small modal — "Export "`<name>`"" with one toggle row,
+Back link ("‹ Automations"), title row: name (single line, shrinks with ellipsis, full name in
+its tooltip — the row never wraps), version chip dropdown (§4.4 Execute once + footer
+explainer), status badge, then the §9 header-action cluster: Edit (ghost), Execute now (accent
+primary), ellipsis menu at the far right edge (**Export…**, then Delete automation… in red). Export… opens a small modal — "Export "`<name>`"" with one toggle row,
 "Include parameter values" (on; help: "Your saved parameter values travel with the file — turn
 this off when sharing with someone else."), footer note "Secret values and memory never leave
 this Mac", accent Export / quiet Cancel — then a native save dialog (main-process IPC, default
@@ -2186,7 +2202,7 @@ empty state (dashed card, same pattern as the Automations list): "No secrets yet
 or API key once, and your automations use it by name — the value never appears in a script or a
 log." with an accent CTA "Add your first secret" that opens the add modal (all three empty-state
 CTAs — automations, agents, secrets — are accent-primary; the page-header Add buttons on Agents
-and Secrets are plain ghost buttons, no icons).
+and Secrets are accent-primary too — each page's single main create action, §9 — no icons).
 
 ## 13. Menu-bar surface
 

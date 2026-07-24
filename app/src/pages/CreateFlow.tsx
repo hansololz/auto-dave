@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { Agent, Auto, Blocker, DraftPayload, DraftTest, DraftTrigger, PackageDep, ParamDef, SpecBlock, Step, VersionInfo } from '../types'
-import { BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, Modal, ProgressBar, PyCode, Spinner, Toggle, agName, dispModel, menuStyle, paramSummary, usePopover, validUrl } from '../ui'
+import { BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, HeaderActions, Modal, ProgressBar, PyCode, Spinner, Toggle, agName, dispModel, menuStyle, paramSummary, usePopover, validUrl } from '../ui'
 import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown, SpecMarkdown } from '../result'
 
@@ -1697,7 +1697,7 @@ export default function CreateFlow() {
                 }}
               />
               <div style={{ flex: 1 }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
+              <HeaderActions>
                 {saveBlocked && (
                   <span style={{ font: "400 12px var(--sans)", color: 'var(--amber)' }}>
                     {rev.specBusy ? 'Writing the spec…'
@@ -1721,7 +1721,7 @@ export default function CreateFlow() {
                     ? (viewingOld ? `Restore v${rev.viewing} as v${auto.version + 1}` : `Save as v${auto.version + 1}`)
                     : 'Create automation'}
                 </BtnPrimary>
-              </div>
+              </HeaderActions>
             </div>
             <p style={{ font: "400 13.5px/1.6 var(--sans)", color: 'var(--text-2)', margin: '0 0 20px' }}>
               Read what your AI wrote. Change anything — nothing executes until you create it.

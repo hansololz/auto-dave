@@ -165,7 +165,7 @@ export default function SecretsPage() {
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '26px 30px 70px', animation: 'adFadeUp .4s ease' }}>
       <PageTitle
         style={{ marginBottom: 6 }}
-        right={<BtnGhost onClick={() => setModal({ mode: 'add' })}>Add secret</BtnGhost>}
+        right={<BtnPrimary onClick={() => setModal({ mode: 'add' })}>Add secret</BtnPrimary>}
       >
         Secrets
       </PageTitle>
