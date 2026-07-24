@@ -179,6 +179,24 @@ ipcMain.handle('pick-folder', async (_e, defaultPath) => {
   const r = await dialog.showOpenDialog(win, opts)
   return r.canceled ? null : r.filePaths[0]
 })
+// §5.1 transfer archives: native save/open dialogs live in main; the renderer
+// moves the bytes to/from the backend itself (§19).
+ipcMain.handle('save-file', async (_e, defaultName, data) => {
+  const r = await dialog.showSaveDialog(win, {
+    defaultPath: path.join(app.getPath('downloads'), defaultName),
+  })
+  if (r.canceled || !r.filePath) return null
+  fs.writeFileSync(r.filePath, Buffer.from(data))
+  return r.filePath
+})
+ipcMain.handle('open-archive', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    filters: [{ name: 'Autowright automation', extensions: ['autowright'] }],
+  })
+  if (r.canceled || !r.filePaths[0]) return null
+  return fs.readFileSync(r.filePaths[0])
+})
 ipcMain.handle('set-login-item', (_e, on) => app.setLoginItemSettings({ openAtLogin: !!on }))
 ipcMain.handle('tray-alert', (_e, on) => {
   if (tray) tray.setImage(trayIcon(!!on))

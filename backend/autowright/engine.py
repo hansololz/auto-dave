@@ -411,11 +411,18 @@ class Engine:
                 else:
                     v = keychain.get_secret(name)
                     if v is None:
-                        msg = f"secret {name} isn't in your Keychain — the execution can't start"
+                        # §4.8: a placeholder (set: False) gets the clearer message —
+                        # the secret exists, only its value was never added.
+                        if any(x["name"] == name and not x.get("set", True)
+                               for x in self.store.secrets):
+                            msg = f"secret {name} has no value yet — add it on the Secrets page"
+                            reason = "A step references a secret whose value hasn't been added yet."
+                        else:
+                            msg = f"secret {name} isn't in your Keychain — the execution can't start"
+                            reason = "A step references a secret that isn't in your Keychain."
                         self._log(h, "err", msg, {})
                         if not h.get("error"):
-                            h["error"] = {"step": None, "message": msg,
-                                          "reason": "A step references a secret that isn't in your Keychain."}
+                            h["error"] = {"step": None, "message": msg, "reason": reason}
                         failed = True
                     else:
                         secret_values[name] = v

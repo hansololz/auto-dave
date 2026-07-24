@@ -7,7 +7,7 @@ sheet, implemented in code by `app/src/tokens.css`.
 **Section map** — ordered so later sections build on earlier ones:
 
 - **Foundations:** §1 product · §2 components · §3 packaging & process lifecycle
-- **Data:** §4 data model (entities) · §5 storage (files on disk)
+- **Data:** §4 data model (entities) · §5 storage (files on disk, incl. §5.1 transfer archives)
 - **Runtime:** §6 engine contract & framework policies (incl. §6.1 step SDK · §6.2 curated
   packages) · §7 execution lifecycle · §19 backend API
 - **AI:** §8 agent drafting contract
@@ -42,7 +42,8 @@ Four components (per top-level README):
 - **Python engine** — executes an automation's steps as scripts, streams per-step status and logs,
   enforces the framework policies (§6), injects secrets at runtime, persists execution results.
 - **CLI** — command-line access to the same backend: list/execute automations, tail executions, manage
-  secrets and agents. Headless operation is a supported mode (§3), not just a debug aid.
+  secrets and agents, export/import automations (§5.1). Headless operation is a supported mode (§3),
+  not just a debug aid.
 
 **Stack (decided):** the Electron renderer is React 18 + TypeScript + Vite (state: one zustand
 store mirroring the §4 model; markdown rendering is react-markdown + remark-gfm — see §4.5). The backend is Python 3.14 + FastAPI/uvicorn (PyYAML, keyring for
@@ -443,16 +444,23 @@ local-model mode) and help the user sign in when the harness needs an account (�
 
 ### 4.8 Secret
 
-`{ name, desc, value, usedBy }`. Names uppercase, `[A-Z][A-Z0-9_]*` — sanitization (uppercase,
+`{ name, desc, set, value, usedBy }`. Names uppercase, `[A-Z][A-Z0-9_]*` — sanitization (uppercase,
 invalid chars → `_`) is UI input behavior; the backend validates strictly and rejects nonconforming
 names with HTTP 422. `desc` is an optional free-text description ("What this secret is for — shown
 on the Secrets page and given to the drafting agent"), stored next to the name in `secrets.yaml`
 (never in the Keychain) and carried into the §8 grants yaml so the drafting agent knows which
 secret to use. Values are arbitrary strings and may be multi-line (e.g. a PEM key). Values stored
 in macOS Keychain, masked at rest; the API never returns secret values — show/hide applies to the
-value being typed in the add/edit modal, not to stored values. Saving requires a value when the
-name is new; saving an existing secret with a blank value keeps the stored value and updates only
-the description. Step scripts reference them by name
+value being typed in the add/edit modal, not to stored values. `set` is a backend-maintained
+boolean in `secrets.yaml`: saving a **new** name with a blank value creates a **placeholder**
+(`set: false`) — the name and description exist, no Keychain entry does; the Secrets page and
+grant surfaces show an amber "Not set" tag until a value is saved. Writing any nonblank value
+stores it in the Keychain and flips `set` to true; saving an existing secret with a blank value
+keeps the stored state (a set secret keeps its value, an unset one stays unset) and updates only
+the description. An execution needing an unset secret fails before any step with "secret `NAME`
+has no value yet — add it on the Secrets page" (same pre-step gate as a missing Keychain entry,
+§7). Import (§5.1) creates placeholders for referenced secrets that don't exist locally.
+Step scripts reference them by name
 (`secrets.NAME`); values are injected at runtime and redacted from logs. Because log lines are
 redacted one at a time, each non-blank line of a multi-line value is redacted individually as well,
 and the §6 agent-prompt scan likewise checks every non-blank line of a multi-line value, not just
@@ -723,6 +731,77 @@ current path and current name (so renames show up everywhere immediately). The e
 `automation_name` at execution time as a display-only fallback: when the automation has been
 deleted, its executions still render with the historical name (marked deleted). The snapshot is
 never used for lookups.
+
+### 5.1 Transfer archives — export / import (decided)
+
+An automation can be exported to a single shareable file and imported on any machine. The file
+is `<name>.autowright` — a plain zip. **References plus safe metadata travel; credentials,
+grants, uuids, and local state never do.** Archive layout:
+
+```
+manifest.yaml                # format_version: 1 (import rejects any other with 422),
+                             # exported_at, app_version (diagnostics only), name,
+                             # agent: the drafting agent's name (absent when none) — names
+                             #   the agents.yaml entry the imported agent_id maps to,
+                             # triggers: [{kind, expr? | tz?}] — cron and app_start only,
+                             #   no ids, no off state; one-shot `time` triggers are moments
+                             #   in time and are never exported,
+                             # param_values: {name: value} — only when "Include parameter
+                             #   values" was checked at export
+automation/                  # exactly the §5 version-folder shape; import copies it
+  automation.yaml            #   desc, param definitions, steps manifest, packages —
+                             #   no when/note (import stamps v1 fresh), never the
+                             #   draft-only step_agents/allowed_secrets/triggers keys
+  spec.md                    #   verbatim
+  instructions.md            #   verbatim; absent when none
+  NN-name.py                 #   every step script, verbatim
+agents.yaml                  # configs of referenced agents (the automation's drafting
+                             # agent + every grant name in any step's agents: list):
+                             # [{name, desc, harness, mode, model}] — no ids, no credentials
+secrets.yaml                 # referenced secret names (union of every step's secrets:
+                             # list and the secrets.NAME references in step code):
+                             # [{name, desc}] — never values
+```
+
+**Identity across machines.** Uuids are meaningless on another Mac, so none travel and import
+mints everything fresh: a new automation id + directory, new trigger ids. Secrets are matched
+by **name** (name IS a secret's identity — `secrets.NAME` in scripts, name-keyed Keychain);
+agents are matched by name + config; step `agents:`/`secrets:` references travel verbatim
+because they are already grant names.
+
+**Import behavior** (the whole archive validates before anything is written — any failure
+answers 422 and writes nothing):
+
+- Validate: `format_version`, every yaml's schema, step files matching the steps manifest,
+  §4.2 param kinds, §4.7 agent configs (harness/mode/model rules), §4.8 secret names, trigger
+  kinds with at most one `app_start`.
+- The automation lands as **v1** of a brand-new automation (note "Imported") — version history
+  is local editing history and never travels. Duplicate names are fine (§5 directory naming);
+  re-importing your own export creates a copy, never overwrites.
+- Every trigger imports **off** — nothing fires unexpectedly on a new machine.
+- `param_values` from the manifest seed the top-level file (§5 name+kind matching applies at
+  execution time as usual); absent values fall back to definition defaults.
+- **Secrets:** a referenced name that doesn't exist locally is created as a §4.8 placeholder
+  (`set: false`, desc from the archive). An existing name is the same secret by definition —
+  left completely untouched.
+- **Agents:** an archive agent matching a local record exactly (name + harness + mode + model)
+  reuses it; otherwise a new record is created with the archive's config — same name even when
+  a differently-configured local agent already holds it (step grant names resolve against the
+  automation's enabled agents only, §6, so both automations keep resolving to the agent they
+  mean; the §6 first-enabled-wins rule already covers an automation granting both). A created
+  agent whose harness isn't installed or signed in surfaces through the ordinary §12/§19
+  install and sign-in flows. The drafting `agent_id` maps to the matched/created record; an
+  archive with no agents falls back to the local default agent.
+- **Grants — auto-grant only what the import itself created.** Created placeholder secrets
+  (valueless — nothing to leak) and created agents (exactly the exporter's config) are granted
+  on the new automation. Anything that matched a **pre-existing** local record is *not*
+  auto-granted — silently granting would hand the imported automation a real local credential
+  or agent; the §9.1 import summary lists each for one-click review in the editor.
+- Memory starts empty; no executions, snapshots, or drafts are created.
+
+The import response carries a **summary** — secrets created (need values), existing secrets
+referenced but not granted, agents created vs. reused, declared packages (installed on first
+execution as usual, §6.2) — rendered by the §9.1 summary modal.
 
 ## 6. Engine contract & framework policies (shown as reference in Review)
 
@@ -1397,7 +1476,17 @@ holds a draft (`pendingDraft` on `GET /state`), the header shows two buttons: a 
 to the left of the primary **New automation** button — which then starts fresh: a danger
 confirm ("Start a new automation? — Your unsaved draft will be discarded. This can't be
 undone.") deletes the slot (`DELETE /draft`) before opening the create flow. Without a
-pending draft, the single New automation button opens the create flow directly. One card per automation: name, description,
+pending draft, the single New automation button opens the create flow directly. Left of
+these sits a ghost **Import…** button (always present): a native open dialog (main-process
+IPC, filtered to `.autowright`) reads the file and POSTs it to §19 `/automations/import`;
+a 422 surfaces as a toast with the backend's reason. Success opens the **import summary
+modal**: title "Imported "`<name>`"", then only the sections that apply — "Secrets that
+need values" (one row per created placeholder: name + amber Not set tag — "add values on
+the Secrets page"), "Already on this Mac — not granted" (pre-existing secrets/agents the
+automation references, §5.1: "review and grant them on the edit page"), "Agents added"
+(created agent names; a not-ready harness shows the §12 Needs setup badge), and a packages
+note ("`<n>` packages install on the first execution") when the manifest declares any.
+Footer: accent **Open automation** (navigates to the new detail page) / quiet Close. One card per automation: name, description,
 status badge, trigger chip (`triggerChip`, plus an OFF tag when `triggersOff`), result-summary chip when
 the last execution set one (tinted by `resultStatus` with the §7 chip colors — same tint as the detail
 and execution pages), and
@@ -1412,7 +1501,13 @@ and Autowright executes them on your schedule." with accent CTA "Create your fir
 ### 9.2 Automation detail
 
 Back link ("‹ Automations"), title row: name, version chip dropdown (§4.4 Execute once + footer
-explainer), status badge, Execute now (accent), Edit, ellipsis menu (Delete automation… in red).
+explainer), status badge, Execute now (accent), Edit, ellipsis menu (**Export…**, then Delete
+automation… in red). Export… opens a small modal — "Export "`<name>`"" with one toggle row,
+"Include parameter values" (on; help: "Your saved parameter values travel with the file — turn
+this off when sharing with someone else."), footer note "Secret values and memory never leave
+this Mac", accent Export / quiet Cancel — then a native save dialog (main-process IPC, default
+name `<name>.autowright` in Downloads) writes the §19 export response; success toasts
+"Exported to `<file>`."
 Sections top to bottom:
 
 - Optional **Draft banner** (§4.4), then **LATEST RESULT** card — the execution's chip (if it set one)
@@ -2071,14 +2166,20 @@ currently downloading; when no chips remain, the whole SUGGESTED section is hidd
 pull input: link "Browse more models on Ollama ↗" (opens https://ollama.com/library).
 
 **Secrets.** List with add/edit modal, masked values, delete confirm (§4.8). The list's NAME
-cell shows the secret's `desc` as a muted sub-line when present. The name field is a
+cell shows the secret's `desc` as a muted sub-line when present, and an amber **NOT SET** tag
+(same tag style as §9.2's NOT SET param tag) when the secret is a §4.8 placeholder — the tag
+clears once a value is saved, and the placeholder's VALUE cell shows a faint "—" instead of
+the mask. The name field is a
 single-line input (Enter saves, Escape closes); its placeholder is a hint, not a literal example
 value: "A short name, like MAIL_PASSWORD or CRM_API_KEY". Below the name sits an optional
 single-line DESCRIPTION input (placeholder "What this secret is for — helps the drafting agent
 pick the right secret"), pre-filled when editing. The value field is a 3-row vertically
 resizable textarea (multi-line values allowed, §4.8) masked with `-webkit-text-security` unless
 Show is toggled; Enter inserts a newline, Cmd/Ctrl+Enter saves, Escape closes; when editing, a
-blank value keeps the stored one (§4.8) and the placeholder says so. The edit modal is titled
+blank value keeps the stored one (§4.8) and the placeholder says so. A new secret saved with a
+blank value becomes a §4.8 placeholder (the add modal's value placeholder reads "Leave blank to
+add the value later"; the success toast is then "Saved — add the value before an automation
+needs it."). The edit modal is titled
 "Edit secret" with submit "Save changes"; add is "New secret" / "Save to Keychain". Toasts:
 "Saved to your Keychain." / "Secret updated." / "Removed from your Keychain." When no secrets exist, the table is replaced by an
 empty state (dashed card, same pattern as the Automations list): "No secrets yet. Add a password
@@ -2262,7 +2363,8 @@ failing step carries two attempts.
 
 - `backend/` — Python package `autowright`: storage, engine (+`executor.py` step SDK,
   `imports_check.py` shared §6.2 import allowlist), scheduler, drafting, harness adapters,
-  FastAPI API (`api.py`), launchd service (`service.py`), CLI (`cli.py`).
+  transfer archives (`transfer.py`, §5.1), FastAPI API (`api.py`), launchd service
+  (`service.py`), CLI (`cli.py`).
   `autowright/instructions/` holds the §8 prompt texts as markdown (packaged via
   `[tool.setuptools.package-data]`): `framework-instructions.md` (contract preamble) and
   `default-build-instructions.md` (default build instructions seeded into new automations).
@@ -2449,6 +2551,14 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   `memory/`) exist, never touching contents already there; the create flow calls it on
   open so the slot exists before any drafting or test
 - `POST /automations/{id}/restore` `{ v }` — copy vX to vN+1 (§5)
+- `GET /automations/{id}/export?values=0|1` — the §5.1 transfer archive as `application/zip`
+  (`Content-Disposition` filename `<name>.autowright`, name sanitized for the filesystem);
+  `values=0` omits `param_values` from the manifest (default `1`)
+- `POST /automations/import` — the §5.1 archive as the raw request body
+  (`application/octet-stream`, no multipart) → `{ auto, summary }` where `summary` is
+  `{ secretsCreated, secretsExisting, agentsCreated, agentsReused, packages }` (name lists;
+  `packages` the §6.2 declarations). Validates the whole archive first; any failure answers
+  422 with the reason and writes nothing
 - `POST /automations/{id}/memory/clear` — §6.3 pre-clear snapshot, then empty the §4.1 memory
   directory (backs §9.2 "Clear memory")
 - `POST /automations/{id}/memory/snapshots` `{ name? }` — §6.3 manual snapshot (409 while
@@ -2590,8 +2700,10 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   into `~/.config/opencode/opencode.json` (merge, never overwrite: provider `ollama` via npm
   `@ai-sdk/openai-compatible`, `baseURL` = `AUTOWRIGHT_OLLAMA_URL` + `/v1`, the agent's model
   listed under `models`) so `opencode run --model ollama/<model>` resolves.
-- `GET /secrets` (names + usedBy only) · `PUT /secrets/{name}` `{ value }` · `DELETE
-  /secrets/{name}` — values go straight to the Keychain, never into responses or files
+- `GET /secrets` (names + `set` + usedBy only) · `PUT /secrets/{name}` `{ value }` — a blank
+  value on a new name creates a §4.8 placeholder (`set: false`); on an existing name it edits
+  only the description · `DELETE /secrets/{name}` — values go straight to the Keychain, never
+  into responses or files
 - `GET /settings` · `PATCH /settings` · `POST /settings/data-path` `{ path }` (sets the
   execution-data location; creates the dir, reloads from it, moves nothing; answers 409 while
   an execution is in progress — it still writes into the old location)

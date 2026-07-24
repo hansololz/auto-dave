@@ -9,11 +9,11 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from . import __version__, harness, installer, keychain, paths
-from . import drafting, packages as pkglib, schedule
+from . import drafting, packages as pkglib, schedule, transfer
 from .drafting import draft_jobs
 from .engine import Engine
 from .events import hub
@@ -103,6 +103,7 @@ def _settings_json() -> dict:
 
 def _secrets_json() -> list[dict]:
     return [{"name": s["name"], "desc": s.get("desc") or "",
+             "set": bool(s.get("set", True)),
              "usedBy": ", ".join(store.secret_used_by(s["name"])) or "Not used yet"}
             for s in sorted(store.secrets, key=lambda s: s["name"])]
 
@@ -301,6 +302,39 @@ def del_pending_draft() -> dict:
     store.delete_pending_draft()
     hub.publish("draft.changed")
     return {"ok": True}
+
+
+# ---------- transfer archives (§5.1) ----------
+@app.get("/automations/{auto_id}/export", dependencies=[Depends(auth)])
+def export_auto(auto_id: str, values: int = 1):
+    a = _auto_or_404(auto_id)
+    data = transfer.export_automation(store, a, include_values=bool(values))
+    from urllib.parse import quote
+
+    from fastapi.responses import Response
+
+    fname = transfer.safe_filename(a["name"]) + ".autowright"
+    ascii_name = fname.encode("ascii", "replace").decode() or "automation.autowright"
+    return Response(content=data, media_type="application/zip",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{ascii_name}"; '
+                             f"filename*=UTF-8''{quote(fname)}"})
+
+
+@app.post("/automations/import", dependencies=[Depends(auth)])
+async def import_auto(request: Request) -> dict:
+    # §19: the archive is the raw request body — no multipart.
+    data = await request.body()
+    try:
+        a, summary = transfer.import_automation(store, data)
+    except transfer.TransferError as e:
+        raise HTTPException(422, str(e)) from e
+    if summary["secretsCreated"]:
+        hub.publish("secrets.changed")
+    if summary["agentsCreated"]:
+        hub.publish("agents.changed")
+    hub.publish("auto.changed", autoId=a["id"])
+    return {"auto": _auto_json_locked(a), "summary": summary}
 
 
 @app.post("/automations/{auto_id}/restore", dependencies=[Depends(auth)])
@@ -815,12 +849,6 @@ def put_secret(name: str, body: dict) -> dict:
         raise HTTPException(422, "secret names must match [A-Z][A-Z0-9_]* — "
                                  "uppercase letters, digits and underscores, starting with a letter")
     value = body.get("value", "")
-    with store.lock:
-        existing = next((s for s in store.secrets if s["name"] == name), None)
-        # §4.8: a new secret needs a value; a blank value on an existing one keeps
-        # the stored value (description-only update).
-        if not value and existing is None:
-            raise HTTPException(422, "value required")
     if value:
         # Keychain IPC can block for seconds (locked keychain, consent prompt) —
         # never hold store.lock across it; the engine would stall mid-execution.
@@ -828,8 +856,11 @@ def put_secret(name: str, body: dict) -> dict:
     with store.lock:
         existing = next((s for s in store.secrets if s["name"] == name), None)
         if existing is None:
-            existing = {"name": name, "desc": ""}
+            # §4.8: a blank value on a new name creates a placeholder (set: False).
+            existing = {"name": name, "desc": "", "set": False}
             store.secrets.append(existing)
+        if value:
+            existing["set"] = True
         if "desc" in body:
             existing["desc"] = body.get("desc") or ""
         store.save_secrets()

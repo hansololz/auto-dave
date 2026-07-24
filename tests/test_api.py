@@ -50,6 +50,47 @@ def test_secret_crud_and_usedby(client):
     assert client.delete("/secrets/MY_TOKEN").status_code == 200
 
 
+def test_secret_placeholder_lifecycle(client):
+    # §4.8: blank value on a new name → placeholder (set: false)
+    assert client.put("/secrets/LATER", json={"value": "", "desc": "fill me"}).status_code == 200
+    s = next(x for x in client.get("/secrets").json() if x["name"] == "LATER")
+    assert s["set"] is False and s["desc"] == "fill me"
+    # blank on the existing placeholder edits only the desc — still unset
+    client.put("/secrets/LATER", json={"value": "", "desc": "still later"})
+    s = next(x for x in client.get("/secrets").json() if x["name"] == "LATER")
+    assert s["set"] is False and s["desc"] == "still later"
+    # a real value flips it
+    client.put("/secrets/LATER", json={"value": "v1"})
+    s = next(x for x in client.get("/secrets").json() if x["name"] == "LATER")
+    assert s["set"] is True
+
+
+def test_export_import_endpoints(client):
+    from autowright.storage import new_id, store
+
+    ver = {"desc": "", "params": [], "steps": [{"name": "Go", "desc": "", "code": "print(1)\n"}],
+           "spec": [{"k": "h1", "text": "T"}], "instr": None}
+    a = store.create_automation(ver, name="Port me", agent_id="mock",
+                                triggers=[{"id": new_id(), "kind": "cron", "off": False,
+                                           "expr": "0 9 * * *"}])
+    r = client.get(f"/automations/{a['id']}/export")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert 'filename="Port me.autowright"' in r.headers["content-disposition"]
+    r2 = client.post("/automations/import", content=r.content,
+                     headers={"Content-Type": "application/octet-stream"})
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["auto"]["name"] == "Port me"
+    assert body["auto"]["id"] != a["id"]
+    assert body["auto"]["triggersOff"] is True
+    assert set(body["summary"]) == {"secretsCreated", "secretsExisting",
+                                    "agentsCreated", "agentsReused", "packages"}
+    assert client.post("/automations/import", content=b"junk",
+                       headers={"Content-Type": "application/octet-stream"}).status_code == 422
+    assert client.get("/automations/nope/export").status_code == 404
+
+
 def test_draft_job_and_create_flow(client):
     r = client.post("/drafts", json={"mode": "create", "text": "Watch a product price", "agentId": "mock"})
     job_id = r.json()["jobId"]

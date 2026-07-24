@@ -201,7 +201,17 @@ export interface Agent {
   usedBy?: string[]
 }
 
-export interface SecretMeta { name: string; desc: string; usedBy: string }
+// §4.8: set=false → placeholder (name reserved, no Keychain value yet)
+export interface SecretMeta { name: string; desc: string; set: boolean; usedBy: string }
+
+// §5.1 import summary — what the import created vs. matched (§19)
+export interface ImportSummary {
+  secretsCreated: string[]
+  secretsExisting: string[]
+  agentsCreated: string[]
+  agentsReused: string[]
+  packages: PackageDep[]
+}
 
 export interface Settings {
   login: boolean

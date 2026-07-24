@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { SecretMeta } from '../types'
-import { BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, Modal, PageTitle } from '../ui'
+import { BtnGhost, BtnPrimary, ConfirmModal, Eyebrow, MiniBadge, Modal, PageTitle } from '../ui'
 
 const MASK = '••••••••••••'
 const NAME_RE = /^[A-Z][A-Z0-9_]*$/
@@ -29,14 +29,17 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
       {(close) => {
         const save = async () => {
           if (isAdd) {
-            if (!name || !value) { showToast('Give the secret a name and a value.'); return }
+            if (!name) { showToast('Give the secret a name.'); return }
             if (!NAME_RE.test(name)) { showToast('Secret names must start with a letter — A–Z, 0–9 and _ only.'); return }
           }
           try {
-            // §4.8: a blank value on edit keeps the stored one (description-only update).
+            // §4.8: a blank value on edit keeps the stored one (description-only
+            // update); a blank value on add creates a placeholder (set: false).
             await api.putSecret(name, value, desc)
             close()
-            showToast(isAdd ? 'Saved to your Keychain.' : 'Secret updated.')
+            showToast(isAdd
+              ? (value ? 'Saved to your Keychain.' : 'Saved — add the value before an automation needs it.')
+              : 'Secret updated.')
           } catch (e) { showToast((e as Error).message) }
         }
 
@@ -108,7 +111,7 @@ function SecretModal({ modal, onClose }: { modal: NonNullable<ModalState>; onClo
                 spellCheck={false}
                 rows={3}
                 placeholder={isAdd
-                  ? 'Paste the password or API key — multi-line values are fine'
+                  ? 'Paste the password or API key — or leave blank to add the value later'
                   : 'Leave blank to keep the current value'}
                 style={{
                   ...inputStyle, padding: '9px 62px 9px 11px', resize: 'vertical', minHeight: 60,
@@ -200,7 +203,12 @@ export default function SecretsPage() {
             }}
           >
             <div style={{ minWidth: 0 }}>
-              <div style={{ font: `500 12px var(--mono)`, color: 'var(--text)' }}>{s.name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ font: `500 12px var(--mono)`, color: 'var(--text)' }}>{s.name}</span>
+                {!s.set && (
+                  <MiniBadge c="var(--amber)" bg="var(--amber-bg)">NOT SET</MiniBadge>
+                )}
+              </div>
               {s.desc && (
                 <div style={{
                   fontSize: 11.5, color: 'var(--text-muted)',
@@ -212,10 +220,11 @@ export default function SecretsPage() {
             </div>
             <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{s.usedBy}</span>
             <span style={{
-              font: `400 12px var(--mono)`, color: 'var(--text-muted)',
+              font: `400 12px var(--mono)`,
+              color: s.set ? 'var(--text-muted)' : 'var(--text-faint)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
-              {MASK}
+              {s.set ? MASK : '—'}
             </span>
             <div style={{ display: 'flex', gap: 4, justifySelf: 'end', alignItems: 'center' }}>
               <button

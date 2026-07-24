@@ -4,8 +4,8 @@ import { api } from '../api'
 import { useStore } from '../store'
 import type { Auto, ParamDef, SnapshotSettings, Step, Trigger } from '../types'
 import {
-  Badge, BtnPrimary, ConfirmModal, EXECUTING_TOAST, Eyebrow, FailureNotice, MenuRow, MiniBadge,
-  PyCode, Toggle, menuStyle, nextIn, usePopover, validUrl,
+  Badge, BtnGhost, BtnPrimary, ConfirmModal, EXECUTING_TOAST, Eyebrow, FailureNotice, MenuRow,
+  MiniBadge, Modal, PyCode, Toggle, menuStyle, nextIn, usePopover, validUrl,
 } from '../ui'
 import { cronLabels, cronNext, cronValid, fmtMoment, nextTriggerShort, timeAt, triggerShort, tzSuffix } from '../cron'
 import { ResultSection, SpecMarkdown } from '../result'
@@ -454,6 +454,8 @@ export default function AutomationDetail() {
   const [verOpen, setVerOpen, verRef] = usePopover()
   const [actOpen, setActOpen, actRef] = usePopover()
   const [delAsk, setDelAsk] = useState(false)
+  const [exportAsk, setExportAsk] = useState(false)
+  const [exportValues, setExportValues] = useState(true)
   const [stepOpen, setStepOpen] = useState<number | null>(null)
   const [specOpen, setSpecOpen] = useState(true)
   const [confirmClear, setConfirmClear] = useState(false)
@@ -746,6 +748,10 @@ export default function AutomationDetail() {
           </button>
           {actOpen && (
             <div style={{ ...menuStyle, top: 'calc(100% + 6px)', right: 0, minWidth: 210 }}>
+              <MenuRow onClick={() => { setActOpen(false); setExportValues(true); setExportAsk(true) }}>
+                <i className="fa-solid fa-file-export" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
+                Export…
+              </MenuRow>
               <MenuRow danger onClick={() => { setActOpen(false); setDelAsk(true) }}>
                 <i className="fa-solid fa-trash-can" style={{ fontSize: 11, width: 14, textAlign: 'center', marginRight: 9 }} />
                 Delete automation…
@@ -1169,6 +1175,49 @@ export default function AutomationDetail() {
         </div>
       )}
 
+      {exportAsk && (
+        <Modal onClose={() => setExportAsk(false)} width={440} cardStyle={{ padding: '22px 24px' }}>
+          {(close) => {
+            // §5.1/§9.2: fetch the archive, then hand it to the native save dialog.
+            const doExport = async () => {
+              try {
+                const data = await api.exportAuto(auto.id, exportValues)
+                close()
+                const safe = auto.name.replace(/[/\\:*?"<>|]+/g, ' ').trim() || 'automation'
+                const path = await window.autowright?.saveFile(`${safe}.autowright`, data)
+                if (path) showToast(`Exported to ${path}.`)
+              } catch (e) { showToast((e as Error).message) }
+            }
+            return (
+              <>
+                <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 6px', color: 'var(--text)' }}>
+                  Export “{auto.name}”
+                </h2>
+                <p style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)', margin: '0 0 18px' }}>
+                  One shareable file with the spec, steps and settings — import it on any Mac running Autowright.
+                </p>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>Include parameter values</div>
+                    <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 3 }}>
+                      Your saved parameter values travel with the file — turn this off when sharing with someone else.
+                    </div>
+                  </div>
+                  <Toggle on={exportValues} onChange={setExportValues} />
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'flex-end', marginTop: 22 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-faint)', marginRight: 'auto' }}>
+                    <i className="fa-solid fa-lock" style={{ fontSize: 10 }} />
+                    Secret values and memory never leave this Mac
+                  </span>
+                  <BtnGhost onClick={close}>Cancel</BtnGhost>
+                  <BtnPrimary onClick={() => { void doExport() }}>Export</BtnPrimary>
+                </div>
+              </>
+            )
+          }}
+        </Modal>
+      )}
       {delAsk && (
         <ConfirmModal
           title="Delete this automation?"

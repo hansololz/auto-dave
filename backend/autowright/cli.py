@@ -35,6 +35,21 @@ class Client:
             detail = e.read().decode()[:300]
             sys.exit(f"{e.code}: {detail}")
 
+    def req_raw(self, method: str, path: str, data: bytes | None = None) -> bytes:
+        """Binary request — §5.1 archives go over the wire as raw bytes."""
+        r = urllib.request.Request(
+            self.base + path, data=data,
+            headers={"Authorization": f"Bearer {self.token}",
+                     "Content-Type": "application/octet-stream"},
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(r, timeout=30) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode()[:300]
+            sys.exit(f"{e.code}: {detail}")
+
 
 def find_auto(c: Client, ref: str) -> dict:
     autos = c.req("GET", "/automations")
@@ -119,7 +134,8 @@ def cmd_tail(c: Client, args) -> None:
 def cmd_secrets(c: Client, args) -> None:
     if args.action == "list":
         for s in c.req("GET", "/secrets"):
-            print(f"{s['name']:<28} used by: {s['usedBy']}")
+            tag = "" if s.get("set", True) else " (not set)"
+            print(f"{s['name'] + tag:<28} used by: {s['usedBy']}")
     elif args.action == "set":
         value = args.value or getpass.getpass(f"value for {args.name}: ")
         c.req("PUT", f"/secrets/{args.name}", {"value": value})
@@ -134,6 +150,41 @@ def cmd_agents(c: Client, _args) -> None:
         star = "*" if a.get("default") else " "
         print(f"{star} {(a.get('name') or a['harness']):<24} {a['harness']:<12} "
               f"{a['model'] or 'default model'}")
+
+
+def cmd_export(c: Client, args) -> None:
+    from .transfer import safe_filename
+
+    a = find_auto(c, args.automation)
+    q = "?values=0" if args.no_values else ""
+    data = c.req_raw("GET", f"/automations/{a['id']}/export{q}")
+    path = args.path or f"{safe_filename(a['name'])}.autowright"
+    with open(path, "wb") as f:
+        f.write(data)
+    print(f"exported {a['name']!r} to {path}")
+
+
+def cmd_import(c: Client, args) -> None:
+    try:
+        with open(args.path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        sys.exit(str(e))
+    r = json.loads(c.req_raw("POST", "/automations/import", data).decode() or "{}")
+    s = r.get("summary", {})
+    print(f"imported {r.get('auto', {}).get('name', '?')!r} [{r.get('auto', {}).get('id', '')[:8]}]")
+    if s.get("secretsCreated"):
+        print(f"  secrets that need values: {', '.join(s['secretsCreated'])}")
+    if s.get("secretsExisting"):
+        print(f"  existing secrets to grant on the edit page: {', '.join(s['secretsExisting'])}")
+    if s.get("agentsCreated"):
+        print(f"  agents added: {', '.join(s['agentsCreated'])}")
+    if s.get("agentsReused"):
+        print(f"  agents reused: {', '.join(s['agentsReused'])}")
+    if s.get("packages"):
+        print(f"  packages install on the first execution: "
+              f"{', '.join(p['pip'] for p in s['packages'])}")
+    print("  triggers imported off — enable them on the automation page")
 
 
 def cmd_service(_c, args) -> None:
@@ -158,6 +209,12 @@ def main() -> None:
     p.add_argument("name", nargs="?")
     p.add_argument("value", nargs="?")
     sub.add_parser("agents", help="list agents")
+    p = sub.add_parser("export", help="export an automation to a .autowright file")
+    p.add_argument("automation")
+    p.add_argument("path", nargs="?", help="output file (default: <name>.autowright)")
+    p.add_argument("--no-values", action="store_true", help="leave your parameter values out")
+    p = sub.add_parser("import", help="import a .autowright file")
+    p.add_argument("path")
     p = sub.add_parser("service", help="manage the launchd service")
     p.add_argument("action", choices=["install", "uninstall", "status", "restart"])
 
@@ -165,7 +222,8 @@ def main() -> None:
     c = Client() if args.cmd != "service" else None
     {
         "list": cmd_list, "execute": cmd_execute, "executions": cmd_execs, "tail": cmd_tail,
-        "secrets": cmd_secrets, "agents": cmd_agents, "service": cmd_service,
+        "secrets": cmd_secrets, "agents": cmd_agents, "export": cmd_export,
+        "import": cmd_import, "service": cmd_service,
     }[args.cmd](c, args)
 
 

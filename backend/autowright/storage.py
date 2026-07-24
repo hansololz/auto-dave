@@ -97,7 +97,8 @@ class Store:
         self.execdb: ExecDB | None = None
         self.agents: list[dict] = []
         self.settings: dict = dict(DEFAULT_SETTINGS)
-        self.secrets: list[dict] = []             # {name, desc} — values live in the Keychain
+        self.secrets: list[dict] = []             # {name, desc, set} — values live in the Keychain;
+                                                  # set: False = §4.8 placeholder, no Keychain entry
 
     # ---------- paths ----------
     def data_path(self) -> Path:
@@ -120,7 +121,8 @@ class Store:
             paths.ensure_dirs()
             self.settings = {**DEFAULT_SETTINGS, **(load_yaml(paths.settings_file(), {}) or {})}
             self.agents = (load_yaml(paths.agents_file(), {}) or {}).get("agents", [])
-            self.secrets = [{"name": s["name"], "desc": s.get("desc") or ""}
+            self.secrets = [{"name": s["name"], "desc": s.get("desc") or "",
+                             "set": bool(s.get("set", True))}
                             for s in (load_yaml(paths.secrets_file(), {}) or {}).get("secrets", [])]
             self.autos = {}
             for d in sorted(paths.automations_dir().iterdir()) if paths.automations_dir().exists() else []:

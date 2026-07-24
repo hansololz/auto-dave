@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld('autowright', {
   openApp: (hash) => ipcRenderer.invoke('open-app', hash),
   pickFolder: (defaultPath) => ipcRenderer.invoke('pick-folder', defaultPath),
   resizePanel: (h) => ipcRenderer.invoke('resize-panel', h),
+  // §5.1 transfer archives: native dialogs + file IO for export/import
+  saveFile: (defaultName, data) => ipcRenderer.invoke('save-file', defaultName, data),
+  openArchive: () => ipcRenderer.invoke('open-archive'),
   revealPath: (p) => ipcRenderer.invoke('reveal-path', p),
   setLoginItem: (on) => ipcRenderer.invoke('set-login-item', on),
   trayAlert: (on) => ipcRenderer.invoke('tray-alert', on),

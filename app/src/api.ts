@@ -8,6 +8,8 @@ declare global {
       openApp(hash: string): Promise<void>
       pickFolder(defaultPath?: string): Promise<string | null>
       resizePanel(h: number): Promise<void>
+      saveFile(defaultName: string, data: ArrayBuffer): Promise<string | null>
+      openArchive(): Promise<Uint8Array | null>
       revealPath(p: string): Promise<void>
       setLoginItem(on: boolean): Promise<void>
       trayAlert(on: boolean): Promise<void>
@@ -130,6 +132,27 @@ export const api = {
   patchSettings: (patch: Record<string, unknown>) =>
     req<import('./types').Settings>('PATCH', '/settings', patch),
   setDataPath: (path: string) => req<import('./types').Settings>('POST', '/settings/data-path', { path }),
+  // §5.1 transfer archives — raw zip bytes both ways (§19: no multipart)
+  exportAuto: async (autoId: string, values: boolean): Promise<ArrayBuffer> => {
+    const r = await fetch(`${base}/automations/${autoId}/export?values=${values ? 1 : 0}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!r.ok) throw new Error(r.statusText)
+    return r.arrayBuffer()
+  },
+  importAuto: async (data: Uint8Array): Promise<{ auto: import('./types').Auto; summary: import('./types').ImportSummary }> => {
+    const r = await fetch(`${base}/automations/import`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
+      body: data as unknown as BodyInit,
+    })
+    if (!r.ok) {
+      let detail = ''
+      try { detail = (await r.json()).detail } catch { /* ignore */ }
+      throw Object.assign(new Error(detail || r.statusText), { status: r.status })
+    }
+    return r.json()
+  },
   // Raw result-dir file (§4.5) — Response, not JSON: callers .text() or .blob() it.
   resultFile: async (execId: string, name: string): Promise<Response> => {
     const r = await fetch(`${base}/executions/${execId}/result/${encodeURIComponent(name)}`, {
