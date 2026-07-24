@@ -109,6 +109,9 @@ export default function AgentNewPage() {
     setInst('installing')
     setInstPct(null)
     setInstErr(null)
+    // A previous attempt's terminal harness.install event may still sit in the
+    // store — clear it or the effect below would instantly fail this retry.
+    useStore.setState((s) => ({ harnessInstall: Object.fromEntries(Object.entries(s.harnessInstall).filter(([k]) => k !== 'ollama')) }))
     api.installHarness('ollama').catch((e: Error & { status?: number }) => {
       // 409 = an install is already running — its stream still lands here.
       if (e.status !== 409) { setInst('failed'); setInstErr(e.message) }

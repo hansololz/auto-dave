@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -107,6 +108,15 @@ def ensure_declared_packages(declared: list, log) -> str | None:
     return None
 
 
+def kill_step_group(proc: subprocess.Popen, sig: int = signal.SIGKILL) -> None:
+    """Signal a step's whole process group (it runs in its own session)."""
+    try:
+        os.killpg(proc.pid, sig)
+    except (ProcessLookupError, PermissionError):
+        if proc.poll() is None:
+            (proc.kill if sig == signal.SIGKILL else proc.terminate)()
+
+
 def run_step_process(script: Path, ctx: dict, state: dict, log, result: dict,
                      holder: dict) -> int:
     """One step as a §6.1 executor subprocess — shared by real executions and
@@ -117,6 +127,12 @@ def run_step_process(script: Path, ctx: dict, state: dict, log, result: dict,
         [sys.executable, "-m", "autowright.executor", str(script)],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, errors="replace",  # binary garbage on stdout must not kill the read loop
+        # Own session: timeout/cancel/skip kill the whole group. Killing only
+        # the executor leaves its children (Playwright browsers, step
+        # subprocesses) alive — they hold the stdout write end open, the read
+        # loop below never sees EOF, and the engine thread hangs forever with
+        # the automation stuck "executing".
+        start_new_session=True,
     )
     state["proc"] = proc
     try:
@@ -131,50 +147,61 @@ def run_step_process(script: Path, ctx: dict, state: dict, log, result: dict,
 
     def _on_timeout() -> None:
         timed_out.set()
-        if proc.poll() is None:
-            proc.kill()
+        kill_step_group(proc)
+        # A child that escaped the group could still hold the pipe open —
+        # closing our read end unblocks the loop regardless.
+        try:
+            proc.stdout.close()  # type: ignore[union-attr]
+        except OSError:
+            pass
 
     watchdog = threading.Timer(timeout_s, _on_timeout)
     watchdog.daemon = True
     watchdog.start()
     try:
-        for raw in proc.stdout:  # type: ignore[union-attr]
-            if timed_out.is_set():
-                break
-            line = raw.rstrip("\n")
-            if line.startswith(CTRL):
-                try:
-                    msg = json.loads(line[len(CTRL):])
-                except ValueError:
-                    continue
-                op = msg.get("op")
-                if op == "log":
-                    log(msg.get("k", "out"), msg.get("text", ""))
-                elif op == "result":
-                    holder["result_touched"] = True
-                    f, v = msg.get("field"), msg.get("value")
-                    if f == "status":
-                        result["status"] = v
-                    elif f == "chip":
-                        result["chip"] = v
-                    elif f == "chips":
-                        result["chips"] = v
-                    elif f == "value":
-                        result["values"].append(v)
-                elif op == "notify":
-                    holder["text"] = msg.get("text")
-                elif op == "error":
-                    # §7 failure diagnostics — the executor's structured report
-                    # of the exception that failed the step.
-                    holder["error"] = {"type": msg.get("type"),
-                                       "message": msg.get("message")}
-                elif op == "agent_audit":
-                    # §6: the FULL redacted prompt/response go to logs for audit
-                    # (the 200k prompt/reply size caps already apply upstream).
-                    log("sys", f"agent prompt: {msg.get('prompt', '')}")
-                    log("sys", f"agent reply: {msg.get('reply', '')}")
-            elif line.strip():
-                log("out", line)
+        try:
+            for raw in proc.stdout:  # type: ignore[union-attr]
+                if timed_out.is_set():
+                    break
+                line = raw.rstrip("\n")
+                if line.startswith(CTRL):
+                    try:
+                        msg = json.loads(line[len(CTRL):])
+                    except ValueError:
+                        continue
+                    op = msg.get("op")
+                    if op == "log":
+                        log(msg.get("k", "out"), msg.get("text", ""))
+                    elif op == "result":
+                        holder["result_touched"] = True
+                        f, v = msg.get("field"), msg.get("value")
+                        if f == "status":
+                            result["status"] = v
+                        elif f == "chip":
+                            result["chip"] = v
+                        elif f == "chips":
+                            result["chips"] = v
+                        elif f == "value":
+                            result["values"].append(v)
+                    elif op == "notify":
+                        holder["text"] = msg.get("text")
+                    elif op == "error":
+                        # §7 failure diagnostics — the executor's structured report
+                        # of the exception that failed the step.
+                        holder["error"] = {"type": msg.get("type"),
+                                           "message": msg.get("message")}
+                    elif op == "agent_audit":
+                        # §6: the FULL redacted prompt/response go to logs for audit
+                        # (the 200k prompt/reply size caps already apply upstream).
+                        log("sys", f"agent prompt: {msg.get('prompt', '')}")
+                        log("sys", f"agent reply: {msg.get('reply', '')}")
+                elif line.strip():
+                    log("out", line)
+        except ValueError:
+            # The watchdog closed our read end after the timeout kill — the
+            # loop is done; anything else is a real error.
+            if not timed_out.is_set():
+                raise
         proc.wait()
     finally:
         # Always cancel the timer and drop the proc handle — even if the read
@@ -287,7 +314,7 @@ class Engine:
         state["cancel"] = True
         proc = state.get("proc")
         if proc and proc.poll() is None:
-            proc.terminate()
+            kill_step_group(proc, signal.SIGTERM)
         return True
 
     def skip_step(self, exec_id: str, index: int) -> bool:
@@ -304,7 +331,7 @@ class Engine:
             state["skip"] = index
             proc = state.get("proc")
         if proc and proc.poll() is None:
-            proc.terminate()
+            kill_step_group(proc, signal.SIGTERM)
         return True
 
     def is_live(self, exec_id: str) -> bool:

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import stat
 import threading
 import uuid
 from datetime import datetime
@@ -40,6 +41,21 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 
 def new_id() -> str:
     return str(uuid.uuid4())
+
+
+def iter_file_stats(d: Path):
+    """stat results of the regular files under `d`, recursively. Retention
+    sweeps, deletes, and memory clears run concurrently with these walks —
+    an entry vanishing between listing and stat() is skipped, not raised."""
+    if not d.exists():
+        return
+    for f in d.rglob("*"):
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode):
+            yield st
 
 
 def size_label(n: int) -> str:
@@ -210,12 +226,20 @@ class Store:
     def _load_triggers(raw: list) -> list[dict]:
         """§4.3 stored shape from automation.yaml; malformed entries are dropped
         with a warning (disk is hand-editable)."""
+        def _valid(t: dict) -> bool:
+            # Hand-edited disk must never brick startup (§5) — a validator
+            # crash on weird trigger data counts as invalid, not fatal.
+            try:
+                return schedule.validate_trigger(t) is None
+            except Exception:  # noqa: BLE001
+                return False
+
         out = []
         for t in raw:
             if (isinstance(t, dict) and t.get("kind") == "app_start"
                     and any(x["kind"] == "app_start" for x in out)):
                 log.warning("dropping duplicate app-start trigger %r", t)  # §4.3: at most one
-            elif isinstance(t, dict) and schedule.validate_trigger(t) is None:
+            elif isinstance(t, dict) and _valid(t):
                 out.append({"id": t.get("id") or new_id(), "kind": t["kind"],
                             "off": bool(t.get("off", False)),
                             **({"expr": t["expr"]} if t["kind"] == "cron" else
@@ -234,8 +258,11 @@ class Store:
         steps = []
         for s in meta.get("steps", []) or []:
             code = ""
-            f = vd / s.get("file", "")
-            if f.exists():
+            f = vd / (s.get("file") or "")
+            # is_file(): a missing/empty `file` key resolves to the version dir
+            # itself — read_text on it would crash startup (§5: hand-edited
+            # disk never bricks the load).
+            if s.get("file") and f.is_file():
                 code = f.read_text(encoding="utf-8")
             steps.append({**s, "code": code})
         instr = None
@@ -698,8 +725,12 @@ class Store:
             return []
         out = []
         for f in sorted(d.iterdir(), key=lambda p: p.name.lower()):
-            if f.is_file():
-                out.append({"name": f.name, "size": size_label(f.stat().st_size)})
+            try:
+                st = f.stat()
+            except OSError:
+                continue  # deleted mid-listing (concurrent retention sweep)
+            if stat.S_ISREG(st.st_mode):
+                out.append({"name": f.name, "size": size_label(st.st_size)})
         return out
 
     def result_json(self, h: dict) -> dict | None:
@@ -785,12 +816,9 @@ class Store:
         d = self.auto_dir(a) / "memory"
         size = 0
         newest: float | None = None
-        if d.exists():
-            for f in d.rglob("*"):
-                if f.is_file():
-                    st = f.stat()
-                    size += st.st_size
-                    newest = max(newest or 0, st.st_mtime)
+        for st in iter_file_stats(d):
+            size += st.st_size
+            newest = max(newest or 0, st.st_mtime)
         label = size_label(size) if size else "empty"
         updated = timefmt.date_label(datetime.fromtimestamp(newest)) if newest else "never written"
         return {"size": label, "updated": updated, "path": str(d)}
@@ -812,11 +840,9 @@ class Store:
 
     def _memory_file_stats(self, d: Path) -> tuple[int, int]:
         size = files = 0
-        if d.exists():
-            for f in d.rglob("*"):
-                if f.is_file():
-                    size += f.stat().st_size
-                    files += 1
+        for st in iter_file_stats(d):
+            size += st.st_size
+            files += 1
         return size, files
 
     def list_snapshots(self, a: dict) -> list[dict]:
@@ -836,11 +862,12 @@ class Store:
         return (load_yaml(d / "snapshot.yaml") or None) if d else None
 
     def snapshot_memory(self, a: dict, reason: str, name: str | None = None,
-                        version: str | None = None) -> dict | None:
+                        version: str | None = None, keep: str | None = None) -> dict | None:
         """§6.3 create: memory copy first, snapshot.yaml last; empty memory → None.
         Automatic reasons toggled off (§6.3 memory_snapshots) → None, so no call
         site needs its own check. Sweeps crash orphans, then prunes unnamed
-        snapshots beyond the newest 5."""
+        snapshots beyond the newest 5 (`keep` is exempt — restore passes the
+        snapshot it is about to copy from)."""
         with self.lock:
             if reason != "manual" and not a["memory_snapshots"][reason.replace("-", "_")]:
                 return None
@@ -862,7 +889,8 @@ class Store:
             save_yaml(root / sid / "snapshot.yaml", meta)
             unnamed = [m for m in self.list_snapshots(a) if not m.get("name")]
             for m in unnamed[5:]:
-                shutil.rmtree(root / m["id"], ignore_errors=True)
+                if m["id"] != keep:
+                    shutil.rmtree(root / m["id"], ignore_errors=True)
             return meta
 
     def rename_snapshot(self, a: dict, sid: str, name: str | None) -> dict | None:
@@ -889,7 +917,9 @@ class Store:
             src = self.snapshots_dir(a) / sid / "memory"
             if not meta or not src.exists():
                 return None
-            self.snapshot_memory(a, "pre-restore")
+            # `keep=sid`: the prune inside must never delete the snapshot being
+            # restored — §6.3 says restore is repeatable.
+            self.snapshot_memory(a, "pre-restore", keep=sid)
             mem = self.auto_dir(a) / "memory"
             if mem.exists():
                 shutil.rmtree(mem)

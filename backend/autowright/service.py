@@ -61,7 +61,12 @@ def status() -> str:
             if bj.exists():
                 import json
 
-                port = f" · port {json.loads(bj.read_text())['port']}"
+                # A SIGKILL'd backend leaves a stale (possibly truncated)
+                # backend.json — status must report, not crash.
+                try:
+                    port = f" · port {json.loads(bj.read_text())['port']}"
+                except (OSError, ValueError, KeyError, TypeError):
+                    port = " · stale backend.json"
             return ("active" if alive else "loaded, not active") + f" (pid {pid}){port}"
     return "not installed"
 

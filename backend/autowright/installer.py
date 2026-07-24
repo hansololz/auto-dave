@@ -12,6 +12,7 @@ import os
 import platform
 import shlex
 import shutil
+import signal
 import subprocess
 import tarfile
 import tempfile
@@ -22,6 +23,11 @@ import urllib.request
 from . import harness
 
 LOCAL_BIN = os.path.expanduser("~/.local/bin")
+
+# Wall-clock cap per install phase: a black-holing server or a byte-trickling
+# download would otherwise keep the job "running" forever — and the running
+# guard in start() would block every retry until a backend restart.
+INSTALL_TIMEOUT_S = 15 * 60
 
 CLAUDE_INSTALLER = "https://claude.ai/install.sh"
 OPENCODE_INSTALLER = "https://opencode.ai/install"
@@ -112,24 +118,49 @@ def _stream_shell(cmd: list[str], emit, env_extra: dict | None = None) -> None:
         env.update(env_extra)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             stdin=subprocess.DEVNULL, text=True, errors="replace",
-                            env=env, cwd=harness._neutral_cwd())
+                            env=env, cwd=harness._neutral_cwd(),
+                            # own session: the timeout kill reaches the whole
+                            # pipeline (curl | bash spawns children)
+                            start_new_session=True)
+    timed_out = threading.Event()
+
+    def _kill() -> None:
+        timed_out.set()
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            if proc.poll() is None:
+                proc.kill()
+
+    timer = threading.Timer(INSTALL_TIMEOUT_S, _kill)
+    timer.daemon = True
+    timer.start()
     tail: list[str] = []
-    for raw in proc.stdout:  # type: ignore[union-attr]
-        line = raw.strip()
-        if line:
-            tail = (tail + [line])[-5:]
-            emit(line=line)
-    proc.wait()
+    try:
+        for raw in proc.stdout:  # type: ignore[union-attr]
+            line = raw.strip()
+            if line:
+                tail = (tail + [line])[-5:]
+                emit(line=line)
+        proc.wait()
+    finally:
+        timer.cancel()
+    if timed_out.is_set():
+        raise RuntimeError(f"the installer timed out after {INSTALL_TIMEOUT_S // 60} minutes")
     if proc.returncode != 0:
         raise RuntimeError(tail[-1] if tail else f"installer exited with code {proc.returncode}")
 
 
 def _download(url: str, dest: str, emit, label: str) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "autowright"})
+    deadline = time.monotonic() + INSTALL_TIMEOUT_S
     with urllib.request.urlopen(req, timeout=120) as r, open(dest, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
         got, last = 0, -1
         while True:
+            if time.monotonic() > deadline:
+                # the per-read timeout can't catch a server trickling bytes
+                raise RuntimeError(f"{label} timed out after {INSTALL_TIMEOUT_S // 60} minutes")
             chunk = r.read(1 << 16)
             if not chunk:
                 break

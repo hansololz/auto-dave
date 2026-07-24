@@ -21,7 +21,10 @@ let tray = null
 // `open -n`) would create a second tray and double-fire §6 app-start triggers.
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) app.quit()
-app.on('second-instance', () => showApp())
+// second-instance can fire before whenReady (the exact login-item race above);
+// creating a BrowserWindow before ready throws. The ready path opens the
+// window itself, so the early signal needs no replay.
+app.on('second-instance', () => { if (app.isReady()) showApp() })
 
 function backendInfo() {
   const home = process.env.AUTOWRIGHT_HOME
@@ -108,9 +111,17 @@ function createWindow(hash) {
 
 function showApp(hash) {
   // Fresh window: load straight at the target. Existing window: hand the
-  // target over IPC — a reload would drop the WS and all renderer state.
+  // target over IPC — a reload would drop the WS and all renderer state. A
+  // still-loading window hasn't registered its listener yet, so the send is
+  // deferred to did-finish-load or it would be silently dropped.
   if (!win) createWindow(hash)
-  else if (hash) win.webContents.send('open-target', hash)
+  else if (hash) {
+    if (win.webContents.isLoading()) {
+      win.webContents.once('did-finish-load', () => { if (win) win.webContents.send('open-target', hash) })
+    } else {
+      win.webContents.send('open-target', hash)
+    }
+  }
   win.show()
   win.focus()
 }
@@ -131,8 +142,13 @@ function createTray() {
   tray.on('click', () => togglePanel())
 }
 
+// Tray-click toggle guard: on macOS the focused panel blurs (and hides)
+// before the tray click arrives, so a bare isVisible() check would always
+// re-show. A click landing right after a blur-hide means "close" — swallow it.
+let panelHiddenAt = 0
 function togglePanel() {
   if (panel && panel.isVisible()) { panel.hide(); return }
+  if (Date.now() - panelHiddenAt < 250) return
   if (!panel) {
     panel = new BrowserWindow({
       width: 334,
@@ -150,7 +166,7 @@ function togglePanel() {
     })
     load(panel, '/menubar')
     attachContextMenu(panel)
-    panel.on('blur', () => panel.hide())
+    panel.on('blur', () => { panelHiddenAt = Date.now(); panel.hide() })
   }
   const pt = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(pt)

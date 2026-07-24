@@ -144,6 +144,10 @@ def validate_trigger(t: dict) -> str | None:
             at = datetime.fromisoformat(t.get("at") or "")
         except (TypeError, ValueError):
             return "invalid timestamp — use local ISO format like 2026-07-20T15:00"
+        if at.tzinfo is not None:
+            # An offset-aware `at` would make the naive comparison below (and
+            # trigger_next) raise TypeError — the zone belongs in `tz`.
+            return "the timestamp must not carry a UTC offset — use tz for the zone"
         tz = zone_of(t)
         if (_to_local(at, tz) if tz else at) <= datetime.now():
             return "the time must be in the future"

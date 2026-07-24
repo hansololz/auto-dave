@@ -17,31 +17,48 @@ export function tzSuffix(tz?: string): string {
   return tz ? ` (${tz.split('/').pop()!.replace(/_/g, ' ')})` : ''
 }
 
-/** Wall clock of instant `d` in `tz`, carried in a "fake local" Date's components. */
-function wallInZone(d: Date, tz: string): Date {
+// Wall clocks are carried as "wall ms": the wall-clock fields UTC-encoded via
+// Date.UTC. UTC has no DST, so adding days or setting hours on wall ms never
+// shifts the components — mirroring the backend's naive-datetime math
+// (schedule.py). Building candidates as real local Dates instead (setHours on
+// a local Date) silently normalizes DST-nonexistent times and corrupts the
+// wall clock, even for other zones' triggers on a *local* transition day.
+
+/** Wall clock of instant `d` in `tz`, as wall ms. */
+function wallMsInZone(d: Date, tz: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).formatToParts(d)
   const g = (t: string) => Number(parts.find((p) => p.type === t)!.value)
-  return new Date(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'), g('second'))
+  return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'), g('second'))
 }
 
-/** Fake-local wall-clock Date in `tz` → the real instant (two-pass offset fixpoint). */
-function zoneWallToDate(wall: Date, tz: string): Date {
-  const target = Date.UTC(wall.getFullYear(), wall.getMonth(), wall.getDate(), wall.getHours(), wall.getMinutes(), 0)
-  let utc = target
-  for (let i = 0; i < 2; i++) {
-    const w = wallInZone(new Date(utc), tz)
-    utc += target - Date.UTC(w.getFullYear(), w.getMonth(), w.getDate(), w.getHours(), w.getMinutes(), w.getSeconds())
-  }
+/** Wall clock of instant `d` in the local zone, as wall ms. */
+function wallMsLocal(d: Date): number {
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds())
+}
+
+/** Wall ms → the real instant (two-pass offset fixpoint for `tz`). Ambiguous
+ * fall-back wall times resolve to the earlier instant, like the backend's
+ * fold=0 `_to_local`. */
+function wallMsToDate(wallMs: number, tz?: string): Date {
+  const w = new Date(wallMs)
+  if (!tz) return new Date(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate(), w.getUTCHours(), w.getUTCMinutes())
+  let utc = wallMs
+  for (let i = 0; i < 2; i++) utc += wallMs - wallMsInZone(new Date(utc), tz)
+  if (wallMsInZone(new Date(utc - 3600000), tz) === wallMs) utc -= 3600000
   return new Date(utc)
 }
 
 /** A one-shot's real moment: `at`'s wall clock read in `tz` (local when absent). */
 export function timeAt(at: string, tz?: string): Date {
   const wall = new Date(at)
-  return tz && !Number.isNaN(wall.getTime()) ? zoneWallToDate(wall, tz) : wall
+  if (!tz || Number.isNaN(wall.getTime())) return wall
+  // Read the wall fields from the string itself — parsing through a local
+  // Date would normalize an `at` that is DST-nonexistent locally.
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(at)
+  return wallMsToDate(m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : wallMsLocal(wall), tz)
 }
 
 const DOW_LONG = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
@@ -102,32 +119,34 @@ export function cronNext(expr: string, after?: Date, tz?: string): Date | null {
   const f = parseCron(expr)
   if (!f) return null
   const [mins, hours, doms, months, dows] = f
-  const t = tz ? wallInZone(after ?? new Date(), tz) : new Date(after ?? new Date())
-  t.setSeconds(0, 0)
-  t.setMinutes(t.getMinutes() + 1)
+  const now = after ?? new Date()
+  let t = tz ? wallMsInZone(now, tz) : wallMsLocal(now)
+  t -= t % 60000
+  t += 60000 // strictly after
   const hhmm: [number, number][] = []
   for (const hh of [...hours.vals].sort((x, y) => x - y)) {
     for (const mm of [...mins.vals].sort((x, y) => x - y)) hhmm.push([hh, mm])
   }
-  const day = new Date(t)
-  day.setHours(0, 0, 0, 0)
+  const tDay = new Date(t)
+  let day = Date.UTC(tDay.getUTCFullYear(), tDay.getUTCMonth(), tDay.getUTCDate())
   for (let i = 0; i < SEARCH_DAYS; i++) {
-    if (months.vals.has(day.getMonth() + 1)) {
-      const specDow = day.getDay() // JS getDay(): Sun=0 — already the spec convention
+    const d = new Date(day)
+    if (months.vals.has(d.getUTCMonth() + 1)) {
+      const specDow = d.getUTCDay() // Sun=0 — already the spec convention
       // Vixie rule: both dom and dow restricted → a date matching either fires.
-      const dayOk = dows.star ? doms.vals.has(day.getDate())
+      const dayOk = dows.star ? doms.vals.has(d.getUTCDate())
         : doms.star ? dows.vals.has(specDow)
-        : doms.vals.has(day.getDate()) || dows.vals.has(specDow)
+        : doms.vals.has(d.getUTCDate()) || dows.vals.has(specDow)
       if (dayOk) {
-        const sameDay = day.getFullYear() === t.getFullYear() && day.getMonth() === t.getMonth() && day.getDate() === t.getDate()
+        // A candidate on a later day is always > t, so one compare covers
+        // both the same-day floor and later days (as in the backend).
         for (const [hh, mm] of hhmm) {
-          const cand = new Date(day)
-          cand.setHours(hh, mm, 0, 0)
-          if (!sameDay || cand >= t) return tz ? zoneWallToDate(cand, tz) : cand
+          const cand = day + (hh * 60 + mm) * 60000
+          if (cand >= t) return wallMsToDate(cand, tz)
         }
       }
     }
-    day.setDate(day.getDate() + 1)
+    day += 86400000
   }
   return null
 }

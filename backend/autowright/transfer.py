@@ -128,6 +128,24 @@ def export_automation(store: Store, a: dict, include_values: bool = True) -> byt
 
 
 # ---------- import ----------
+# Imported archives are untrusted input (§5.1) — cap the decompressed sizes so
+# a crafted member can't balloon into memory. zipfile bounds each read by the
+# declared file_size, so checking the directory up front is sufficient.
+MAX_ARCHIVE_BYTES = 64 * 1024 * 1024        # the upload itself
+_MAX_MEMBER_BYTES = 32 * 1024 * 1024        # one member, decompressed
+_MAX_TOTAL_BYTES = 256 * 1024 * 1024        # whole archive, decompressed
+
+
+def _check_sizes(z: zipfile.ZipFile) -> None:
+    total = 0
+    for info in z.infolist():
+        if info.file_size > _MAX_MEMBER_BYTES:
+            raise TransferError(f"{info.filename} in the archive is unreasonably large")
+        total += info.file_size
+    if total > _MAX_TOTAL_BYTES:
+        raise TransferError("the archive decompresses far beyond any real automation")
+
+
 def _yaml_or_reject(z: zipfile.ZipFile, path: str, required: bool = True) -> dict:
     try:
         raw = z.read(path)
@@ -159,6 +177,7 @@ def _text(z: zipfile.ZipFile, path: str, required: bool = True) -> str | None:
 
 def _validate(z: zipfile.ZipFile) -> dict:
     """Parse + validate everything up front; returns the parsed archive."""
+    _check_sizes(z)
     manifest = _yaml_or_reject(z, "manifest.yaml")
     if manifest.get("format_version") != FORMAT_VERSION:
         raise TransferError(f"unsupported archive format {manifest.get('format_version')!r} — "
@@ -245,6 +264,8 @@ def _validate(z: zipfile.ZipFile) -> dict:
 
 def import_automation(store: Store, data: bytes) -> tuple[dict, dict]:
     """Validate and land a §5.1 archive; returns (automation, summary)."""
+    if len(data) > MAX_ARCHIVE_BYTES:
+        raise TransferError("the archive is larger than the 64 MB import limit")
     try:
         z = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:

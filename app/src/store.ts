@@ -304,11 +304,20 @@ export const useStore = create<Model>((set, get) => ({
   },
 
   async loadExecLogs(execId, step, attempt) {
+    const key = logKey(step ?? null, attempt ?? null)
+    // Open the bucket before the fetch: the exec.log handler drops lines with
+    // no bucket, so a line streamed while the snapshot request is in flight —
+    // and written after the backend read the snapshot — would vanish for good.
+    // With the bucket open it buffers here and the seq merge below keeps it.
+    {
+      const all = get().execLogs
+      const buckets = all[execId] ?? {}
+      if (!buckets[key]) set({ execLogs: { ...all, [execId]: { ...buckets, [key]: [] } } })
+    }
     try {
       const { lines } = await api.getExecLogs(execId, step, attempt)
       const all = get().execLogs
       const buckets = all[execId] ?? {}
-      const key = logKey(step ?? null, attempt ?? null)
       const bucket = buckets[key]
       // keep WS lines that streamed in past the fetched snapshot
       const seq = lines.length ? lines[lines.length - 1].seq : 0

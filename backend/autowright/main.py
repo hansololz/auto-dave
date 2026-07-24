@@ -23,16 +23,18 @@ class _DevModeFilter(logging.Filter):
         return record.levelno >= logging.WARNING or bool(store.settings.get("devMode"))
 
 
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def main() -> None:
     paths.ensure_dirs()
     store.load_all()
-    port = int(os.environ.get("AUTOWRIGHT_PORT", 0)) or free_port()
+    # Bind before publishing: uvicorn serves on this very socket, so the port
+    # is ours the moment backend.json exists. Probing a free port, closing it,
+    # and letting uvicorn rebind would leave a gap where another process can
+    # take the port — with backend.json (auth token included) already pointing
+    # clients at it.
+    sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", int(os.environ.get("AUTOWRIGHT_PORT", 0))))
+    port = sock.getsockname()[1]
     # §3 discovery: port + auth token, 0600.
     atomic_write_text(paths.backend_json(), json.dumps({
         "port": port, "token": api.AUTH_TOKEN, "version": __version__, "pid": os.getpid(),
@@ -52,8 +54,9 @@ def main() -> None:
     for handler in log_config["handlers"].values():
         handler.setdefault("filters", []).append("devmode")
     try:
-        uvicorn.run(api.app, host="127.0.0.1", port=port, log_level="info",
-                    log_config=log_config)
+        config = uvicorn.Config(api.app, host="127.0.0.1", port=port,
+                                log_level="info", log_config=log_config)
+        uvicorn.Server(config).run(sockets=[sock])
     finally:
         scheduler.stop()
         try:

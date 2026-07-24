@@ -83,6 +83,10 @@ the packaged app does not yet register its bundled backend itself.
   service stays registered regardless once onboarding completes.
 - Discovery: the backend listens on localhost and writes its port + auth token to
   `~/Library/Application Support/Autowright/backend.json` (0600); UI and CLI read it to connect.
+  The backend binds its socket first and only then publishes `backend.json` (uvicorn serves on
+  the already-bound socket) — the file never points clients (token included) at a port the
+  backend doesn't own. A stale/truncated `backend.json` (SIGKILL leftovers) makes the CLI and
+  `service status` report it as such — never crash.
   Every backend start binds a fresh port and token, so the renderer re-reads `backend.json`
   (via the preload bridge) before each WebSocket reconnect attempt — a backend restart never
   strands the UI on a dead address.
@@ -1052,6 +1056,10 @@ destructive moments recoverable.
 - Cancel: kills timers/processes; execution cancelled, the executing attempt and its step
   cancelled, queued steps cancelled, sys log "execution cancelled by you — nothing else will
   happen".
+- **Kill semantics:** each step's executor runs in its own process group
+  (`start_new_session`), and timeout/cancel/skip signal the whole group — a step's children
+  (Playwright browsers, subprocesses) die with it, are never orphaned, and can never hold the
+  engine's log pipe open past the kill (which would strand the automation "executing").
 - **Skip step:** while a step is executing, the user can skip it (§19
   `POST /executions/{id}/skip-step` with the step index — 409 unless that exact step is the
   one currently executing, closing the finished-while-clicking race). The engine kills the
@@ -2544,7 +2552,8 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
 - `GET /automations` · `GET /automations/{id}` · `DELETE /automations/{id}`
 - `PATCH /automations/{id}` — user-owned fields only: name, triggers (the §4.3 list, replaced
   whole; entries keep their `id`, new entries get one assigned; cron/time/app_start kinds
-  only — a message kind, an invalid cron expression, an unknown `tz`, a past `time`, or a
+  only — a message kind, an invalid cron expression, an unknown `tz`, a past `time`, a `time`
+  whose `at` carries a UTC offset (the zone belongs in `tz`; naive local ISO only), or a
   second `app_start` answers 422 and nothing is stored), param
   values, agentId, stepAgents, allowedSecrets, snapshotSettings (the §6.3 automatic-snapshot
   toggles — partial object, sent keys merged over the stored ones)
@@ -2561,7 +2570,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   normalized like the PATCH (422 aborts the save; entries keep their `id`, new ones get one)
 - `PUT /automations/{id}/draft` · `DELETE /automations/{id}/draft` — the §4.4 draft snapshot;
   the payload's stepAgents/allowedSecrets/triggers are stored as draft-only keys and echoed
-  back on the automation's `draft` object
+  back on the automation's `draft` object; both answer 409 while a Draft-version execution is
+  running (rewriting/pruning the draft's step scripts mid-run would break the per-step sha
+  record)
 - `GET /draft` → `{ draft: payload | null, agentId }` · `PUT /draft` `{ draft, agentId? }` ·
   `DELETE /draft` — the §4.4 pending create-mode slot (`<root>/draft/`): the same draft
   payload shape as `PUT /automations/{id}/draft` plus the identity fields (name, triggers
@@ -2577,7 +2588,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   (`application/octet-stream`, no multipart) → `{ auto, summary }` where `summary` is
   `{ secretsCreated, secretsExisting, agentsCreated, agentsReused, packages }` (name lists;
   `packages` the §6.2 declarations). Validates the whole archive first; any failure answers
-  422 with the reason and writes nothing
+  422 with the reason and writes nothing. Size caps (untrusted input): the upload itself is
+  capped at 64 MB (413), one member at 32 MB decompressed and the whole archive at 256 MB
+  decompressed (422) — a crafted archive can't balloon into memory
 - `POST /automations/{id}/memory/clear` — §6.3 pre-clear snapshot, then empty the §4.1 memory
   directory (backs §9.2 "Clear memory")
 - `POST /automations/{id}/memory/snapshots` `{ name? }` — §6.3 manual snapshot (409 while
@@ -2673,8 +2686,10 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   (409 while one is already running for the same id) and streams `harness.install` WS events
   `{ id, line, pct?, done, ok?, error? }` (determinate UI bar only when `pct` is present);
   `GET /agents/install/{id}` → `{ state: idle | running | done | failed, pct?, line?, error? }`
-  lets a remounted UI reattach. Channels, per provider — official vendor channels only, all
-  into user-writable locations (no sudo), never Homebrew:
+  lets a remounted UI reattach. A 15-minute wall-clock cap applies to each install phase
+  (installer subprocess run and download): on expiry the job fails with a timeout message —
+  it can never sit `running` forever and block retries. Channels, per provider — official
+  vendor channels only, all into user-writable locations (no sudo), never Homebrew:
   Claude Code — the official installer script (`curl -fsSL https://claude.ai/install.sh |
   bash`), lands in `~/.local/bin/claude`, indeterminate ·
   Codex — the latest GitHub release binary tarball for the Mac's architecture
@@ -2723,7 +2738,9 @@ Localhost JSON over HTTP + one WebSocket, both authenticated with the bearer tok
   value on a new name creates a §4.8 placeholder (`set: false`); on an existing name it edits
   only the description · `DELETE /secrets/{name}` — values go straight to the Keychain, never
   into responses or files
-- `GET /settings` · `PATCH /settings` · `POST /settings/data-path` `{ path }` (sets the
+- `GET /settings` · `PATCH /settings` (validates before storing: `days` coerced to int and
+  clamped ≥ 1, `notif` must be `attention | all` — 422 otherwise, so a bad value can never
+  persist and silently break the retention sweep) · `POST /settings/data-path` `{ path }` (sets the
   execution-data location; creates the dir, reloads from it, moves nothing; answers 409 while
   an execution is in progress — it still writes into the old location)
 - `WS /ws?token=` — events, each `{ ev, ... }`: `exec.started` (also re-published when a

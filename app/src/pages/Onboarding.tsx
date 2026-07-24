@@ -287,6 +287,9 @@ export default function Onboarding() {
   // progress arrives via the harness.install effect below.
   const startInstall = (p: Det) => {
     setCard(p.id, { phase: 'installing', pct: null, line: '', error: null })
+    // A previous attempt's terminal harness.install event may still sit in the
+    // store — clear it or the effect below would instantly fail this retry.
+    useStore.setState((s) => ({ harnessInstall: Object.fromEntries(Object.entries(s.harnessInstall).filter(([k]) => k !== p.id)) }))
     api.installHarness(p.id).catch((e: Error & { status?: number }) => {
       // 409 = already running (a resumed machine) — the stream keeps feeding us.
       if (e.status !== 409) setCard(p.id, { phase: 'failed', error: e.message })
@@ -344,6 +347,8 @@ export default function Onboarding() {
       return
     }
     setCard(LOCAL_ID, { phase: 'installing', pct: null, line: '', error: null, queue, qi })
+    // Same stale-terminal-event guard as startInstall.
+    useStore.setState((s) => ({ harnessInstall: Object.fromEntries(Object.entries(s.harnessInstall).filter(([k]) => k !== piece)) }))
     api.installHarness(piece).catch((e: Error & { status?: number }) => {
       // 409 = already running (a resumed machine) — the stream keeps feeding us.
       if (e.status !== 409) setCard(LOCAL_ID, { phase: 'failed', error: e.message })

@@ -70,6 +70,13 @@ def start(engine: Engine, draft: dict, auto: dict | None,
                      for s in steps]
         h = store.create_execution(shadow, "Test", "Test", rec_steps,
                                    params=store.merged_params(shadow, ver), test=True)
+
+    # Any setup failure past this point must take the record with it: a
+    # permanent "executing" test record trips the 409 above forever (and
+    # delete_test_execs skips executing records), so only a backend restart
+    # would ever unblock testing again.
+    scratch: Path | None = None
+    try:
         # The sent draft's scripts, as executed (§5 steps/) — a real version
         # folder serves this role for ordinary executions.
         steps_dir = store.exec_dir(h["id"]) / "steps"
@@ -77,30 +84,37 @@ def start(engine: Engine, draft: dict, auto: dict | None,
         for s in steps:
             (steps_dir / s["file"]).write_text(s.get("code", ""), encoding="utf-8")
 
-    # §11 scratch memory: draft container's memory/ when present (edit mode
-    # falls back to the automation's), create mode the pending slot's — copied
-    # to a temp dir and discarded when the test ends.
-    dbase = (store.auto_dir(auto) / "draft") if auto is not None else paths.pending_draft_dir()
-    scratch = Path(tempfile.mkdtemp(prefix="autowright-test-"))
-    mem_dir = scratch / "memory"
-    src = dbase / "memory"
-    if auto is not None and not src.exists():
-        src = store.auto_dir(auto) / "memory"
-    if src.exists():
-        shutil.copytree(src, mem_dir)
-    mem_dir.mkdir(parents=True, exist_ok=True)
-    (dbase / "test.yaml").unlink(missing_ok=True)  # wiped at each test start (§5)
+        # §11 scratch memory: draft container's memory/ when present (edit mode
+        # falls back to the automation's), create mode the pending slot's — copied
+        # to a temp dir and discarded when the test ends.
+        dbase = (store.auto_dir(auto) / "draft") if auto is not None else paths.pending_draft_dir()
+        scratch = Path(tempfile.mkdtemp(prefix="autowright-test-"))
+        mem_dir = scratch / "memory"
+        src = dbase / "memory"
+        if auto is not None and not src.exists():
+            src = store.auto_dir(auto) / "memory"
+        if src.exists():
+            shutil.copytree(src, mem_dir)
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (dbase / "test.yaml").unlink(missing_ok=True)  # wiped at each test start (§5)
 
-    h["_test"] = {"vdir": str(steps_dir), "mem": str(mem_dir)}
-    state = {"proc": None, "cancel": False}
-    with engine._lock:
-        engine._live[h["id"]] = state
-    hub.publish("exec.started", execId=h["id"], autoId=container_id,
-                exec_json=store.exec_json(h))
-    t = threading.Thread(target=_run, args=(engine, shadow, ver, h, state, dbase, scratch),
-                         daemon=True)
-    t.start()
-    return h["id"]
+        h["_test"] = {"vdir": str(steps_dir), "mem": str(mem_dir)}
+        state = {"proc": None, "cancel": False}
+        with engine._lock:
+            engine._live[h["id"]] = state
+        hub.publish("exec.started", execId=h["id"], autoId=container_id,
+                    exec_json=store.exec_json(h))
+        t = threading.Thread(target=_run, args=(engine, shadow, ver, h, state, dbase, scratch),
+                             daemon=True)
+        t.start()
+        return h["id"]
+    except BaseException:
+        with engine._lock:
+            engine._live.pop(h["id"], None)
+        if scratch is not None:
+            shutil.rmtree(scratch, ignore_errors=True)
+        store.delete_execution(h["id"])
+        raise
 
 
 def _run(engine: Engine, shadow: dict, ver: dict, h: dict, state: dict,

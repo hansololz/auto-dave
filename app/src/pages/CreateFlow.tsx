@@ -713,6 +713,11 @@ export default function CreateFlow() {
     isEdit ? (auto?.agentId ?? null) : ((agents.find((g) => g.default) ?? agents[0])?.id ?? null))
 
   const jobIdRef = useRef<string | null>(null)
+  // Cancel generation: bumped by every cancel path (and unmount). A POST-then-
+  // poll flow captures it before the await; if it moved while the POST was in
+  // flight, the flow cancels the freshly created job instead of arming the
+  // poll — otherwise a cancel that lands mid-POST is silently ignored.
+  const cancelGenRef = useRef(0)
 
   const [rev, setRev] = useState<Rev | null>(null)
   // §11 test parameter values (edit mode): null = collapsed — the test uses the
@@ -847,6 +852,7 @@ export default function CreateFlow() {
   }
   useEffect(() => () => {
     stopPoll()
+    cancelGenRef.current++
     // Leaving the editor any way (sidebar nav, system back) must not orphan an
     // in-flight §8 drafting job — nobody would poll it and the harness would
     // keep working for a discarded result. Cancelling a finished job is a no-op.
@@ -902,8 +908,10 @@ export default function CreateFlow() {
     setAskHint(false)
     setPhase('review')
     setRev(seedDrafting(agents, secrets.map((s) => s.name)))
+    const gen = cancelGenRef.current
     try {
       const { jobId } = await api.postDraftJob({ mode: 'create', text: request, agentId })
+      if (cancelGenRef.current !== gen) { void api.cancelDraftJob(jobId).catch(() => { /* already gone */ }); return }
       startPoll(
         jobId,
         (d) => setRev({
@@ -948,6 +956,7 @@ export default function CreateFlow() {
   // the description survives for a rephrase.
   const backToAsk = () => {
     stopPoll()
+    cancelGenRef.current++
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
     jobIdRef.current = null
     // §4.4: Start over / Back to Ask discards the pending slot.
@@ -963,6 +972,7 @@ export default function CreateFlow() {
   const cancelStepsGen = (): boolean => {
     if (!rev?.stepsBusy) return false
     stopPoll()
+    cancelGenRef.current++
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
     jobIdRef.current = null
     return true
@@ -1044,12 +1054,14 @@ export default function CreateFlow() {
       ask: '', askBusy: true, askBlockers: null, genStage: null, genDetail: null, touched: true,
       ...(genCancelled ? { stepsBusy: false, dirty: true } : {}),
     })
+    const gen = cancelGenRef.current
     try {
       const { jobId } = await api.postDraftJob({
         mode: 'edit', text: request, ...(isEdit && auto ? { autoId: auto.id } : {}),
         agentId, current: currentSerialized(),
         enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
+      if (cancelGenRef.current !== gen) { void api.cancelDraftJob(jobId).catch(() => { /* already gone */ }); return }
       startPoll(
         jobId,
         (d) => {
@@ -1101,12 +1113,14 @@ export default function CreateFlow() {
       // §11 spec undo: a repair amend replaces the spec outside the undo flow
       ...(specOverride ? { spec: specOverride, specUndo: null } : {}),
     })
+    const gen = cancelGenRef.current
     try {
       const { jobId } = await api.postDraftJob({
         mode: 'sync', ...(isEdit && auto ? { autoId: auto.id } : {}),
         agentId, current: { ...serializeDraft(rev), spec: specOverride ?? rev.spec },
         enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
+      if (cancelGenRef.current !== gen) { void api.cancelDraftJob(jobId).catch(() => { /* already gone */ }); return }
       startPoll(
         jobId,
         (d) => {
@@ -1139,7 +1153,11 @@ export default function CreateFlow() {
   // §11 Packages card: check statuses once per package list (§19 /packages/check,
   // fast, no pip) — a saved automation whose packages went missing shows
   // "not installed" without waiting for an execution to self-heal.
-  const pkgKey = rev ? rev.packages.map((p) => p.pip).join('\n') : ''
+  // The keys carry the transient-field presence too: switching versions resets
+  // statuses/badges without changing the pip list, and must re-trigger the
+  // fetch — a pip-only key would leave every row on "checking…" forever.
+  const pkgKey = rev ? rev.packages.map((p) => `${p.pip}\t${p.status ? 1 : 0}`).join('\n') : ''
+  const pkgOutdatedKey = rev ? rev.packages.map((p) => `${p.pip}\t${p.latest ? 1 : 0}`).join('\n') : ''
   useEffect(() => {
     if (!rev || rev.packages.length === 0 || !rev.packages.some((p) => !p.status)) return
     let stale = false
@@ -1176,7 +1194,7 @@ export default function CreateFlow() {
       })
       .catch(() => { /* badges stay off */ })
     return () => { stale = true }
-  }, [pkgKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pkgOutdatedKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // §11/§6.2 Update / Update all — pip install --upgrade in the shared
   // directory; no manifest writes, the installed version is the truth. The
@@ -1237,6 +1255,7 @@ export default function CreateFlow() {
   const cancelAsk = () => {
     if (!rev?.askBusy) return
     stopPoll()
+    cancelGenRef.current++
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
     jobIdRef.current = null
     setRev((r) => r && ({ ...r, askBusy: false, ask: r.ask || askReqRef.current }))
@@ -1249,6 +1268,7 @@ export default function CreateFlow() {
   const cancelSync = () => {
     if (!rev?.syncBusy) return
     stopPoll()
+    cancelGenRef.current++
     if (jobIdRef.current) void api.cancelDraftJob(jobIdRef.current).catch(() => { /* already gone */ })
     jobIdRef.current = null
     const wasDirty = dirtyBeforeSync.current
@@ -1263,6 +1283,7 @@ export default function CreateFlow() {
   // (spec/steps/sync/edit) block asking, and a pending question blocks them.
   const otherJobBusy = !!rev && (rev.specBusy || rev.stepsBusy || rev.syncBusy || rev.askBusy)
   const qaJobRef = useRef<string | null>(null)
+  const qaGenRef = useRef(0) // same in-flight-POST cancel guard as cancelGenRef, for the question job
   const qaPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stopQaPoll = () => { if (qaPollRef.current) { clearInterval(qaPollRef.current); qaPollRef.current = null } }
   const settleQa = (patch: { a?: string; err?: string }) =>
@@ -1274,12 +1295,14 @@ export default function CreateFlow() {
     setQaText('')
     setQaDetail(null)
     setQa((t) => [...t, { q, busy: true }])
+    const gen = qaGenRef.current
     try {
       const { jobId } = await api.postDraftJob({
         mode: 'question', text: q, ...(isEdit && auto ? { autoId: auto.id } : {}),
         agentId, current: currentSerialized(),
         enabledAgents: rev.enabledAgents, allowedSecrets: rev.allowedSecrets,
       })
+      if (qaGenRef.current !== gen) { void api.cancelDraftJob(jobId).catch(() => { /* already gone */ }); return }
       qaJobRef.current = jobId
       stopQaPoll()
       qaPollRef.current = setInterval(() => {
@@ -1312,6 +1335,7 @@ export default function CreateFlow() {
     const pending = qa.find((e) => e.busy)
     if (!pending) return
     stopQaPoll()
+    qaGenRef.current++
     if (qaJobRef.current) void api.cancelDraftJob(qaJobRef.current).catch(() => { /* already gone */ })
     qaJobRef.current = null
     setQaDetail(null)
@@ -1321,6 +1345,7 @@ export default function CreateFlow() {
   // Leaving the editor any way must not orphan an in-flight question job.
   useEffect(() => () => {
     stopQaPoll()
+    qaGenRef.current++
     if (qaJobRef.current) void api.cancelDraftJob(qaJobRef.current).catch(() => { /* already gone */ })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   // §11: one close routine — every dismissal (×, Esc) plays the slide-out exit
@@ -1376,9 +1401,9 @@ export default function CreateFlow() {
     if (key === 'draft') {
       if (draftSnap.current) setRev({ ...draftSnap.current, viewing: 'draft' })
       else if (auto.draft) setRev(seedFromAuto(auto, agents, secrets.map((s) => s.name)))
-      else setRev((r) => r && loadVersionInto(r, { spec: auto.spec ?? [], steps: auto.steps ?? [], instr: auto.instr, params: auto.params }, 'draft'))
+      else setRev((r) => r && loadVersionInto(r, { spec: auto.spec ?? [], steps: auto.steps ?? [], instr: auto.instr, params: auto.params, packages: auto.packages }, 'draft'))
     } else if (key === auto.version) {
-      setRev((r) => r && loadVersionInto(r, { spec: auto.spec ?? [], steps: auto.steps ?? [], instr: auto.instr, params: auto.params }, key))
+      setRev((r) => r && loadVersionInto(r, { spec: auto.spec ?? [], steps: auto.steps ?? [], instr: auto.instr, params: auto.params, packages: auto.packages }, key))
     } else {
       const s = (auto.versions ?? []).find((v) => v.v === key)
       if (s) setRev((r) => r && loadVersionInto(r, s, key))

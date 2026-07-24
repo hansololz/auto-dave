@@ -17,9 +17,14 @@ class Client:
         if not bj.exists():
             sys.exit("backend isn't up (no backend.json) — start it with "
                      "`autowright service install` or `autowright-backend`")
-        info = json.loads(bj.read_text())
-        self.base = f"http://127.0.0.1:{info['port']}"
-        self.token = info["token"]
+        try:
+            info = json.loads(bj.read_text())
+            self.base = f"http://127.0.0.1:{info['port']}"
+            self.token = info["token"]
+        except (OSError, ValueError, KeyError, TypeError):
+            # A SIGKILL'd backend can leave a stale/truncated backend.json.
+            sys.exit("backend.json is stale or unreadable — restart the backend with "
+                     "`autowright service restart` or `autowright-backend`")
 
     def req(self, method: str, path: str, body: dict | None = None):
         r = urllib.request.Request(

@@ -18,7 +18,7 @@ from .drafting import draft_jobs
 from .engine import Engine
 from .events import hub
 from .scheduler import fire_trigger
-from .storage import size_label, store
+from .storage import iter_file_stats, size_label, store
 from . import testexec
 
 AUTH_TOKEN = pysecrets.token_hex(24)
@@ -77,7 +77,7 @@ def _data_size_label() -> str:
     if _data_size_cache and now - _data_size_cache[0] < _DATA_SIZE_TTL_S:
         return _data_size_cache[1]
     p = store.executions_dir()
-    total = sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.exists() else 0
+    total = sum(st.st_size for st in iter_file_stats(p))
     _data_size_cache = (now, size_label(total))
     return _data_size_cache[1]
 
@@ -249,6 +249,15 @@ def save_version(auto_id: str, body: dict) -> dict:
     return {"version": n, "auto": _auto_json_locked(a)}
 
 
+def _reject_live_draft_exec(a: dict) -> None:
+    """409 while a Draft-version execution runs: rewriting or pruning the
+    draft's step scripts mid-run would make later steps execute code that no
+    longer matches the recorded per-step sha (§7). Call under store.lock."""
+    live = store.execs.get(a.get("_live") or "")
+    if live and live.get("ver") == "Draft":
+        raise HTTPException(409, "a draft execution is in progress")
+
+
 @app.put("/automations/{auto_id}/draft", dependencies=[Depends(auth)])
 def put_draft(auto_id: str, body: dict) -> dict:
     a = _auto_or_404(auto_id)
@@ -259,7 +268,9 @@ def put_draft(auto_id: str, body: dict) -> dict:
     ver["step_agents"] = d.get("stepAgents")
     ver["allowed_secrets"] = d.get("allowedSecrets")
     ver["triggers"] = d.get("triggers")
-    store.save_draft(a, ver)
+    with store.lock:
+        _reject_live_draft_exec(a)
+        store.save_draft(a, ver)
     hub.publish("auto.changed", autoId=auto_id)
     return {"ok": True}
 
@@ -267,7 +278,9 @@ def put_draft(auto_id: str, body: dict) -> dict:
 @app.delete("/automations/{auto_id}/draft", dependencies=[Depends(auth)])
 def del_draft(auto_id: str) -> dict:
     a = _auto_or_404(auto_id)
-    store.delete_draft(a)
+    with store.lock:
+        _reject_live_draft_exec(a)
+        store.delete_draft(a)
     hub.publish("auto.changed", autoId=auto_id)
     return {"ok": True}
 
@@ -323,8 +336,17 @@ def export_auto(auto_id: str, values: int = 1):
 
 @app.post("/automations/import", dependencies=[Depends(auth)])
 async def import_auto(request: Request) -> dict:
-    # §19: the archive is the raw request body — no multipart.
-    data = await request.body()
+    # §19: the archive is the raw request body — no multipart. Stream it in
+    # with the transfer cap applied so an oversized upload can't balloon RAM
+    # before import_automation ever sees it.
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > transfer.MAX_ARCHIVE_BYTES:
+            raise HTTPException(413, "the archive is larger than the 64 MB import limit")
+        chunks.append(chunk)
+    data = b"".join(chunks)
     try:
         a, summary = transfer.import_automation(store, data)
     except transfer.TransferError as e:
@@ -466,9 +488,12 @@ def clear_memory(auto_id: str) -> dict:
 def create_snapshot(auto_id: str, body: dict | None = None) -> dict:
     # §6.3 manual snapshot — 409 while live, 422 when memory is empty.
     a = _auto_or_404(auto_id)
-    if a.get("_live"):
-        raise HTTPException(409, "an execution is in progress")
-    meta = store.snapshot_memory(a, "manual", name=((body or {}).get("name") or "").strip() or None)
+    # One lock span for check + copy: engine.start flips `_live` under
+    # store.lock, so this can't race a trigger into copying half-written memory.
+    with store.lock:
+        if a.get("_live"):
+            raise HTTPException(409, "an execution is in progress")
+        meta = store.snapshot_memory(a, "manual", name=((body or {}).get("name") or "").strip() or None)
     if meta is None:
         raise HTTPException(422, "memory is empty")
     hub.publish("auto.changed", autoId=auto_id)
@@ -488,10 +513,12 @@ def rename_snapshot(auto_id: str, sid: str, body: dict | None = None) -> dict:
 @app.post("/automations/{auto_id}/memory/snapshots/{sid}/restore", dependencies=[Depends(auth)])
 def restore_snapshot(auto_id: str, sid: str) -> dict:
     a = _auto_or_404(auto_id)
-    if a.get("_live"):
-        raise HTTPException(409, "an execution is in progress")
-    if store.restore_snapshot(a, sid) is None:
-        raise HTTPException(404, "snapshot not found")
+    # Same lock span as create_snapshot: no execution may start mid-restore.
+    with store.lock:
+        if a.get("_live"):
+            raise HTTPException(409, "an execution is in progress")
+        if store.restore_snapshot(a, sid) is None:
+            raise HTTPException(404, "snapshot not found")
     hub.publish("auto.changed", autoId=auto_id)
     return {"ok": True}
 
@@ -886,6 +913,15 @@ def get_settings() -> dict:
 
 @app.patch("/settings", dependencies=[Depends(auth)])
 def patch_settings(body: dict) -> dict:
+    # Validate before storing: a bad `days` would otherwise persist and make
+    # every hourly retention sweep raise — retention silently off forever.
+    if "days" in body:
+        try:
+            body["days"] = max(1, int(body["days"]))  # §4.9: int ≥ 1
+        except (TypeError, ValueError):
+            raise HTTPException(422, "days must be a number ≥ 1") from None
+    if "notif" in body and body["notif"] not in ("attention", "all"):
+        raise HTTPException(422, "notif must be attention | all")
     with store.lock:
         for k in ("login", "mbIcon", "notif", "days", "keepForever", "devMode"):
             if k in body:

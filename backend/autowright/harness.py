@@ -14,12 +14,14 @@ import time
 import urllib.request
 import uuid
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 # Top-level import (not lazy): the executor subprocess replaces
 # sys.modules["autowright"] with the step SDK shim, which breaks late
 # `from . import paths` resolution inside _app_log.
 from . import paths
+from .yamlio import atomic_write_text
 
 log = logging.getLogger("autowright.harness")
 
@@ -217,6 +219,12 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
             elif on_chunk:
                 on_chunk(line)
         proc.wait()
+    except BaseException:
+        # A raising on_chunk (or any read error) must not orphan the child —
+        # the timer gets cancelled below, so nothing else would ever reap it.
+        proc.kill()
+        proc.wait()
+        raise
     finally:
         timer.cancel()
     drain.join(timeout=5)
@@ -236,6 +244,7 @@ def _invoke(harness: str | None, agent: dict, prompt: str, timeout: int,
 
 
 _OPENCODE_CONFIG = os.path.expanduser("~/.config/opencode/opencode.json")
+_opencode_cfg_lock = threading.Lock()
 
 
 def sync_opencode_ollama(model: str) -> None:
@@ -243,12 +252,27 @@ def sync_opencode_ollama(model: str) -> None:
     so `opencode run --model ollama/<model>` resolves. Merge only — the user's
     other config keys are never touched, and nothing is written when the entry
     is already in place."""
+    with _opencode_cfg_lock:  # two agent steps must not race the read-modify-write
+        _sync_opencode_ollama_locked(model)
+
+
+def _sync_opencode_ollama_locked(model: str) -> None:
     try:
         with open(_OPENCODE_CONFIG, encoding="utf-8") as f:
             cfg = json.load(f)
         if not isinstance(cfg, dict):
             cfg = {}
-    except (OSError, ValueError):
+    except OSError:
+        cfg = {}
+    except ValueError:
+        # A corrupt (e.g. half-written) config must not be silently replaced
+        # with only our entry — that would discard the user's other keys.
+        # Preserve the bytes next door and start clean.
+        try:
+            os.replace(_OPENCODE_CONFIG, _OPENCODE_CONFIG + ".corrupt")
+            log.warning("opencode.json was not valid JSON — kept as opencode.json.corrupt")
+        except OSError:
+            pass
         cfg = {}
     before = json.dumps(cfg, sort_keys=True)
     provider = cfg.setdefault("provider", {})
@@ -270,10 +294,9 @@ def sync_opencode_ollama(model: str) -> None:
     if json.dumps(cfg, sort_keys=True) == before:
         return
     try:
-        os.makedirs(os.path.dirname(_OPENCODE_CONFIG), exist_ok=True)
-        with open(_OPENCODE_CONFIG, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
-            f.write("\n")
+        # Atomic (§5 pattern): a crash mid-write must never truncate the
+        # user's config file.
+        atomic_write_text(Path(_OPENCODE_CONFIG), json.dumps(cfg, indent=2) + "\n")
     except OSError as e:
         raise HarnessError(f"couldn't update opencode.json: {e}") from e
 
