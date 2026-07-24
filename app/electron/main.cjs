@@ -6,7 +6,10 @@ const path = require('path')
 
 // Keep Chromium's profile (Cache, Cookies, Local Storage, …) out of the backend's
 // data dir — both default to ~/Library/Application Support/Autowright (§5).
-app.setPath('userData', path.join(app.getPath('userData'), 'electron'))
+// §15: AUTOWRIGHT_HOME relocates the whole app-support root, profile included —
+// an isolated dev/test home must never touch the real profile.
+app.setPath('userData', path.join(
+  process.env.AUTOWRIGHT_HOME || app.getPath('userData'), 'electron'))
 
 // Overlay scrollbars: draw on top of content, zero layout space, so content
 // never shifts when a scrollbar appears. Without this, macOS "Automatic"/

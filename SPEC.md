@@ -2357,7 +2357,8 @@ fallback.
 Backend env knobs (configuration only):
 
 - `AUTOWRIGHT_HOME` — overrides the app-support root (isolated dev/test homes); logs move to
-  `<home>/logs/` (§5).
+  `<home>/logs/` (§5), and Electron's Chromium profile follows to `<home>/electron/` — an
+  isolated home isolates the renderer's localStorage/cookies too, never the real profile.
 - `AUTOWRIGHT_PORT` — fixed port instead of a random free one.
 - `AUTOWRIGHT_OLLAMA_URL` — Ollama HTTP endpoint override (default `http://localhost:11434`).
 - `AUTOWRIGHT_STEP_TIMEOUT` — per-step timeout in seconds (default 900).
@@ -2398,7 +2399,18 @@ local wheel directory standing in for PyPI (pip's `PIP_NO_INDEX`/`PIP_FIND_LINKS
 the tmp home is written and no packet leaves localhost. Deliberately excluded (machine-mutating,
 covered at their unit seams): Keychain values, launchd, harness/Ollama installers, real agent
 CLIs. The backend subprocess runs real `notify.post`, so a failed-execution test may show one
-real macOS notification — accepted, per the no-dev-only-branches rule. Two implementations of the same
+real macOS notification — accepted, per the no-dev-only-branches rule.
+
+**End-to-end tests** live under `app/e2e/` (run `npm run test:e2e` in `app/` — it builds
+first, then runs a second Vitest config, `vitest.e2e.config.ts`, sequentially with long
+timeouts). Each test launches the real pieces exactly as release does: the backend subprocess
+over a tmp `AUTOWRIGHT_HOME` (fake `claude` from `tests/bin` on PATH), then the real Electron
+binary via playwright-core `_electron.launch` loading `app/dist` — real preload bridge, real
+`backend.json` discovery, real windows on screen. Scenarios stay few and high-value
+(onboarding on an empty home, list → detail → execute → result on a seeded-via-API home);
+everything finer-grained belongs to the unit/integration tiers. The §10 install/sign-in
+machines are real — e2e must never click "Set up" suggestion cards (they install CLIs onto
+the machine); the found-card "Check connection" is read-only and safe. Two implementations of the same
 behavior are locked together by a shared golden fixture, `tests/fixtures/cron_parity.json`:
 a list of `{expr, after, tz?, next, label, short}` cases executed verbatim by both
 `test_schedule.py` and the Vitest cron suite, so the Python and TypeScript cron

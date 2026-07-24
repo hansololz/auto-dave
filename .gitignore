@@ -8,6 +8,9 @@ out/
 *.tsbuildinfo
 npm-debug.log*
 
+# e2e screenshots (§15)
+app/e2e/artifacts/
+
 # Python
 __pycache__/
 *.py[cod]
