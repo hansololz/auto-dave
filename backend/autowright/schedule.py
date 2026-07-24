@@ -31,9 +31,11 @@ def _parse_field(text: str, name: str, lo: int, hi: int) -> tuple[set[int], bool
     if not text:
         raise CronError(f"{name} field is empty")
     for item in text.split(","):
-        body, _, step_s = item.partition("/")
+        body, sep, step_s = item.partition("/")
         step = 1
-        if step_s:
+        if sep:
+            # `sep` not `step_s`: a trailing slash ("5/") must be rejected,
+            # matching the renderer's parser — not silently read as step 1.
             if not step_s.isdigit() or int(step_s) < 1:
                 raise CronError(f"{name}: bad step {item!r}")
             step = int(step_s)

@@ -89,6 +89,17 @@ def test_step_without_file_does_not_brick_load(store, home):
     assert steps[0]["code"] == "" and steps[1]["code"]
 
 
+def test_cron_trailing_slash_rejected():
+    """Backend and renderer cron parsers must agree: "5/" is invalid, not step 1."""
+    import pytest as _pytest
+
+    from autowright import schedule
+
+    with _pytest.raises(schedule.CronError):
+        schedule.parse_cron("5/ * * * *")
+    schedule.parse_cron("*/5 * * * *")  # real steps still parse
+
+
 def test_settings_days_validation(client):
     assert client.patch("/settings", json={"days": "ninety"}).status_code == 422
     assert client.patch("/settings", json={"notif": "sometimes"}).status_code == 422
