@@ -58,7 +58,8 @@ open.
 
 **Implementation status:** the launchd/CLI/discovery half is implemented (`service.py`, `cli.py`,
 `backend.json`). The distributable build is implemented (`./scripts/prod.sh`, §18):
-`Autowright.app` with the bundled relocatable Python in `Contents/Resources/python/` plus a DMG,
+`Autowright.app` with the bundled relocatable Python in `Contents/Resources/python/` plus a DMG
+and a zip,
 Developer-ID-signed with hardened runtime when `CODESIGN_IDENTITY` is set (ad-hoc otherwise).
 Still not implemented: notarization submission, `SMAppService` registration from the app, and the
 launch-time version-compare/re-register flow — today the only registration path is
@@ -2439,7 +2440,9 @@ Dev workflow:
   on every Mach-O when `CODESIGN_IDENTITY` is set — notarization itself not performed; ad-hoc
   otherwise, local use only), smoke-checks that the bundled interpreter imports `autowright` +
   every curated package from inside the bundle, and produces
-  `build/Autowright-<version>-<arch>.dmg` (hdiutil UDZO).
+  `build/Autowright-<version>-<arch>.dmg` (hdiutil UDZO) and
+  `build/Autowright-<version>-<arch>.zip` (`ditto -c -k --sequesterRsrc --keepParent` — preserves
+  symlinks and the code signature, the archive format Apple expects for app zips).
 - **`./scripts/dev.sh`** — fastest dev loop, with hot reloading: invokes `build.sh --deps` only
   (no renderer bundle); shuts down lingering processes from previous sessions — backend by
   command-line pattern (`[Pp]ython -m autowright` — ps shows the venv python's resolved binary,

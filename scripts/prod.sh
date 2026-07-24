@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the production distribution (SPEC §3): "Autowright.app" with the
 # relocatable CPython (python-build-standalone) + the autowright backend and
-# curated packages in Contents/Resources/python/, plus a DMG — both under
-# build/. Signing: Developer ID with hardened runtime when CODESIGN_IDENTITY
+# curated packages in Contents/Resources/python/, plus a DMG and a zip — all
+# under build/. Signing: Developer ID with hardened runtime when CODESIGN_IDENTITY
 # is set (notarization itself is not performed), ad-hoc otherwise (local use only).
 #
 #   ./scripts/prod.sh
@@ -111,6 +111,13 @@ DMG="$BUILD/Autowright-$VERSION-$ARCH.dmg"
 rm -f "$DMG"
 hdiutil create -volname "Autowright" -srcfolder "$APP" -ov -quiet -format UDZO "$DMG"
 
+# ---- zip ----
+# ditto (not zip) preserves symlinks + resource forks, so the code signature survives.
+ZIP="$BUILD/Autowright-$VERSION-$ARCH.zip"
+rm -f "$ZIP"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+
 echo "· dist done:"
 echo "    $APP"
 echo "    $DMG"
+echo "    $ZIP"
