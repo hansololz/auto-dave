@@ -166,3 +166,83 @@ def test_specmd_roundtrip():
         {"k": "p", "text": "Closing."},
     ]
     assert md_to_blocks(blocks_to_md(blocks)) == blocks
+
+
+# ---------- §15 cross-runtime parity fixture (shared with the TypeScript suite) ----------
+
+def _fixture():
+    import json
+    from pathlib import Path
+
+    return json.loads((Path(__file__).parent / "fixtures" / "cron_parity.json").read_text())
+
+
+def _utc_str_to_local_naive(s):
+    from datetime import timezone
+
+    return (datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ")
+            .replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None))
+
+
+def _local_naive_to_utc_str(dt):
+    from datetime import timezone
+
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_cron_parity_fixture_next_occurrences():
+    for e in _fixture()["next"]:
+        trig = {"kind": "cron", "expr": e["expr"], "tz": e["tz"], "off": False, "id": "x"}
+        got = trigger_next(trig, after=_utc_str_to_local_naive(e["after_utc"]))
+        if e["next_utc"] is None:
+            assert got is None, e
+        else:
+            assert got is not None, e
+            assert _local_naive_to_utc_str(got) == e["next_utc"], e
+
+
+def test_cron_parity_fixture_labels():
+    for e in _fixture()["labels"]:
+        assert cron_display(e["expr"], e["tz"]) == (e["label"], e["short"]), e
+
+
+def test_dst_spring_forward_gap_fires_next_valid_instant():
+    """§4.3: 2:30 AM is erased on 2027-03-14 in Los Angeles — the trigger
+    still fires, at the first valid instant (10:30 UTC)."""
+    trig = {"kind": "cron", "expr": "30 2 * * *", "tz": "America/Los_Angeles",
+            "off": False, "id": "x"}
+    after = _utc_str_to_local_naive("2027-03-13T18:00:00Z")
+    got = trigger_next(trig, after=after)
+    assert got == _utc_str_to_local_naive("2027-03-14T10:30:00Z")
+
+
+def test_dst_fall_back_ambiguity_fires_once_at_earlier_instant():
+    """§4.3: 1:30 AM happens twice on 2026-11-01 in Los Angeles — one firing,
+    at the earlier instant (08:30 UTC, PDT side)."""
+    trig = {"kind": "cron", "expr": "30 1 * * *", "tz": "America/Los_Angeles",
+            "off": False, "id": "x"}
+    after = _utc_str_to_local_naive("2026-10-31T18:00:00Z")
+    got = trigger_next(trig, after=after)
+    assert got == _utc_str_to_local_naive("2026-11-01T08:30:00Z")
+    # the occurrence after it is the next day's (PST) — not the repeated 1:30
+    assert trigger_next(trig, after=got) == _utc_str_to_local_naive("2026-11-02T09:30:00Z")
+
+
+def test_cron_display_dow_edge_parity():
+    """§4.3: only a single-digit 0-6 dow humanizes; "7", "07", "00" fall back
+    to the raw expression — no exception, no humanizing."""
+    for expr in ("0 8 * * 7", "0 8 * * 07", "0 8 * * 00"):
+        assert cron_display(expr) == (expr, expr)
+    # whitespace-padded expressions fall back trimmed
+    assert cron_display("  0 8 1 * *  ") == ("0 8 1 * *", "0 8 1 * *")
+    # single-digit 0-6 humanizes
+    assert cron_display("0 8 * * 0") == ("Sundays at 8:00", "Sun 8:00")
+    assert cron_display("0 8 * * 6") == ("Saturdays at 8:00", "Sat 8:00")
+
+
+def test_trigger_exec_labels():
+    from autowright.schedule import trigger_exec_label
+
+    assert trigger_exec_label({"kind": "cron"}) == "Cron"
+    assert trigger_exec_label({"kind": "app_start"}) == "App start"
+    assert trigger_exec_label({"kind": "time"}) == "Once"

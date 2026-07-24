@@ -198,3 +198,75 @@ def test_import_rejects_and_writes_nothing(store):
         transfer.import_automation(store, bad_agent)
 
     assert (len(store.autos), len(store.secrets), len(store.agents)) == before
+
+
+# ---------- appended coverage: caps, traversal, manifest rejects ----------
+
+def _rezip(data, edit):
+    """Rebuild the archive, letting `edit(name, bytes)` replace member content."""
+    src = zipfile.ZipFile(io.BytesIO(data))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as out:
+        for nm in src.namelist():
+            out.writestr(nm, edit(nm, src.read(nm)) or src.read(nm))
+    return buf.getvalue()
+
+
+def test_total_decompressed_size_cap(store):
+    """Members individually under _MAX_MEMBER_BYTES whose sum crosses
+    _MAX_TOTAL_BYTES → rejected up front, nothing written."""
+    before = (len(store.autos), len(store.secrets), len(store.agents))
+    member = bytes(30 * 1024 * 1024)                 # zeros — deflates tiny
+    assert len(member) < transfer._MAX_MEMBER_BYTES
+    n = transfer._MAX_TOTAL_BYTES // len(member) + 1  # sum > total cap
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for i in range(n):
+            z.writestr(f"pad{i}.bin", member)
+    data = buf.getvalue()
+    assert len(data) < transfer.MAX_ARCHIVE_BYTES     # the archive itself stays small
+    with pytest.raises(transfer.TransferError, match="decompresses far beyond"):
+        transfer.import_automation(store, data)
+    assert (len(store.autos), len(store.secrets), len(store.agents)) == before
+
+
+def test_step_filename_traversal_rejected(store):
+    a = _build(store)
+    data = transfer.export_automation(store, a)
+    before = len(store.autos)
+
+    def evil(nm, b):
+        if nm == "automation/automation.yaml":
+            meta = yaml.safe_load(b)
+            meta["steps"][0]["file"] = "../evil.py"
+            return yaml.safe_dump(meta).encode()
+        return None
+
+    with pytest.raises(transfer.TransferError, match="invalid step filename"):
+        transfer.import_automation(store, _rezip(data, evil))
+    assert len(store.autos) == before
+
+
+def test_format_version_and_duplicate_app_start_rejected(store):
+    a = _build(store)
+    data = transfer.export_automation(store, a)
+    before = len(store.autos)
+
+    def bump(nm, b):
+        if nm == "manifest.yaml":
+            return yaml.safe_dump({**yaml.safe_load(b), "format_version": 2}).encode()
+        return None
+
+    with pytest.raises(transfer.TransferError, match="unsupported archive format"):
+        transfer.import_automation(store, _rezip(data, bump))
+
+    def dupe(nm, b):
+        if nm == "manifest.yaml":
+            m = yaml.safe_load(b)
+            m["triggers"] = [{"kind": "app_start"}, {"kind": "app_start"}]
+            return yaml.safe_dump(m).encode()
+        return None
+
+    with pytest.raises(transfer.TransferError, match="more than one app_start"):
+        transfer.import_automation(store, _rezip(data, dupe))
+    assert len(store.autos) == before

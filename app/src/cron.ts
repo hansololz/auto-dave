@@ -39,16 +39,21 @@ function wallMsLocal(d: Date): number {
   return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds())
 }
 
-/** Wall ms → the real instant (two-pass offset fixpoint for `tz`). Ambiguous
- * fall-back wall times resolve to the earlier instant, like the backend's
- * fold=0 `_to_local`. */
+/** Wall ms → the real instant (two-pass offset fixpoint for `tz`), matching the
+ * backend's fold=0 `_to_local`: ambiguous fall-back wall times resolve to the
+ * earlier instant; wall times erased by spring-forward resolve with the
+ * pre-transition offset, landing just past the gap (§4.3 "next valid minute"). */
 function wallMsToDate(wallMs: number, tz?: string): Date {
   const w = new Date(wallMs)
   if (!tz) return new Date(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate(), w.getUTCHours(), w.getUTCMinutes())
-  let utc = wallMs
-  for (let i = 0; i < 2; i++) utc += wallMs - wallMsInZone(new Date(utc), tz)
-  if (wallMsInZone(new Date(utc - 3600000), tz) === wallMs) utc -= 3600000
-  return new Date(utc)
+  const g1 = 2 * wallMs - wallMsInZone(new Date(wallMs), tz)
+  const g2 = g1 + wallMs - wallMsInZone(new Date(g1), tz)
+  if (wallMsInZone(new Date(g2), tz) !== wallMs) {
+    // Nonexistent wall time: in a gap the pre-transition offset is the smaller
+    // one, so it yields the later UTC candidate.
+    return new Date(Math.max(g1, g2))
+  }
+  return new Date(wallMsInZone(new Date(g2 - 3600000), tz) === wallMs ? g2 - 3600000 : g2)
 }
 
 /** A one-shot's real moment: `at`'s wall clock read in `tz` (local when absent). */

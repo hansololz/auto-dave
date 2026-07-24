@@ -193,10 +193,10 @@ def cron_display(expr: str, tz: str | None = None) -> tuple[str, str]:
         t = _hm(int(p[1]), int(p[0]))
         if p[4] == "*":
             return f"Daily at {t}{sfx}", f"Daily {t}{sfx}"
-        if p[4].isdigit():
+        if len(p[4]) == 1 and p[4] in "0123456":
             d = int(p[4])
             return f"{DOW_LONG[d]} at {t}{sfx}", f"{DOW_SHORT[d]} {t}{sfx}"
-    return expr + sfx, expr + sfx
+    return expr.strip() + sfx, expr.strip() + sfx
 
 
 def time_display(at: str, tz: str | None = None) -> tuple[str, str]:

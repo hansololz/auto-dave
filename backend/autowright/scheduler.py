@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime, timedelta
+from typing import Callable
 
 from . import schedule
 from .engine import Engine
@@ -45,9 +46,11 @@ def fire_trigger(store: Store, engine: Engine, a: dict, t: dict) -> bool:
 
 
 class Scheduler:
-    def __init__(self, store: Store, engine: Engine):
+    def __init__(self, store: Store, engine: Engine,
+                 clock: Callable[[], datetime] = datetime.now):
         self.store = store
         self.engine = engine
+        self._clock = clock
         # (automation id, trigger id) → last position; occurrences at or before
         # it never fire (startup baseline = now, §6 no catch-up queue).
         self._baseline: dict[tuple[str, str], datetime] = {}
@@ -56,7 +59,7 @@ class Scheduler:
         # the current failure streak — cleared when a trigger-fired execution succeeds.
         self._retried: set[str] = set()
         self._stop = threading.Event()
-        self._last_retention = datetime.now()
+        self._last_retention = clock()
         engine_on_finished = getattr(engine, "on_finished", None)
 
         def on_finished(h: dict) -> None:
@@ -67,7 +70,7 @@ class Scheduler:
             if h["status"] == "failed":
                 if h["auto_id"] not in self._retried:
                     self._retried.add(h["auto_id"])
-                    self._retry_at[h["auto_id"]] = (datetime.now() + RETRY_AFTER, h["trigger"])
+                    self._retry_at[h["auto_id"]] = (self._clock() + RETRY_AFTER, h["trigger"])
             elif h["status"] == "succeeded":
                 self._retried.discard(h["auto_id"])
                 self._retry_at.pop(h["auto_id"], None)
@@ -91,7 +94,7 @@ class Scheduler:
                 log.exception("scheduler tick failed")
 
     def _tick(self) -> None:
-        now = datetime.now()
+        now = self._clock()
         with self.store.lock:
             autos = list(self.store.autos.values())
         live_keys: set[tuple[str, str]] = set()

@@ -260,6 +260,11 @@ expression:
 - `M H * * *` → "Daily at 8:00" / short "Daily 8:00"
 - `M H * * D` (single day) → "Mondays at 9:00" / short "Mon 9:00"
 
+The day field only humanizes as a single digit `0`–`6` — anything else (`7`, `07`, `12`) falls
+back to the raw expression. The fallback shows the expression trimmed of surrounding
+whitespace. The backend (`schedule.cron_display`) and the renderer (`cronLabels`) implement
+this rule identically; the shared parity fixture (§15) locks them together.
+
 **One-shot semantics** (`time`): `at` must be strictly in the future when saved (422 otherwise;
 the check reads `at` in the trigger's `tz`).
 The trigger is consumed — removed from the list — when it fires, and equally when its moment is
@@ -2366,6 +2371,21 @@ fixtures that monkeypatch `keychain` (in-memory dict) and `notify.post` (no-op).
 do not reintroduce: `AUTOWRIGHT_MOCK_AGENT`, `AUTOWRIGHT_KEYRING`, `AUTOWRIGHT_NO_NOTIFY`,
 `ad-sudo-denied`, `?port=&token=` (the renderer dev server returned as `AUTOWRIGHT_RENDERER_URL`,
 above — `VITE_DEV`/`npm run dev:app` themselves stay gone).
+
+**Test suite layout.** Backend unit/integration tests are pytest under `tests/` (run
+`python -m pytest tests/` from the repo root). Renderer unit tests are Vitest under
+`app/tests/` (run `npm test` in `app/`) — they cover pure logic only (cron math, label
+formatting, store reducers, spec/text round-trips); component rendering is exercised by the
+playwright-driven Electron path, never by DOM unit tests. Two implementations of the same
+behavior are locked together by a shared golden fixture, `tests/fixtures/cron_parity.json`:
+a list of `{expr, after, tz?, next, label, short}` cases executed verbatim by both
+`test_schedule.py` and the Vitest cron suite, so the Python and TypeScript cron
+implementations cannot drift silently. Testability knobs (configuration only, release
+behavior unchanged): `Scheduler` accepts an injectable `clock` callable (defaults to
+`datetime.now`) so tick-loop policies (coalescing, catch-up, one-shot consumption,
+auto-retry) are deterministic under test, and `CreateFlow.tsx` exports its pure helpers
+(`specToText`, `textToSpec`, `amendSpec`, `stepSecretNames`, `secretRefsOf`, `instrToMd`,
+`mergeDraftTriggers`) and `result.tsx` exports `ext`/`fileKind` for the Vitest suite.
 
 ## 16. Seed / demo data (tests only)
 

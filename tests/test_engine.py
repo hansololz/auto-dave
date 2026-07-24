@@ -853,3 +853,145 @@ def test_declared_step_secrets_injected(store):
     wait_done(engine, h["id"])
     assert h["status"] == "succeeded"
     assert any("got 6 chars" in l["text"] for l in read_all_logs(store, h["id"]))
+
+
+def test_failure_reason_classification_direct():
+    """§7 failure_reason: deterministic classification from exit code + the
+    executor's structured error event."""
+    from autowright.engine import failure_reason
+
+    agent = "The step's agent call failed — the agent may be unreachable or misconfigured."
+    net = "A network request failed — the site may be down, blocking, or unreachable."
+    shape = "The data didn't have the expected shape — a page or file layout may have changed."
+    assert failure_reason(1, {"type": "AgentCallError", "message": "agent exploded"}) == agent
+    # HTTP: status code extracted from the message when present
+    assert failure_reason(1, {"type": "HTTPError",
+                              "message": "404 Client Error: Not Found for url: https://x"}) \
+        == "The site answered with an error (HTTP 404)."
+    assert failure_reason(1, {"type": "HTTPStatusError", "message": "boom"}) \
+        == "The site answered with an error."
+    # message-only match, no recognized type
+    assert failure_reason(1, {"type": "RuntimeError",
+                              "message": "503 Server Error: unavailable"}) \
+        == "The site answered with an error (HTTP 503)."
+    # network exception types (_NET_TYPES)
+    for t in ("ConnectionError", "gaierror", "MaxRetryError", "SSLError", "TimeoutError"):
+        assert failure_reason(1, {"type": t, "message": "x"}) == net
+    # message-based network matches
+    assert failure_reason(1, {"type": "RuntimeError",
+                              "message": "couldn't fetch https://x"}) == net
+    assert failure_reason(1, {"type": "RuntimeError",
+                              "message": "robots.txt disallows fetching /page"}) == net
+    # data-shape exceptions
+    assert failure_reason(1, {"type": "IndexError", "message": "list index out of range"}) == shape
+    assert failure_reason(1, {"type": "AttributeError", "message": "no attr"}) == shape
+    # unclassified → None
+    assert failure_reason(1, {"type": "RuntimeError", "message": "nothing known"}) is None
+    assert failure_reason(1, None) is None
+
+
+def _notify_recorder(monkeypatch):
+    """Replace notify.post (already no-op'd by conftest) with a recorder —
+    the engine calls it through the module attribute."""
+    from autowright import notify
+
+    calls = []
+    monkeypatch.setattr(notify, "post", lambda title, body: calls.append((title, body)))
+    return calls
+
+
+def test_notification_gating_attention_setting(store, monkeypatch):
+    """§4.9 default setting: success with an ordinary result is silent; a
+    failure notifies with the automation name and the default body."""
+    from autowright.engine import Engine
+
+    calls = _notify_recorder(monkeypatch)
+    assert store.settings.get("notif", "attention") == "attention"
+    engine = Engine(store)
+    a = store.create_automation(make_version(), "Quiet Auto", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "succeeded"
+    assert calls == []  # result.status("ok") isn't interesting
+    ver = make_version()
+    ver["steps"][0]["code"] = 'raise RuntimeError("boom")\n'
+    b = store.create_automation(ver, "Loud Fail", None)
+    h2 = engine.start(b, "Manual")
+    wait_done(engine, h2["id"])
+    assert h2["status"] == "failed"
+    assert calls == [("Loud Fail", "Execution failed")]
+
+
+def test_notification_all_setting_and_body_precedence(store, monkeypatch):
+    """§4.9 "all": success notifies too, body = the result chip; a step's
+    notify() text overrides the chip."""
+    from autowright.engine import Engine
+
+    calls = _notify_recorder(monkeypatch)
+    store.settings["notif"] = "all"
+    engine = Engine(store)
+    a = store.create_automation(make_version(), "Chatty", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "succeeded"
+    assert calls == [("Chatty", "All good")]  # chip becomes the body
+    ver = make_version()
+    ver["steps"][1]["code"] = ('result.status("ok")\nresult.chip("Chip text")\n'
+                               'notify("Custom notify text")\n')
+    b = store.create_automation(ver, "Override", None)
+    h2 = engine.start(b, "Manual")
+    wait_done(engine, h2["id"])
+    assert h2["status"] == "succeeded"
+    assert calls[-1] == ("Override", "Custom notify text")  # notify() beats the chip
+
+
+def test_notification_title_param_overrides_automation_name(store, monkeypatch):
+    from autowright.engine import Engine
+
+    calls = _notify_recorder(monkeypatch)
+    engine = Engine(store)
+    ver = make_version()
+    ver["params"].append({"name": "notification_title", "kind": "text",
+                          "label": "Title", "help": "", "default": "My Title"})
+    ver["steps"][0]["code"] = 'raise RuntimeError("boom")\n'
+    a = store.create_automation(ver, "Titled", None)
+    h = engine.start(a, "Manual")
+    wait_done(engine, h["id"])
+    assert h["status"] == "failed"
+    assert calls == [("My Title", "Execution failed")]
+
+
+def test_agents_for_step_duplicate_grant_names_first_enabled_wins():
+    """§6/§8: two enabled agents sharing a grant name — the first enabled one
+    serves the step; unknown names fall back to the first enabled agent."""
+    from autowright.engine import agents_for_step
+
+    a1 = {"id": "a1", "name": "Shared", "harness": "Claude Code", "model": "x"}
+    a2 = {"id": "a2", "name": "Shared", "harness": "Codex", "model": "y"}
+    agents = {"a1": a1, "a2": a2}
+    assert agents_for_step(agents, ["a1", "a2"], {"agents": ["Shared"]}) == [a1]
+    assert agents_for_step(agents, ["a2", "a1"], {"agents": ["Shared"]}) == [a2]
+    # no resolvable names → first enabled agent
+    assert agents_for_step(agents, ["a2", "a1"], {"agents": ["Nope"]}) == [a2]
+
+
+def test_draft_retry_rejected_after_step_code_drift(store):
+    """§7: a re-saved draft whose step code changed (same names/files, new sha)
+    can't serve an in-place retry of the old failed record."""
+    import pytest
+
+    from autowright.engine import Engine
+
+    engine = Engine(store)
+    a = store.create_automation(make_version(), "Drifter", None)
+    dver = make_version()
+    dver["steps"][0]["code"] = 'raise RuntimeError("boom")\n'
+    store.save_draft(a, dver)
+    h = engine.start(a, "Manual", version_label="Draft")
+    wait_done(engine, h["id"])
+    assert h["status"] == "failed"
+    dver2 = make_version()
+    dver2["steps"][0]["code"] = 'log("edited since the failure")\n'  # same file/name, new sha
+    store.save_draft(a, dver2)
+    with pytest.raises(RuntimeError, match="steps changed"):
+        engine.retry(a, h)

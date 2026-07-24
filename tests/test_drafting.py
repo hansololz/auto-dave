@@ -409,3 +409,111 @@ def test_step_agents_and_secrets_validate_against_grants():
                           .replace("secrets: [TOKEN]", "agents: [Fast]")})
     _, errors = validate_steps(bad2, grants)
     assert any("only valid on agent" in e for e in errors)
+
+
+# ---------- appended coverage: question prompt, job cancel, packages ----------
+
+def test_question_prompt_structure():
+    from autowright.drafting import build_question_prompt
+
+    cur = {"spec": [{"k": "h1", "text": "Title"}, {"k": "p", "text": "Spec body line."}],
+           "instr": "Never touch the Documents folder.",
+           "params": [],
+           "steps": [{"file": "01-a.py", "name": "A", "code": 'log("current")'}]}
+    p = build_question_prompt("Why does step 1 log?", cur, GRANTS)
+    assert "automation writer inside Autowright" in p    # framework/contract travels
+    assert "Spec body line." in p                        # current spec embedded
+    assert 'log("current")' in p                         # current step code embedded
+    assert "Never touch the Documents folder." in p      # build instructions embedded
+    assert "=== QUESTION ===\nWhy does step 1 log?" in p
+    # question just before the closing plain-prose TASK
+    assert p.index("=== QUESTION ===") < p.index("=== TASK ===")
+    assert "Answer the QUESTION" in p.split("=== TASK ===")[-1]
+    # read-only call: no spec section when there is nothing current
+    bare = build_question_prompt("What does it do?", None, GRANTS)
+    assert "=== QUESTION ===\nWhat does it do?" in bare
+
+
+def test_draft_jobs_cancel_building_and_terminal_noop():
+    from autowright.drafting import DraftJobs
+
+    jobs = DraftJobs()
+    jobs.jobs["b"] = {"id": "b", "status": "building", "_cancel": False, "_proc": {}}
+    assert jobs.cancel("b") is True
+    assert jobs.jobs["b"]["status"] == "cancelled"
+    assert jobs.jobs["b"]["_cancel"] is True
+
+    # cancel on a settled job is a no-op — the Review page keeps its result
+    for terminal in ("done", "failed", "blocked", "cancelled"):
+        jobs.jobs[terminal] = {"id": terminal, "status": terminal,
+                               "_cancel": False, "_proc": {}}
+        assert jobs.cancel(terminal) is False
+        assert jobs.jobs[terminal]["status"] == terminal
+        assert jobs.jobs[terminal]["_cancel"] is False
+    assert jobs.cancel("never-existed") is False
+
+
+STEPS_WITH_PACKAGES = GOOD_STEPS.replace(
+    "note: Created\n",
+    "note: Created\npackages:\n  - { pip: leftpad3, import: leftpad3 }\n")
+
+
+def test_package_ensure_failure_is_nonfatal(monkeypatch):
+    # §6.2/§8: a failed install never fails the job — the statuses ride the
+    # draft payload for the Packages card; the job settles done.
+    import time
+
+    from autowright import harness
+    from autowright import packages as pkglib
+    from autowright.drafting import DraftJobs
+
+    monkeypatch.setattr(pkglib, "ensure",
+                        lambda entries, on_progress=None:
+                        [{**e, "status": "failed", "error": "pip exploded"} for e in entries])
+    monkeypatch.setattr(harness, "invoke",
+                        lambda agent, prompt, timeout=300, proc_holder=None, on_chunk=None:
+                        STEPS_WITH_PACKAGES)
+    jobs = DraftJobs()
+    job_id = jobs.start("sync", {"harness": "Claude Code"}, None,
+                        {"spec": "# T\n\nBody."}, GRANTS)
+    for _ in range(100):
+        j = jobs.get(job_id)
+        if j["status"] in ("done", "failed", "blocked"):
+            break
+        time.sleep(0.05)
+    assert j["status"] == "done", j
+    assert j["draft"]["packages"] == [{"pip": "leftpad3", "import": "leftpad3",
+                                       "status": "failed", "error": "pip exploded"}]
+    assert [s["file"] for s in j["draft"]["steps"]] == ["01-a.py", "02-b.py"]
+
+
+def test_validate_steps_package_blocks_and_number_min():
+    # pip name with a version specifier → regex reject
+    bad_pip = GOOD_STEPS.replace(
+        "note: Created\n",
+        'note: Created\npackages:\n  - { pip: "pandas==2.2", import: pandas }\n')
+    _, errors = validate_steps(parse_envelope(bad_pip))
+    assert any("bare distribution name" in e for e in errors)
+
+    # declaring a module already on the curated allowlist → error
+    curated = GOOD_STEPS.replace(
+        "note: Created\n",
+        "note: Created\npackages:\n  - { pip: requests, import: requests }\n")
+    _, errors = validate_steps(parse_envelope(curated))
+    assert any("already available" in e for e in errors)
+
+    # number param: a missing `min` is injected as 0; the default stays required
+    nomin = GOOD_STEPS.replace(
+        "  - { name: on_off, kind: toggle, label: On, help: h, default: true }\n",
+        "  - { name: count, kind: number, label: N, help: h, default: 3 }\n")
+    draft, errors = validate_steps(parse_envelope(nomin))
+    assert errors == []
+    assert draft["params"][0] == {"name": "count", "kind": "number", "label": "N",
+                                  "help": "h", "default": 3, "min": 0}
+
+    # min alone never substitutes for the default at draft time
+    withmin = GOOD_STEPS.replace(
+        "  - { name: on_off, kind: toggle, label: On, help: h, default: true }\n",
+        "  - { name: count, kind: number, label: N, help: h, min: 2 }\n")
+    _, errors = validate_steps(parse_envelope(withmin))
+    assert any("missing default" in e for e in errors)

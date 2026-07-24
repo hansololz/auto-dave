@@ -14,11 +14,11 @@ const MD_EXT = ['md', 'markdown']
 const HTML_EXT = ['html', 'htm']
 const IMG_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
 
-function ext(name: string): string {
+export function ext(name: string): string {
   return name.includes('.') ? name.split('.').pop()!.toLowerCase() : ''
 }
 
-function fileKind(name: string): 'md' | 'html' | 'img' | null {
+export function fileKind(name: string): 'md' | 'html' | 'img' | null {
   const e = ext(name)
   if (MD_EXT.includes(e)) return 'md'
   if (HTML_EXT.includes(e)) return 'html'

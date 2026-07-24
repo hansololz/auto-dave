@@ -323,3 +323,158 @@ def test_pending_draft_summary(store):
 
     store.delete_pending_draft()
     assert store.pending_draft_summary() is None
+
+
+# ---------- appended coverage: load resilience, index self-heal, logs, retention ----------
+
+def test_crashed_version_write_ignored_on_load(store):
+    """§5 crash-safe write order: a vN+1 folder holding a step script but no
+    manifest (the commit point) is skipped at load — the automation still
+    loads with its last complete version, without raising."""
+    from autowright.storage import Store
+
+    a = store.create_automation(make_version(), "Crashy", None)
+    partial = store.auto_dir(a) / "versions" / "v2"
+    partial.mkdir()
+    (partial / "01-say.py").write_text('log("half-written")\n', encoding="utf-8")
+
+    s2 = Store()
+    s2.load_all()
+    b = s2.autos[a["id"]]
+    assert set(b["versions"]) == {1}
+    assert b["current_version"] == 1
+    assert b["versions"][1]["steps"][0]["name"] == "Say hello"
+
+
+def test_reconcile_exec_index_restores_missing_row(store, caplog):
+    """§5: executions.yaml is authoritative — a row deleted from the sqlite
+    index is rebuilt from the yaml at the next load."""
+    import logging
+    import sqlite3
+
+    from autowright.storage import Store
+
+    a = store.create_automation(make_version(), "Indexed", None)
+    h = store.create_execution(a, "v1", "Manual", [], status="succeeded")
+    store.update_execution(h)
+
+    db = store.executions_dir() / "executions.db"
+    store.close_exec_db()
+    conn = sqlite3.connect(db)
+    with conn:
+        conn.execute("DELETE FROM executions WHERE id=?", (h["id"],))
+    conn.close()
+
+    with caplog.at_level(logging.WARNING, logger="autowright.storage"):
+        s2 = Store()
+        s2.load_all()
+    assert h["id"] in s2.execs
+    r = s2.execs[h["id"]]
+    assert r["status"] == "succeeded"
+    assert r["auto_id"] == a["id"] and r["auto_name"] == "Indexed"
+    assert r["started_at"] == h["started_at"]
+    assert any("restored from its executions.yaml" in rec.message for rec in caplog.records)
+
+
+def test_corrupt_settings_and_agents_yaml_fall_back(home, caplog):
+    """§5: hand-editable disk — corrupt YAML never bricks startup; defaults
+    plus a warning instead."""
+    import logging
+
+    from autowright import paths
+    from autowright.storage import DEFAULT_SETTINGS, Store
+
+    paths.settings_file().write_text("{{{:::\nnot: [valid", encoding="utf-8")
+    paths.agents_file().write_text("[unclosed", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="autowright.yamlio"):
+        s = Store()
+        s.load_all()
+    assert s.settings == dict(DEFAULT_SETTINGS)
+    assert s.agents == []
+    assert sum("unreadable YAML" in rec.message for rec in caplog.records) >= 2
+
+
+def test_load_triggers_consumes_past_oneshot_and_dedupes_app_start(store, caplog):
+    import logging
+
+    from autowright.storage import Store
+    from autowright.yamlio import load_yaml, save_yaml
+
+    trig = {"id": "keep", "kind": "cron", "off": False, "expr": "0 8 * * *"}
+    a = store.create_automation(make_version(), "Triggered", None, triggers=[trig])
+    top = store.auto_dir(a) / "automation.yaml"
+    data = load_yaml(top)
+    data["triggers"] = [
+        trig,
+        {"id": "gone", "kind": "time", "off": False, "at": "2020-01-01T08:00"},
+        {"id": "as1", "kind": "app_start", "off": False},
+        {"id": "as2", "kind": "app_start", "off": False},
+    ]
+    save_yaml(top, data)
+
+    with caplog.at_level(logging.WARNING, logger="autowright.storage"):
+        s2 = Store()
+        s2.load_all()
+    trigs = s2.autos[a["id"]]["triggers"]
+    # the past one-shot was consumed (§4.3) — silently, no warning names it
+    assert [t["kind"] for t in trigs] == ["cron", "app_start"]
+    assert not any("gone" in rec.message for rec in caplog.records)
+    # §4.3: at most one app_start — the duplicate dropped with a warning
+    assert [t["id"] for t in trigs if t["kind"] == "app_start"] == ["as1"]
+    assert any("duplicate app-start" in rec.message for rec in caplog.records)
+
+
+def test_read_log_bounds_and_bad_lines(store):
+    a = store.create_automation(make_version(), "Loggy", None)
+    steps = [{"name": "Say hello", "file": "01-say.py"}]
+    h = store.create_execution(a, "v1", "Manual", steps, status="succeeded")
+    name = store.log_name("01-say.py", 0, 1)
+    store.append_log_line(h["id"], name, {"ts": "x", "t": "0:00", "k": "out", "seq": 1, "text": "one"})
+    with open(store.log_file(h["id"], name), "a", encoding="utf-8") as f:
+        f.write("this line is not json\n")
+    store.append_log_line(h["id"], name, {"ts": "x", "t": "0:01", "k": "out", "seq": 2, "text": "two"})
+
+    # interleaved non-JSON line skipped, the rest returned in order
+    assert [l["text"] for l in store.read_log(h["id"], 0, 1)] == ["one", "two"]
+    # out-of-range step index / attempt → empty, never an exception
+    assert store.read_log(h["id"], 5, 1) == []
+    assert store.read_log(h["id"], -1, 1) == []
+    assert store.read_log(h["id"], 0, 99) == []
+
+
+def test_size_label_boundaries():
+    from autowright.storage import size_label
+
+    assert size_label(0) == "0 B"
+    assert size_label(1023) == "1023 B"
+    assert size_label(1024) == "1.0 KB"
+    assert size_label(1024 * 1024 - 1) == "1024.0 KB"
+    assert size_label(1024 * 1024) == "1.0 MB"
+    assert size_label(1024 ** 3 - 1) == "1024.0 MB"
+    assert size_label(1024 ** 3) == "1.0 GB"
+
+
+def test_retention_skips_executing_missing_and_corrupt_rows(store, caplog):
+    import logging
+    from datetime import datetime, timedelta
+
+    a = store.create_automation(make_version(), "Sweepy", None)
+    old_iso = (datetime.now() - timedelta(days=120)).isoformat(timespec="seconds")
+
+    h_exec = store.create_execution(a, "v1", "Manual", [])          # still executing
+    h_exec["started_at"] = old_iso                                  # ancient, but live wins
+    h_missing = store.create_execution(a, "v1", "Manual", [], status="succeeded")
+    h_missing["started_at"] = None
+    h_corrupt = store.create_execution(a, "v1", "Manual", [], status="succeeded")
+    h_corrupt["started_at"] = "not-a-timestamp"
+    h_old = store.create_execution(a, "v1", "Manual", [], status="succeeded")
+    h_old["started_at"] = old_iso
+    store.update_execution(h_old)
+
+    store.settings["days"] = 90
+    with caplog.at_level(logging.WARNING, logger="autowright.storage"):
+        assert store.retention_cleanup() == 1                       # only the honest old row
+    assert h_old["id"] not in store.execs
+    for h in (h_exec, h_missing, h_corrupt):                        # all skipped, sweep not aborted
+        assert h["id"] in store.execs
+    assert any("unparsable started_at" in rec.message for rec in caplog.records)

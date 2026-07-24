@@ -1,0 +1,150 @@
+{
+  "next": [
+    {
+      "expr": "0 8 * * *",
+      "tz": "America/Los_Angeles",
+      "after_utc": "2026-07-20T00:00:00Z",
+      "next_utc": "2026-07-20T15:00:00Z"
+    },
+    {
+      "expr": "0 8 * * *",
+      "tz": "Asia/Tokyo",
+      "after_utc": "2026-07-20T00:00:00Z",
+      "next_utc": "2026-07-20T23:00:00Z"
+    },
+    {
+      "expr": "30 9 * * 1",
+      "tz": "America/New_York",
+      "after_utc": "2026-07-20T00:00:00Z",
+      "next_utc": "2026-07-20T13:30:00Z"
+    },
+    {
+      "expr": "*/15 * * * *",
+      "tz": "UTC",
+      "after_utc": "2026-07-20T10:07:00Z",
+      "next_utc": "2026-07-20T10:15:00Z"
+    },
+    {
+      "expr": "0 0 29 2 *",
+      "tz": "UTC",
+      "after_utc": "2026-07-20T00:00:00Z",
+      "next_utc": "2028-02-29T00:00:00Z"
+    },
+    {
+      "expr": "0 0 31 * *",
+      "tz": "UTC",
+      "after_utc": "2026-08-31T00:00:00Z",
+      "next_utc": "2026-10-31T00:00:00Z"
+    },
+    {
+      "expr": "0 0 30 2 *",
+      "tz": "UTC",
+      "after_utc": "2026-07-20T00:00:00Z",
+      "next_utc": null
+    },
+    {
+      "expr": "0 12 13 * 5",
+      "tz": "UTC",
+      "after_utc": "2026-07-20T00:00:00Z",
+      "next_utc": "2026-07-24T12:00:00Z"
+    },
+    {
+      "expr": "0 2 30 * *",
+      "tz": "America/Los_Angeles",
+      "after_utc": "2026-07-20T00:00:00Z",
+      "next_utc": "2026-07-30T09:00:00Z"
+    },
+    {
+      "expr": "30 2 * * *",
+      "tz": "America/Los_Angeles",
+      "after_utc": "2027-03-13T18:00:00Z",
+      "next_utc": "2027-03-14T10:30:00Z"
+    },
+    {
+      "expr": "30 1 * * *",
+      "tz": "America/Los_Angeles",
+      "after_utc": "2026-10-31T18:00:00Z",
+      "next_utc": "2026-11-01T08:30:00Z"
+    },
+    {
+      "expr": "0 9-17 * * 1-5",
+      "tz": "Europe/Berlin",
+      "after_utc": "2026-07-24T16:30:00Z",
+      "next_utc": "2026-07-27T07:00:00Z"
+    },
+    {
+      "expr": "5 4 * * 0",
+      "tz": "UTC",
+      "after_utc": "2026-07-20T00:00:00Z",
+      "next_utc": "2026-07-26T04:05:00Z"
+    }
+  ],
+  "labels": [
+    {
+      "expr": "0 8 * * *",
+      "tz": null,
+      "label": "Daily at 8:00",
+      "short": "Daily 8:00"
+    },
+    {
+      "expr": "30 9 * * 1",
+      "tz": null,
+      "label": "Mondays at 9:30",
+      "short": "Mon 9:30"
+    },
+    {
+      "expr": "0 21 * * 0",
+      "tz": null,
+      "label": "Sundays at 21:00",
+      "short": "Sun 21:00"
+    },
+    {
+      "expr": "0 8 * * *",
+      "tz": "Asia/Tokyo",
+      "label": "Daily at 8:00 (Tokyo)",
+      "short": "Daily 8:00 (Tokyo)"
+    },
+    {
+      "expr": "30 9 * * 1",
+      "tz": "America/Argentina/Buenos_Aires",
+      "label": "Mondays at 9:30 (Buenos Aires)",
+      "short": "Mon 9:30 (Buenos Aires)"
+    },
+    {
+      "expr": "*/5 * * * *",
+      "tz": null,
+      "label": "*/5 * * * *",
+      "short": "*/5 * * * *"
+    },
+    {
+      "expr": "0 8 * * 7",
+      "tz": null,
+      "label": "0 8 * * 7",
+      "short": "0 8 * * 7"
+    },
+    {
+      "expr": "0 8 * * 07",
+      "tz": null,
+      "label": "0 8 * * 07",
+      "short": "0 8 * * 07"
+    },
+    {
+      "expr": "0 8 * * 00",
+      "tz": null,
+      "label": "0 8 * * 00",
+      "short": "0 8 * * 00"
+    },
+    {
+      "expr": "  0 8 1 * *  ",
+      "tz": null,
+      "label": "0 8 1 * *",
+      "short": "0 8 1 * *"
+    },
+    {
+      "expr": "0 8 1 * *",
+      "tz": "Europe/Berlin",
+      "label": "0 8 1 * * (Berlin)",
+      "short": "0 8 1 * * (Berlin)"
+    }
+  ]
+}

@@ -12,10 +12,10 @@ import { nextTriggerShort, triggerShort } from '../cron'
 import { Markdown, SpecMarkdown } from '../result'
 
 // markdown-ish text ↔ SpecBlock[] ('# ', '## ', '- ', plain lines)
-function specToText(blocks: SpecBlock[]): string {
+export function specToText(blocks: SpecBlock[]): string {
   return blocks.map((b) => (b.k === 'h1' ? '# ' + b.text : b.k === 'h2' ? '## ' + b.text : b.k === 'li' ? '- ' + b.text : b.text)).join('\n')
 }
-function textToSpec(text: string): SpecBlock[] {
+export function textToSpec(text: string): SpecBlock[] {
   return text.split('\n').map((s) => s.trim()).filter(Boolean).map((s): SpecBlock =>
     s.startsWith('## ') ? { k: 'h2', text: s.slice(3) }
       : s.startsWith('# ') ? { k: 'h1', text: s.slice(2) }
@@ -27,7 +27,7 @@ function textToSpec(text: string): SpecBlock[] {
 // a "Constraints & resolutions" section — the resolution lives in the document
 // itself, so it survives later edits and syncs and versions like any spec text.
 const CONSTRAINTS_TITLE = 'Constraints & resolutions'
-function amendSpec(spec: SpecBlock[], blockers: Blocker[]): SpecBlock[] {
+export function amendSpec(spec: SpecBlock[], blockers: Blocker[]): SpecBlock[] {
   const items: SpecBlock[] = blockers.map((b) => ({ k: 'li', text: `${b.reason.trim()} — ${b.fix.trim()}` }))
   const at = spec.findIndex((b) => b.k === 'h2' && b.text.trim().toLowerCase() === CONSTRAINTS_TITLE.toLowerCase())
   if (at < 0) return [...spec, { k: 'h2', text: CONSTRAINTS_TITLE }, ...items]
@@ -41,12 +41,12 @@ const blockerLine = (b: Blocker) => `${b.reason.trim()} — ${b.fix.trim()}`
 interface SecretRef { name: string; steps: number[] }
 // A step's secrets are its declared `secrets` list unioned with the
 // `secrets.NAME` references in its code (§4.1).
-function stepSecretNames(s: Step): string[] {
+export function stepSecretNames(s: Step): string[] {
   const names = new Set<string>(s.secrets ?? [])
   for (const m of (s.code || '').matchAll(/\bsecrets\.([A-Z][A-Z0-9_]*)/g)) names.add(m[1])
   return [...names]
 }
-function secretRefsOf(steps: Step[]): SecretRef[] {
+export function secretRefsOf(steps: Step[]): SecretRef[] {
   const refs: SecretRef[] = []
   steps.forEach((s, i) => {
     for (const nm of stepSecretNames(s)) {
@@ -62,7 +62,7 @@ const stepList = (idx: number[]) => idx.map((i) => i + 1).join(', ')
 
 // §11 Build-instructions card: bare lines (no markdown block syntax, outside code fences)
 // become bullets so plain one-rule-per-line text renders as a list, not one paragraph.
-function instrToMd(text: string): string {
+export function instrToMd(text: string): string {
   let fence = false
   return text.split('\n').map((raw) => {
     const l = raw.trim()
@@ -366,7 +366,7 @@ function loadVersionInto(r: Rev, snap: { spec: SpecBlock[]; steps: Step[]; instr
 // §4.3 cron-subset replace: a sync's drafted crons take over the schedule — an
 // entry matching an existing cron on (expr, tz) keeps its id and off state,
 // and one-shot `time` and `app_start` triggers survive untouched.
-function mergeDraftTriggers(cur: DraftTrigger[], drafted: DraftTrigger[]): DraftTrigger[] {
+export function mergeDraftTriggers(cur: DraftTrigger[], drafted: DraftTrigger[]): DraftTrigger[] {
   const crons = cur.filter((t) => t.kind === 'cron')
   const used = new Set<number>()
   const next = drafted.map((d) => {

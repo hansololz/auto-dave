@@ -242,3 +242,51 @@ def test_disallowed_imports_matches_drafting_rule():
 
     assert drafting.disallowed_imports is disallowed_imports
     assert "requests" in ALLOWED_IMPORTS
+
+
+def test_sync_opencode_ollama_sidesteps_corrupt_config(monkeypatch, tmp_path):
+    # §19: corrupt (half-written) opencode.json is preserved as .corrupt and a
+    # fresh valid config written — the user's bytes are never silently replaced.
+    import json
+
+    from autowright import harness
+
+    cfg = tmp_path / "opencode.json"
+    corrupt = '{"theme": "dark", "provider": {'  # truncated mid-write
+    cfg.write_text(corrupt)
+    monkeypatch.setattr(harness, "_OPENCODE_CONFIG", str(cfg))
+    harness.sync_opencode_ollama("qwen3:8b")
+
+    assert (tmp_path / "opencode.json.corrupt").read_text() == corrupt
+    out = json.loads(cfg.read_text())  # fresh file parses
+    assert "theme" not in out  # started clean, not from the corrupt bytes
+    entry = out["provider"]["ollama"]
+    assert entry["npm"] == "@ai-sdk/openai-compatible"
+    assert "qwen3:8b" in entry["models"]
+
+
+def test_spawn_env_path_prepend_dedupe_order(monkeypatch):
+    # §19 GUI minimal PATH fix. Fallback dirs go in FRONT of the existing PATH
+    # (not appended), duplicates collapse to their first occurrence, and the
+    # surviving original entries keep their relative order.
+    from autowright import harness
+
+    monkeypatch.setattr(harness, "_FALLBACK_BIN_DIRS", ("/fb1", "/b"))
+    monkeypatch.setenv("PATH", "/a:/b:/c")
+    env = harness.spawn_env()
+    assert env["PATH"] == "/fb1:/b:/a:/c"  # /b deduped; /a before /c preserved
+    assert env["PATH"].split(":")[-2:] == ["/a", "/c"]
+
+
+def test_spawn_env_idempotent_and_binpath_dir_first(monkeypatch):
+    from autowright import harness
+
+    monkeypatch.setattr(harness, "_FALLBACK_BIN_DIRS", ("/fb1", "/b"))
+    monkeypatch.setenv("PATH", "/a:/b:/c")
+    once = harness.spawn_env()["PATH"]
+    monkeypatch.setenv("PATH", once)
+    assert harness.spawn_env()["PATH"] == once  # already-present dirs: no change
+
+    monkeypatch.setenv("PATH", "/a")
+    env = harness.spawn_env("/opt/x/claude")
+    assert env["PATH"] == "/opt/x:/fb1:/b:/a"  # binary's own dir leads

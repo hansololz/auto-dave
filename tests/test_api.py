@@ -790,3 +790,91 @@ def test_install_endpoints(client, monkeypatch):
     assert client.post("/agents/install", json={"id": "codex"}).json() == {"ok": True}
     monkeypatch.setattr(installer, "start", lambda pid, publish: False)  # already running
     assert client.post("/agents/install", json={"id": "codex"}).status_code == 409
+
+
+# ---------- appended coverage: guards, repair, WS auth, export names, delete ----------
+
+def test_result_file_traversal_rejected(client):
+    from autowright.storage import store
+
+    a = store.create_automation(make_version(), "Guarded", "mock")
+    h = store.create_execution(a, "v1", "Manual", [], status="succeeded")
+    store.update_execution(h)
+    (store.exec_dir(h["id"]) / "result" / "ok.txt").write_text("fine", encoding="utf-8")
+    outside = store.exec_dir(h["id"]) / "executions.yaml"   # real file outside result/
+    assert outside.exists()
+
+    ok = client.get(f"/executions/{h['id']}/result/ok.txt")
+    assert ok.status_code == 200 and ok.text == "fine"
+
+    # traversal shapes (encoded so the client can't pre-normalize them) → 404,
+    # and the record yaml outside the result dir is never served
+    for name in ("..%2F..%2Fsomething", "..%2Fexecutions.yaml",
+                 "%2E%2E%2Fexecutions.yaml", "..%5Cexecutions.yaml"):
+        r = client.get(f"/executions/{h['id']}/result/{name}")
+        assert r.status_code == 404, name
+        assert "automation_id" not in r.text
+
+
+def test_repair_stale_executing_flips_to_interrupted(client):
+    from autowright import api
+    from autowright.storage import store
+
+    a = store.create_automation(make_version(), "Stale", "mock")
+    steps = [{"name": "Say hello", "file": "01-say.py", "status": "executing",
+              "attempts": [{"n": 1, "status": "executing",
+                            "started_at": None, "dur_ms": None}]}]
+    h = store.create_execution(a, "v1", "Manual", steps)    # status: executing
+    assert not api.engine.is_live(h["id"])                  # no engine thread owns it
+
+    api._repair_stale_executing()                           # also runs at startup
+
+    full = store.exec_full(h["id"])
+    assert full["status"] == "interrupted"
+    assert full["note"] == "backend restarted mid-execution"
+    assert [s["status"] for s in full["steps"]] == ["interrupted"]
+    assert [at["status"] for s in full["steps"] for at in s["attempts"]] == ["interrupted"]
+    assert store.read_exec_yaml(h["id"])["status"] == "interrupted"   # persisted
+    assert a["_live"] is None and a["_last_status"] == "interrupted"
+
+
+def test_ws_rejects_missing_or_wrong_token(client):
+    from starlette.websockets import WebSocketDisconnect
+
+    for url in ("/ws", "/ws?token=wrong"):
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect(url):
+                pass
+        assert exc.value.code == 4401, url
+
+
+def test_export_filename_non_ascii(client):
+    from autowright.storage import store
+
+    a = store.create_automation(make_version(), "Café ☕ backup", "mock")
+    r = client.get(f"/automations/{a['id']}/export")
+    assert r.status_code == 200
+    cd = r.headers["content-disposition"]
+    # ASCII fallback (non-ASCII replaced) plus the RFC 5987 UTF-8 parameter
+    assert 'filename="Caf? ? backup.autowright"' in cd
+    assert "filename*=UTF-8''Caf%C3%A9%20%E2%98%95%20backup.autowright" in cd
+    cd.encode("ascii")  # the whole header must stay ASCII-clean
+
+
+def test_delete_automation_removes_test_exec_records(client):
+    from autowright.storage import store
+
+    a = store.create_automation(make_version(), "Doomed", "mock")
+    t = store.create_execution(a, "Test", "Test", [], status="succeeded", test=True)
+    real = store.create_execution(a, "v1", "Manual", [], status="succeeded")
+    store.update_execution(real)
+    tdir = store.exec_dir(t["id"])
+    assert tdir.exists()
+
+    assert client.delete(f"/automations/{a['id']}").status_code == 200
+    assert a["id"] not in store.autos
+    # the §11 test record and its on-disk directory are gone
+    assert t["id"] not in store.execs and not tdir.exists()
+    # real records stay, flagged autoDeleted
+    assert real["id"] in store.execs
+    assert client.get(f"/executions/{real['id']}").json()["autoDeleted"] is True
