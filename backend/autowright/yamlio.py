@@ -19,9 +19,10 @@ def load_yaml(path: Path, default: Any = None) -> Any:
         return default if data is None else data
     except FileNotFoundError:
         return default
-    except yaml.YAMLError as e:
-        # Disk is hand-editable (§5) — a corrupt file must never brick startup
-        # into a launchd crash loop; skip it with a warning like malformed triggers.
+    except (yaml.YAMLError, UnicodeDecodeError) as e:
+        # Disk is hand-editable (§5) — a corrupt file (bad YAML or bad encoding)
+        # must never brick startup into a launchd crash loop; skip it with a
+        # warning like malformed triggers.
         log.warning("unreadable YAML at %s (%s) — using the default", path, e)
         return default
 

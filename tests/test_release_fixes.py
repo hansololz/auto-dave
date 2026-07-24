@@ -30,13 +30,14 @@ def _write_memory(store, a, content="items: [1]\n"):
 
 
 def test_restore_survives_unnamed_prune(store):
-    """Restoring the oldest of 6+ unnamed snapshots must not prune the restore
-    source mid-restore (it used to rmtree the target, then crash after wiping
-    live memory)."""
+    """Restoring the oldest of 5 unnamed snapshots must not prune the restore
+    source mid-restore: the pre-restore snapshot taken inside restore is the
+    6th unnamed, so the §6.3 prune targets exactly the snapshot being restored
+    (it used to rmtree the target, then crash after wiping live memory)."""
     a = store.create_automation(make_version(), "Pruney", None)
     _write_memory(store, a, "items: [0]\n")
     oldest = store.snapshot_memory(a, "manual")  # unnamed
-    for i in range(1, 6):
+    for i in range(1, 5):
         _write_memory(store, a, f"items: [{i}]\n")
         store.snapshot_memory(a, "manual")
     _write_memory(store, a, "items: [99]\n")

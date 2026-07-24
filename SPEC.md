@@ -86,7 +86,9 @@ the packaged app does not yet register its bundled backend itself.
   The backend binds its socket first and only then publishes `backend.json` (uvicorn serves on
   the already-bound socket) — the file never points clients (token included) at a port the
   backend doesn't own. A stale/truncated `backend.json` (SIGKILL leftovers) makes the CLI and
-  `service status` report it as such — never crash.
+  `service status` report it as such — never crash. The same rule covers a well-formed
+  `backend.json` whose backend is gone: a CLI request that can't connect (connection refused,
+  timeout) exits with the same restart guidance, never a traceback.
   Every backend start binds a fresh port and token, so the renderer re-reads `backend.json`
   (via the preload bridge) before each WebSocket reconnect attempt — a backend restart never
   strands the UI on a dead address.
@@ -702,7 +704,9 @@ redacted names — plus `result/` and log files) is read only when an execution 
 live execution's in-memory record is the engine's own full record, so it needs no disk read.
 The in-memory table is rebuilt from the DB at every launch. An automation folder whose
 `versions/` is empty cannot resolve a current version and is skipped at startup with a
-warning in the app log.
+warning in the app log. Every top-level YAML file is hand-editable, so an unreadable one —
+invalid YAML or invalid text encoding alike — loads as its default with a warning in the app
+log; a damaged file never bricks startup into a launchd crash loop.
 
 Rules:
 
@@ -1002,7 +1006,9 @@ card. Memory is the app's only mutable state with no version history; snapshots 
 destructive moments recoverable.
 
 - **Layout** — `memory-snapshots/<uuid4>/` beside `memory/` (§5 tree): `snapshot.yaml`
-  (`id` = the dir name, `name` = user label | null, `reason`, `created_at` ISO-8601 local,
+  (`id` = the dir name, `name` = user label | null, `reason`, `created_at` ISO-8601 local at
+  microsecond resolution — snapshots can be taken within the same second, and "newest first"
+  (and therefore which unnamed snapshots the prune keeps) must stay deterministic,
   `version` = "vN" label, `size` = total bytes, `files` = file count) plus `memory/`, the
   recursive copy. Each snapshot is self-describing; there is deliberately no index file. The
   list is read from disk on demand, newest `created_at` first — nothing cached, per the §5

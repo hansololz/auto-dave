@@ -155,3 +155,26 @@ def test_follow_exec_dedupes_seqs_and_settles_terminal_attempts(monkeypatch, cap
     assert out.count("  T1 [log] alpha") == 1  # overlapping seqs printed once
     # terminal attempt settled after its first fetch — never re-downloaded
     assert c.step_log_fetches == 1
+
+
+def test_client_exits_cleanly_when_backend_port_is_dead(home):
+    """§3: a well-formed backend.json pointing at a dead backend (SIGKILL
+    leftovers) exits with restart guidance at request time — never a traceback."""
+    import socket
+
+    from autowright import cli, paths
+
+    # A port that was just bound and released: connection refused, instantly.
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    paths.backend_json().write_text(json.dumps({"port": port, "token": "tok"}))
+    c = cli.Client()
+    with pytest.raises(SystemExit) as ei:
+        c.req("GET", "/automations")
+    assert "backend isn't reachable" in str(ei.value.code)
+    assert "service restart" in str(ei.value.code)
+    with pytest.raises(SystemExit) as ei:
+        c.req_raw("GET", "/automations/x/export")
+    assert "backend isn't reachable" in str(ei.value.code)

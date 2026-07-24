@@ -39,6 +39,11 @@ class Client:
         except urllib.error.HTTPError as e:
             detail = e.read().decode()[:300]
             sys.exit(f"{e.code}: {detail}")
+        except (urllib.error.URLError, TimeoutError) as e:
+            # §3: backend.json can be well-formed yet point at a dead backend
+            # (SIGKILL leftovers) — same clean guidance as a stale file, no traceback.
+            sys.exit(f"backend isn't reachable at {self.base} ({e}) — restart it with "
+                     "`autowright service restart` or `autowright-backend`")
 
     def req_raw(self, method: str, path: str, data: bytes | None = None) -> bytes:
         """Binary request — §5.1 archives go over the wire as raw bytes."""
@@ -54,6 +59,9 @@ class Client:
         except urllib.error.HTTPError as e:
             detail = e.read().decode()[:300]
             sys.exit(f"{e.code}: {detail}")
+        except (urllib.error.URLError, TimeoutError) as e:
+            sys.exit(f"backend isn't reachable at {self.base} ({e}) — restart it with "
+                     "`autowright service restart` or `autowright-backend`")
 
 
 def find_auto(c: Client, ref: str) -> dict:

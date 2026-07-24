@@ -883,7 +883,10 @@ class Store:
             sid = new_id()
             shutil.copytree(mem, root / sid / "memory")
             meta = {"id": sid, "name": name or None, "reason": reason,
-                    "created_at": datetime.now().isoformat(timespec="seconds"),
+                    # Full microsecond resolution: same-second snapshots must
+                    # still order deterministically — the unnamed-prune keeps
+                    # "the newest 5", which is meaningless under timestamp ties.
+                    "created_at": datetime.now().isoformat(),
                     "version": version or f"v{a['current_version']}",
                     "size": size, "files": files}
             save_yaml(root / sid / "snapshot.yaml", meta)

@@ -478,3 +478,19 @@ def test_retention_skips_executing_missing_and_corrupt_rows(store, caplog):
     for h in (h_exec, h_missing, h_corrupt):                        # all skipped, sweep not aborted
         assert h["id"] in store.execs
     assert any("unparsable started_at" in rec.message for rec in caplog.records)
+
+
+def test_binary_corrupt_yaml_falls_back_like_bad_yaml(home, caplog):
+    """§5: an invalid text encoding is as hand-editable-corrupt as bad YAML —
+    defaults plus a warning, never a startup crash."""
+    import logging
+
+    from autowright import paths
+    from autowright.storage import DEFAULT_SETTINGS, Store
+
+    paths.settings_file().write_bytes(b"\xff\xfe\x00garbage\x80")
+    with caplog.at_level(logging.WARNING, logger="autowright.yamlio"):
+        s = Store()
+        s.load_all()
+    assert s.settings == dict(DEFAULT_SETTINGS)
+    assert any("unreadable YAML" in rec.message for rec in caplog.records)
