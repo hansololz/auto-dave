@@ -2378,11 +2378,27 @@ do not reintroduce: `AUTOWRIGHT_MOCK_AGENT`, `AUTOWRIGHT_KEYRING`, `AUTOWRIGHT_N
 `ad-sudo-denied`, `?port=&token=` (the renderer dev server returned as `AUTOWRIGHT_RENDERER_URL`,
 above — `VITE_DEV`/`npm run dev:app` themselves stay gone).
 
-**Test suite layout.** Backend unit/integration tests are pytest under `tests/` (run
+**Test suite layout.** Backend unit tests are pytest under `tests/` (run
 `python -m pytest tests/` from the repo root). Renderer unit tests are Vitest under
 `app/tests/` (run `npm test` in `app/`) — they cover pure logic only (cron math, label
 formatting, store reducers, spec/text round-trips); component rendering is exercised by the
-playwright-driven Electron path, never by DOM unit tests. Two implementations of the same
+playwright-driven Electron path, never by DOM unit tests.
+
+**Integration tests** live under `tests/integration/`, marked `integration` and excluded from
+the default run (`pytest.ini` at the repo root; run them with `python -m pytest -m
+integration`). They boot the real backend (`python -m autowright.main`) as a subprocess and
+exercise it over real HTTP/WebSocket connections and via the real CLI as a second subprocess —
+the §3 bind-before-publish handshake, the execution lifecycle, crash recovery
+(SIGKILL → restart → stale-executing repair), and live scheduler firing. Isolation is
+per-test: a fresh `AUTOWRIGHT_HOME` tmp dir (the app's entire write surface), a random
+localhost port per backend, and localhost-only test doubles in the spirit of the fake `claude`
+CLI — a local HTTP server standing in for the web (`fetch_page` pages + robots.txt) and a
+local wheel directory standing in for PyPI (pip's `PIP_NO_INDEX`/`PIP_FIND_LINKS`, so
+`packages.ensure` runs a real pip install into the home's `site-packages/`). Nothing outside
+the tmp home is written and no packet leaves localhost. Deliberately excluded (machine-mutating,
+covered at their unit seams): Keychain values, launchd, harness/Ollama installers, real agent
+CLIs. The backend subprocess runs real `notify.post`, so a failed-execution test may show one
+real macOS notification — accepted, per the no-dev-only-branches rule. Two implementations of the same
 behavior are locked together by a shared golden fixture, `tests/fixtures/cron_parity.json`:
 a list of `{expr, after, tz?, next, label, short}` cases executed verbatim by both
 `test_schedule.py` and the Vitest cron suite, so the Python and TypeScript cron
